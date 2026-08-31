@@ -55,7 +55,7 @@ pub async fn schedule(
     let task = TaskRepo::new(state.db.clone())
         .create(
             &body.command,
-            "schedule",
+            "exec",
             json!({
                 "agent_id": body.agent_id.clone(),
                 "command": body.command.clone(),
