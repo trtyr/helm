@@ -1,0 +1,132 @@
+syntax = "proto3";
+
+package helm.agent.v1;
+
+import "helm/agent/v1/types.proto";
+
+// AgentService 是 Agent 与 Server 之间的控制信道。
+// 反向模式：Agent 作为 client 拨号 Server，调用 OpenChannel 建立双向流。
+// 正向模式：Agent 作为 server 监听，Server 作为 client 调用 OpenChannel。
+service AgentService {
+  // 建立双向流，承载注册/心跳/状态/命令/文件全部信令。
+  rpc OpenChannel(stream AgentMessage) returns (stream ServerMessage);
+}
+
+// 正向模式：Agent 作为 server 监听，Server 作为 client 拨号调用。
+service ForwardAgentService {
+  rpc OpenForwardChannel(stream ServerMessage) returns (stream AgentMessage);
+}
+
+// Agent → Server 的消息
+message AgentMessage {
+  oneof kind {
+    Register register = 1;
+    Heartbeat heartbeat = 2;
+    MetricReport metric_report = 3;
+    ExecResult exec_result = 4;
+    FileChunk file_chunk = 5;
+    FileStatus file_status = 6;
+  }
+}
+
+// Server → Agent 的消息
+message ServerMessage {
+  oneof kind {
+    RegisterAck register_ack = 1;
+    ExecRequest exec_request = 2;
+    FileRequest file_request = 3;
+    MetricRequest metric_request = 4;
+    FileChunk file_chunk = 5;  // upload 方向：Server 下发文件数据
+  }
+}
+
+// 注册：Agent 连上后首条消息
+message Register {
+  string agent_id = 1;
+  string token = 2;
+  HostInfo host = 3;
+  string version = 4;
+}
+
+message RegisterAck {
+  bool ok = 1;
+  string message = 2;
+  uint32 heartbeat_interval_secs = 3;
+}
+
+// 心跳
+message Heartbeat {
+  uint64 timestamp_unix_ms = 1;
+}
+
+// 命令执行
+message ExecRequest {
+  string job_id = 1;
+  string command = 2;
+  repeated string args = 3;
+  optional uint32 timeout_secs = 4;
+  optional string working_dir = 5;
+}
+
+message ExecResult {
+  string job_id = 1;
+  StreamChunk chunk = 2;       // stdout/stderr 分块
+  optional int32 exit_code = 3; // 结束时的退出码
+  optional string error = 4;    // 执行失败信息
+  bool finished = 5;            // 是否为最后一条
+}
+
+// 指标采集
+message MetricReport {
+  repeated MetricPoint metrics = 1;
+}
+
+message MetricRequest {
+  // 空消息，触发一次采集
+}
+
+// 文件传输
+message FileRequest {
+  enum Direction {
+    DIRECTION_UNSPECIFIED = 0;
+    DIRECTION_UPLOAD = 1;    // Server → Agent（下发到目标机）
+    DIRECTION_DOWNLOAD = 2;  // Agent → Server（从目标机取回）
+  }
+  string transfer_id = 1;
+  Direction direction = 2;
+  string path = 3;
+  uint64 size = 4;
+  uint32 chunk_size = 5;
+}
+
+message FileChunk {
+  string transfer_id = 1;
+  uint64 offset = 2;
+  bytes data = 3;
+}
+
+message FileStatus {
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    STATE_PENDING = 1;
+    STATE_TRANSFERRING = 2;
+    STATE_DONE = 3;
+    STATE_FAILED = 4;
+  }
+  string transfer_id = 1;
+  State state = 2;
+  uint64 bytes_transferred = 3;
+  string error = 4;
+  string checksum = 5;
+}
+
+// 流式输出分块
+message StreamChunk {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_STDOUT = 1;
+    KIND_STDERR = 2;
+  }
+  Kind kind = 1;
+  bytes data = 2;
+}

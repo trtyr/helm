@@ -1,0 +1,27 @@
+[package]
+name = "helm-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "helm-agent"
+path = "src/main.rs"
+
+[dependencies]
+helm-proto = { path = "../proto" }
+tokio.workspace = true
+tonic.workspace = true
+tonic-prost.workspace = true
+prost.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+tokio-stream.workspace = true
+hostname.workspace = true
+sysinfo.workspace = true
+sha2.workspace = true
+hex.workspace = true

@@ -1,0 +1,8 @@
+-- 回滚 0001_init：按外键依赖反向删除。
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS metrics;
+DROP TABLE IF EXISTS file_transfers;
+DROP TABLE IF EXISTS jobs;
+DROP TABLE IF EXISTS tasks;
+DROP TABLE IF EXISTS agents;
+DROP TABLE IF EXISTS hosts;

@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package helm.agent.v1;
+
+// 目标主机信息
+message HostInfo {
+  string hostname = 1;
+  string os = 2;        // linux / windows / darwin
+  string arch = 3;      // x86_64 / aarch64
+  string platform = 4;  // 完整平台字符串
+  repeated string tags = 5;
+}
+
+// 单个指标点
+message MetricPoint {
+  string name = 1;  // 如 cpu.usage / mem.used / disk.free
+  double value = 2;
+  map<string, string> labels = 3;
+  uint64 timestamp_unix_ms = 4;
+}

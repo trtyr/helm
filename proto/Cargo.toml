@@ -1,0 +1,18 @@
+[package]
+name = "helm-proto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "helm_proto"
+path = "src/lib.rs"
+
+[dependencies]
+prost.workspace = true
+tonic.workspace = true
+tonic-prost.workspace = true
+http.workspace = true
+
+[build-dependencies]
+tonic-prost-build.workspace = true
