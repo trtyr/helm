@@ -1,10 +1,10 @@
 //! 文件传输端点。
 
 use crate::application::file_service::FileService;
+use crate::domain::Error;
 use crate::http::AppState;
 use axum::Json;
 use axum::extract::State;
-use axum::http::StatusCode;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -26,40 +26,28 @@ pub struct DownloadBody {
 pub async fn upload(
     State(state): State<AppState>,
     Json(body): Json<UploadBody>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, Error> {
     let service = FileService::new(state.db, state.registry, state.transfers);
-    match service
+    let (transfer_id, checksum_ok) = service
         .upload(&body.agent_id, &body.local_path, &body.remote_path)
-        .await
-    {
-        Ok((transfer_id, checksum_ok)) => Ok(Json(json!({
-            "transfer_id": transfer_id,
-            "checksum_ok": checksum_ok,
-        }))),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": e.to_string() })),
-        )),
-    }
+        .await?;
+    Ok(Json(json!({
+        "transfer_id": transfer_id,
+        "checksum_ok": checksum_ok,
+    })))
 }
 
 /// 取回文件：POST /api/v1/files/download
 pub async fn download(
     State(state): State<AppState>,
     Json(body): Json<DownloadBody>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, Error> {
     let service = FileService::new(state.db, state.registry, state.transfers);
-    match service
+    let (transfer_id, checksum_ok) = service
         .download(&body.agent_id, &body.remote_path, &body.local_path)
-        .await
-    {
-        Ok((transfer_id, checksum_ok)) => Ok(Json(json!({
-            "transfer_id": transfer_id,
-            "checksum_ok": checksum_ok,
-        }))),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": e.to_string() })),
-        )),
-    }
+        .await?;
+    Ok(Json(json!({
+        "transfer_id": transfer_id,
+        "checksum_ok": checksum_ok,
+    })))
 }

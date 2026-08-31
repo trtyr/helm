@@ -1,10 +1,10 @@
 //! 指标查询端点。
 
+use crate::domain::Error;
 use crate::http::AppState;
 use crate::store::metric_repo::MetricRepo;
 use axum::Json;
 use axum::extract::{Query, State};
-use axum::http::StatusCode;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -24,17 +24,7 @@ fn default_limit() -> i64 {
 pub async fn list_metrics(
     State(state): State<AppState>,
     Query(q): Query<MetricsQuery>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let metrics = MetricRepo::new(state.db)
-        .recent(q.host_id, q.limit)
-        .await
-        .map_err(|e| internal(e.to_string()))?;
+) -> Result<Json<Value>, Error> {
+    let metrics = MetricRepo::new(state.db).recent(q.host_id, q.limit).await?;
     Ok(Json(json!({ "metrics": metrics })))
-}
-
-fn internal(msg: String) -> (StatusCode, Json<Value>) {
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(json!({ "error": msg })),
-    )
 }

@@ -1,6 +1,7 @@
 //! 认证：登录端点 + JWT 校验中间件。
 
 use crate::application::auth_service::{AuthService, Claims};
+use crate::domain::Error;
 use crate::http::AppState;
 use axum::Json;
 use axum::extract::{Request, State};
@@ -20,18 +21,11 @@ pub struct LoginBody {
 pub async fn login(
     State(state): State<AppState>,
     Json(body): Json<LoginBody>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, Error> {
     let auth = AuthService::new(state.db, state.jwt_secret);
-    match auth.login(&body.username, &body.password).await {
-        Ok(Some(token)) => Ok(Json(json!({ "token": token }))),
-        Ok(None) => Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "invalid credentials" })),
-        )),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
-        )),
+    match auth.login(&body.username, &body.password).await? {
+        Some(token) => Ok(Json(json!({ "token": token }))),
+        None => Err(Error::Unauthorized("invalid credentials".into())),
     }
 }
 

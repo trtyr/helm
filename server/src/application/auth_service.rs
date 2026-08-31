@@ -1,7 +1,7 @@
 //! 应用层：认证（登录、JWT 签发与校验、seed 管理员）。
 
+use crate::domain::{Error, Result};
 use crate::store::{Db, user_repo::UserRepo};
-use anyhow::Result;
 use jsonwebtoken::{EncodingKey, Header, decode, encode};
 use serde::{Deserialize, Serialize};
 
@@ -53,7 +53,8 @@ impl AuthService {
     pub async fn seed_admin(&self) -> Result<()> {
         let repo = UserRepo::new(self.db.clone());
         if repo.count().await? == 0 {
-            let hash = bcrypt::hash("admin123", bcrypt::DEFAULT_COST)?;
+            let hash = bcrypt::hash("admin123", bcrypt::DEFAULT_COST)
+                .map_err(|e| Error::Internal(format!("bcrypt: {e}")))?;
             repo.create("admin", &hash, "admin").await?;
             tracing::info!("seeded default admin user 'admin'");
         }
@@ -77,7 +78,8 @@ pub fn issue_jwt(secret: &str, username: &str, role: &str, ttl_secs: usize) -> R
         &Header::default(),
         &claims,
         &EncodingKey::from_secret(secret.as_bytes()),
-    )?;
+    )
+    .map_err(|e| Error::Internal(format!("jwt encode: {e}")))?;
     Ok(token)
 }
 
@@ -87,7 +89,8 @@ pub fn verify_jwt(secret: &str, token: &str) -> Result<Claims> {
         token,
         &jsonwebtoken::DecodingKey::from_secret(secret.as_bytes()),
         &jsonwebtoken::Validation::default(),
-    )?;
+    )
+    .map_err(|_| Error::Unauthorized("invalid token".into()))?;
     Ok(data.claims)
 }
 

@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod error;
 pub mod exec;
 pub mod files;
 pub mod forward;

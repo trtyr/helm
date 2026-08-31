@@ -1,9 +1,9 @@
 //! 应用层：文件传输编排（upload / download + 校验和 + 落库）。
 
+use crate::domain::{Error, Result};
 use crate::grpc::connection_registry::ConnectionRegistry;
 use crate::grpc::transfer_registry::TransferRegistry;
 use crate::store::{Db, agent_repo::AgentRepo, file_transfer_repo::FileTransferRepo};
-use anyhow::{Result, anyhow};
 use helm_proto::pb::{FileChunk, FileRequest, ServerMessage, file_request, server_message};
 use sha2::{Digest, Sha256};
 use tokio::sync::oneshot;
@@ -42,7 +42,7 @@ impl FileService {
         let host_id = AgentRepo::new(self.db.clone())
             .get_host_id(agent_id)
             .await?
-            .ok_or_else(|| anyhow!("unknown agent: {agent_id}"))?;
+            .ok_or_else(|| Error::NotFound(format!("agent: {agent_id}")))?;
         let ft = FileTransferRepo::new(self.db.clone())
             .create(host_id, "upload", remote_path, data.len() as i64)
             .await?;
@@ -56,7 +56,10 @@ impl FileService {
                 chunk_size: CHUNK_SIZE as u32,
             })),
         };
-        self.registry.send(agent_id, req).await?;
+        self.registry
+            .send(agent_id, req)
+            .await
+            .map_err(|e| Error::NotConnected(e.to_string()))?;
 
         let (tx, rx) = oneshot::channel();
         self.transfers.register_upload(&transfer_id, tx).await;
@@ -70,11 +73,16 @@ impl FileService {
                     data: piece.to_vec(),
                 })),
             };
-            self.registry.send(agent_id, msg).await?;
+            self.registry
+                .send(agent_id, msg)
+                .await
+                .map_err(|e| Error::NotConnected(e.to_string()))?;
             offset += piece.len() as u64;
         }
 
-        let status = rx.await?;
+        let status = rx
+            .await
+            .map_err(|_| Error::Internal("transfer channel closed".into()))?;
         let ok = status.checksum == expected;
         FileTransferRepo::new(self.db.clone())
             .finish(ft.id, "done", data.len() as i64, &status.checksum)
@@ -95,7 +103,7 @@ impl FileService {
         let host_id = AgentRepo::new(self.db.clone())
             .get_host_id(agent_id)
             .await?
-            .ok_or_else(|| anyhow!("unknown agent: {agent_id}"))?;
+            .ok_or_else(|| Error::NotFound(format!("agent: {agent_id}")))?;
         let ft = FileTransferRepo::new(self.db.clone())
             .create(host_id, "download", remote_path, 0)
             .await?;
@@ -109,12 +117,17 @@ impl FileService {
                 chunk_size: CHUNK_SIZE as u32,
             })),
         };
-        self.registry.send(agent_id, req).await?;
+        self.registry
+            .send(agent_id, req)
+            .await
+            .map_err(|e| Error::NotConnected(e.to_string()))?;
 
         let (tx, rx) = oneshot::channel();
         self.transfers.register_download(&transfer_id, tx).await;
 
-        let result = rx.await?;
+        let result = rx
+            .await
+            .map_err(|_| Error::Internal("transfer channel closed".into()))?;
         let local_checksum = hex::encode(Sha256::digest(&result.data));
         let ok = result.status.checksum == local_checksum;
         tokio::fs::write(local_path, &result.data).await?;

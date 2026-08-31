@@ -1,8 +1,8 @@
 //! 应用层：命令执行编排。
 
+use crate::domain::{Error, Result};
 use crate::grpc::connection_registry::ConnectionRegistry;
 use crate::store::{Db, agent_repo::AgentRepo, job_repo::JobRepo};
-use anyhow::anyhow;
 use helm_proto::pb::{ExecRequest, ServerMessage, server_message};
 use uuid::Uuid;
 
@@ -19,16 +19,11 @@ impl ExecService {
     }
 
     /// 向指定 Agent 下发命令，返回 job_id。
-    pub async fn exec(
-        &self,
-        agent_id: &str,
-        command: &str,
-        args: &[String],
-    ) -> anyhow::Result<Uuid> {
+    pub async fn exec(&self, agent_id: &str, command: &str, args: &[String]) -> Result<Uuid> {
         let host_id = AgentRepo::new(self.db.clone())
             .get_host_id(agent_id)
             .await?
-            .ok_or_else(|| anyhow!("unknown agent: {agent_id}"))?;
+            .ok_or_else(|| Error::NotFound(format!("agent: {agent_id}")))?;
 
         let job = JobRepo::new(self.db.clone())
             .create(host_id, command, args)
@@ -44,7 +39,10 @@ impl ExecService {
             })),
         };
 
-        self.registry.send(agent_id, req).await?;
+        self.registry
+            .send(agent_id, req)
+            .await
+            .map_err(|e| Error::NotConnected(e.to_string()))?;
         JobRepo::new(self.db.clone())
             .set_status(job.id, "running")
             .await?;

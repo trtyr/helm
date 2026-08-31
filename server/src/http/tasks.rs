@@ -2,11 +2,11 @@
 
 use crate::application::exec_service::ExecService;
 use crate::application::scheduler;
+use crate::domain::Error;
 use crate::http::AppState;
 use crate::store::task_repo::TaskRepo;
 use axum::Json;
 use axum::extract::State;
-use axum::http::StatusCode;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -33,25 +33,19 @@ pub struct ScheduleBody {
 pub async fn run_script(
     State(state): State<AppState>,
     Json(body): Json<ScriptBody>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, Error> {
     let service = ExecService::new(state.db, state.registry);
-    match service
+    let job_id = service
         .exec(&body.agent_id, &body.command, &body.args)
-        .await
-    {
-        Ok(job_id) => Ok(Json(json!({ "job_id": job_id }))),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": e.to_string() })),
-        )),
-    }
+        .await?;
+    Ok(Json(json!({ "job_id": job_id })))
 }
 
 /// 定时任务：POST /api/v1/tasks/schedule
 pub async fn schedule(
     State(state): State<AppState>,
     Json(body): Json<ScheduleBody>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, Error> {
     let task = TaskRepo::new(state.db.clone())
         .create(
             &body.command,
@@ -63,13 +57,7 @@ pub async fn schedule(
                 "interval_secs": body.interval_secs,
             }),
         )
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-        })?;
+        .await?;
 
     let exec = ExecService::new(state.db, state.registry);
     scheduler::schedule(
