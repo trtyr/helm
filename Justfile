@@ -25,6 +25,10 @@ check: fmt-check lint test
 buf-lint:
     buf lint
 
+# buf 契约 breaking 检查（对比上一 commit 的 proto）
+buf-breaking:
+    buf breaking --against '.git#ref=HEAD~1'
+
 # 启动 Postgres
 db-up:
     docker compose up -d postgres

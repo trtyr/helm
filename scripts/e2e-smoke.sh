@@ -31,7 +31,7 @@ sleep 3
 
 echo "==> 启动 Agent"
 ./target/debug/helm-agent --agent-id "$AGENT_ID" \
-    --server-addr "http://$GRPC_ADDR" --token dev-token \
+    --server-addr "http://$GRPC_ADDR" --token dev-token-change-me \
     >/tmp/helm-smoke-agent.log 2>&1 &
 sleep 3
 

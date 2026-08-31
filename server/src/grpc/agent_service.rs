@@ -40,9 +40,9 @@ impl AgentServiceImpl {
         }
     }
 
-    /// 校验注册 token；空 server_token 表示 dev 模式放行。
+    /// 校验注册 token；严格匹配，不匹配即拒绝。
     fn verify_token(&self, token: &str) -> bool {
-        self.server_token.is_empty() || token == self.server_token
+        token_matches(&self.server_token, token)
     }
 }
 
@@ -127,13 +127,24 @@ impl AgentService for AgentServiceImpl {
         let agent_id_inner = agent_id.clone();
         tokio::spawn(async move {
             let job_repo = JobRepo::new(db.clone());
-            let metric_repo = MetricRepo::new(db);
+            let metric_repo = MetricRepo::new(db.clone());
+            let agent_repo = AgentRepo::new(db);
             let mut outputs: HashMap<String, String> = HashMap::new();
 
             loop {
                 match inbound.message().await {
                     Ok(Some(msg)) => match msg.kind {
                         Some(agent_message::Kind::Heartbeat(h)) => {
+                            if let Err(e) = agent_repo
+                                .update_heartbeat(&agent_id_inner, h.timestamp_unix_ms)
+                                .await
+                            {
+                                tracing::warn!(
+                                    agent_id = %agent_id_inner,
+                                    error = %e,
+                                    "failed to update heartbeat"
+                                );
+                            }
                             tracing::debug!(
                                 agent_id = %agent_id_inner,
                                 ts_ms = h.timestamp_unix_ms,
@@ -226,5 +237,24 @@ impl AgentService for AgentServiceImpl {
 
         let outbound = ReceiverStream::new(rx).map(Ok);
         Ok(Response::new(Box::pin(outbound)))
+    }
+}
+
+/// 校验注册 token：严格匹配，且 server_token 为空时拒绝所有（纯函数，便于测试）。
+pub fn token_matches(server_token: &str, provided: &str) -> bool {
+    !server_token.is_empty() && provided == server_token
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_matches_strict() {
+        assert!(token_matches("secret", "secret"));
+        assert!(!token_matches("secret", "wrong"));
+        assert!(!token_matches("secret", ""));
+        // 空 server_token 也拒绝（默认值非空，严格匹配）
+        assert!(!token_matches("", ""));
     }
 }

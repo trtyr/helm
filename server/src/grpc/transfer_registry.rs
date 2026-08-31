@@ -71,3 +71,42 @@ impl TransferRegistry {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::oneshot;
+
+    fn status(checksum: &str) -> FileStatus {
+        FileStatus {
+            transfer_id: String::new(),
+            state: 3, // Done
+            bytes_transferred: 0,
+            error: String::new(),
+            checksum: checksum.to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn upload_complete() {
+        let reg = TransferRegistry::new();
+        let (tx, rx) = oneshot::channel();
+        reg.register_upload("t1", tx).await;
+        reg.complete("t1", status("abc")).await;
+        let got = rx.await.unwrap();
+        assert_eq!(got.checksum, "abc");
+    }
+
+    #[tokio::test]
+    async fn download_accumulate_and_complete() {
+        let reg = TransferRegistry::new();
+        let (tx, rx) = oneshot::channel();
+        reg.register_download("t2", tx).await;
+        reg.accumulate_chunk("t2", b"hello").await;
+        reg.accumulate_chunk("t2", b" world").await;
+        reg.complete("t2", status("xyz")).await;
+        let got = rx.await.unwrap();
+        assert_eq!(got.data, b"hello world");
+        assert_eq!(got.status.checksum, "xyz");
+    }
+}

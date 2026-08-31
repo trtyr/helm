@@ -20,8 +20,8 @@ pub struct Config {
     )]
     pub database_url: String,
 
-    /// Server 端 Agent 认证 token（空 = dev 模式放行）
-    #[arg(long, env = "HELM_SERVER_TOKEN", default_value = "")]
+    /// Server 端 Agent 认证 token（生产必须配置强随机值）
+    #[arg(long, env = "HELM_SERVER_TOKEN", default_value = "dev-token-change-me")]
     pub server_token: String,
 
     /// JWT 签名密钥（生产必须配置强随机值）

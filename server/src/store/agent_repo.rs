@@ -86,4 +86,16 @@ impl AgentRepo {
             .fetch_optional(self.db.pool())
             .await
     }
+
+    /// 更新心跳时间。
+    pub async fn update_heartbeat(&self, agent_id: &str, ts_ms: u64) -> sqlx::Result<()> {
+        let ts = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ts_ms as i64)
+            .unwrap_or_else(chrono::Utc::now);
+        sqlx::query("UPDATE agents SET last_heartbeat_at = $2 WHERE id = $1")
+            .bind(agent_id)
+            .bind(ts)
+            .execute(self.db.pool())
+            .await?;
+        Ok(())
+    }
 }

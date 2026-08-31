@@ -46,12 +46,7 @@ impl AuthService {
 
     /// 校验 JWT，返回 claims。
     pub fn verify(&self, token: &str) -> Result<Claims> {
-        let data = decode::<Claims>(
-            token,
-            &jsonwebtoken::DecodingKey::from_secret(self.jwt_secret.as_bytes()),
-            &jsonwebtoken::Validation::default(),
-        )?;
-        Ok(data.claims)
+        verify_jwt(&self.jwt_secret, token)
     }
 
     /// 若 users 表为空，seed 默认管理员 admin / admin123。
@@ -66,17 +61,51 @@ impl AuthService {
     }
 
     fn issue_token(&self, username: &str, role: &str) -> Result<String> {
-        let exp = chrono::Utc::now().timestamp() as usize + 24 * 3600;
-        let claims = Claims {
-            sub: username.to_string(),
-            role: role.to_string(),
-            exp,
-        };
-        let token = encode(
-            &Header::default(),
-            &claims,
-            &EncodingKey::from_secret(self.jwt_secret.as_bytes()),
-        )?;
-        Ok(token)
+        issue_jwt(&self.jwt_secret, username, role, 24 * 3600)
+    }
+}
+
+/// 签发 JWT（纯函数，便于测试）。
+pub fn issue_jwt(secret: &str, username: &str, role: &str, ttl_secs: usize) -> Result<String> {
+    let exp = chrono::Utc::now().timestamp() as usize + ttl_secs;
+    let claims = Claims {
+        sub: username.to_string(),
+        role: role.to_string(),
+        exp,
+    };
+    let token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(secret.as_bytes()),
+    )?;
+    Ok(token)
+}
+
+/// 校验 JWT（纯函数）。
+pub fn verify_jwt(secret: &str, token: &str) -> Result<Claims> {
+    let data = decode::<Claims>(
+        token,
+        &jsonwebtoken::DecodingKey::from_secret(secret.as_bytes()),
+        &jsonwebtoken::Validation::default(),
+    )?;
+    Ok(data.claims)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jwt_roundtrip() {
+        let token = issue_jwt("secret-key", "alice", "admin", 3600).unwrap();
+        let claims = verify_jwt("secret-key", &token).unwrap();
+        assert_eq!(claims.sub, "alice");
+        assert_eq!(claims.role, "admin");
+    }
+
+    #[test]
+    fn jwt_wrong_secret_rejected() {
+        let token = issue_jwt("secret-a", "alice", "admin", 3600).unwrap();
+        assert!(verify_jwt("secret-b", &token).is_err());
     }
 }

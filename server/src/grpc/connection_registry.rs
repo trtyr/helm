@@ -60,3 +60,32 @@ impl ConnectionRegistry {
         self.inner.lock().await.len()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::mpsc;
+
+    #[tokio::test]
+    async fn register_send_unregister() {
+        let reg = ConnectionRegistry::new();
+        let (tx, mut rx) = mpsc::channel(4);
+        reg.register("a1", tx).await;
+        assert!(reg.is_online("a1").await);
+        assert_eq!(reg.online_count().await, 1);
+
+        let msg = ServerMessage { kind: None };
+        reg.send("a1", msg.clone()).await.unwrap();
+        assert!(rx.recv().await.is_some());
+
+        // 未连接 agent 发送失败
+        assert!(matches!(
+            reg.send("nope", msg).await,
+            Err(SendError::NotConnected(_))
+        ));
+
+        reg.unregister("a1").await;
+        assert!(!reg.is_online("a1").await);
+        assert_eq!(reg.online_count().await, 0);
+    }
+}

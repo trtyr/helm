@@ -3,9 +3,11 @@
 //! 所有数据库访问经 [`Db`] 聚合根；仓储按实体拆分。
 
 pub mod agent_repo;
+pub mod file_transfer_repo;
 pub mod host_repo;
 pub mod job_repo;
 pub mod metric_repo;
+pub mod task_repo;
 pub mod user_repo;
 
 use sqlx::PgPool;

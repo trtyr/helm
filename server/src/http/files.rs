@@ -27,7 +27,7 @@ pub async fn upload(
     State(state): State<AppState>,
     Json(body): Json<UploadBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let service = FileService::new(state.registry, state.transfers);
+    let service = FileService::new(state.db, state.registry, state.transfers);
     match service
         .upload(&body.agent_id, &body.local_path, &body.remote_path)
         .await
@@ -48,7 +48,7 @@ pub async fn download(
     State(state): State<AppState>,
     Json(body): Json<DownloadBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let service = FileService::new(state.registry, state.transfers);
+    let service = FileService::new(state.db, state.registry, state.transfers);
     match service
         .download(&body.agent_id, &body.remote_path, &body.local_path)
         .await

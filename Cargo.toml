@@ -23,7 +23,7 @@ http = "1"
 axum = "0.8"
 
 # storage
-sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "chrono", "uuid"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "chrono", "uuid", "json"] }
 
 # observability
 tracing = "0.1"
