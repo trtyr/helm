@@ -4,3 +4,5 @@
 /data/
 .docker/
 .pi/
+__pycache__/
+*.pyc
