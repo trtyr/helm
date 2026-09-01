@@ -60,7 +60,7 @@ cargo run -p helm-server
 ### 3. 启动 Agent
 
 ```bash
-cargo run -p helm-agent -- --agent-id my-host --server-addr http://127.0.0.1:50051 --token dev-token
+cargo run -p helm-agent -- --agent-id my-host --server-addr http://127.0.0.1:50051 --token dev-token-change-me
 ```
 
 正向模式：`--conn-mode forward --listen-addr 0.0.0.0:50052`。
@@ -94,15 +94,27 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/exec \
 
 ## 配置（环境变量）
 
+### Server
+
 | 变量 | 默认 | 说明 |
 |------|------|------|
-| `HELM_HTTP_ADDR` | `0.0.0.0:8080` | Server HTTP 监听地址 |
-| `HELM_GRPC_ADDR` | `0.0.0.0:50051` | Server gRPC 监听地址 |
+| `HELM_HTTP_ADDR` | `0.0.0.0:8080` | HTTP 监听地址 |
+| `HELM_GRPC_ADDR` | `0.0.0.0:50051` | gRPC 监听地址（Agent 反向连入） |
 | `HELM_DATABASE_URL` | `postgres://helm:helm@localhost:5433/helm` | Postgres 连接串 |
-| `HELM_SERVER_TOKEN` | 空（放行） | Agent 认证 token |
+| `HELM_SERVER_TOKEN` | `dev-token-change-me` | Agent 认证 token（严格匹配，空则拒绝所有；生产必须改） |
 | `HELM_JWT_SECRET` | `dev-secret-change-me` | JWT 签名密钥（生产必须改） |
-| `HELM_CONN_MODE` | `reverse` | Agent 连接模式 |
-| `HELM_LISTEN_ADDR` | `0.0.0.0:50052` | Agent forward 监听地址 |
+| `HELM_LOG` | `info` | 日志级别 |
+
+### Agent
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `HELM_AGENT_ID` | 无（必填） | Agent 唯一标识 |
+| `HELM_SERVER_ADDR` | `http://127.0.0.1:50051` | Server gRPC 地址 |
+| `HELM_AGENT_TOKEN` | 空 | 注册 token |
+| `HELM_LOG` | `info` | 日志级别 |
+| `HELM_CONN_MODE` | `reverse` | 连接模式：reverse（主动连）/ forward（监听） |
+| `HELM_LISTEN_ADDR` | `0.0.0.0:50052` | forward 模式监听地址 |
 
 ## 开发
 

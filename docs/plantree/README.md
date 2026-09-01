@@ -12,13 +12,13 @@ Status: active
 1. 本 README 的已注册 plan 与 baseline 链接
 2. `baseline/` 中的项目级上下文（模块地图、运行时流程、存储、门禁、风险）
 3. 各 plan root 的 `roadmap.md` 与 `decisions/`（具体计划）
-4. `implementation-status.md`（仅 `In Progress` 计划的操作性交接）
+4. 实测落地证据见 [docs/current-state.md](../current-state.md)
 
 ## 当前状态
 
 | Plan | 状态 | 阶段 | 最后落地 | 下一步 |
 |------|------|------|----------|--------|
-| [server](plans/server/README.md) | Planning | 底座设计 | — | 确认底座设计 → 建 workspace + proto 契约 |
+| [server](plans/server/README.md) | Active | Phase 0–3 已落地，Phase 4 部分 | 正向连接 API（`c0456f0`） | mTLS / RBAC / 审计日志等强化项 |
 
 ## 如何阅读
 

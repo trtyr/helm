@@ -1,7 +1,7 @@
 # 通信协议
 
 Role: topic-capsule
-Status: planning
+Status: active
 Read when: 需要了解 Server↔Agent 的协议底座与契约设计
 Related: [decisions/001](../decisions/001-grpc-as-communication-base.md)
 
@@ -41,17 +41,17 @@ message ServerMessage {
 
 ## Current Position
 
-proto 未落地，上述为设计草案。`types.proto` 承载 Host/Task/Job 等共享类型。
+proto 已落地（`proto/helm/agent/v1/agent.proto` + `types.proto`），并新增 `ForwardAgentService`（正向模式）。
 
 ## Active Constraints
 
 - 只做向后兼容变更，破坏性变更走 `v2` 服务（`buf breaking` 门禁）。
-- 所有消息带稳定 ID（job_id / transfer_id / request_id）以支持幂等重放。
+- 所有消息带稳定 ID（job_id / transfer_id）；幂等重放尚未实现（见 runtime-flows 关键不变量）。
 - 信令语义化：Server 发「执行命令」语义，不关心平台实现差异。
 
 ## Open Risks Or Questions
 
-- proto 物理位置（workspace 内 crate vs 独立 repo）→ open-questions#2
+- proto 物理位置 → 已解决：workspace 顶层独立 `proto` crate（open-questions#2）
 - 控制台走 REST 还是 gRPC-web → open-questions#1
 
 ## Details

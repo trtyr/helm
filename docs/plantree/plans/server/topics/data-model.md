@@ -1,9 +1,9 @@
 # 数据模型
 
 Role: topic-capsule
-Status: planning
+Status: active
 Read when: 需要了解实体、状态机、存储 schema
-Related: [decisions/003](../decisions/003-storage-sqlx-sqlite-first.md)
+Related: [decisions/004](../decisions/004-storage-postgres-direct.md)
 
 ## One-Screen Summary
 
@@ -12,13 +12,12 @@ Job 与 FileTransfer 有显式状态机。存储走 sqlx + migrations。
 
 ## Current Position
 
-实体模型与状态机已定义，schema 未落地。
+schema 已落地（Postgres + 3 个迁移，见 `server/migrations/`）。
 
 ## Active Constraints
 
-- schema 含外键、索引、时间戳、软删除标记，从第一天起生产标准。
-- 不用 SQLite 专有特性，保证可迁 Postgres。
-- Job/FileTransfer 有稳定 ID，支持幂等重放与去重。
+- 直接 Postgres（决策 004）；schema 含外键、索引、时间戳、软删除，从第一天起生产标准。
+- Job/FileTransfer 有稳定 ID；幂等重放与去重尚未实现。
 
 ## Open Risks Or Questions
 

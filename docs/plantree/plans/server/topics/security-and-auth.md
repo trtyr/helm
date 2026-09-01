@@ -1,18 +1,18 @@
 # 安全与认证
 
 Role: topic-capsule
-Status: planning
+Status: active
 Read when: 需要了解 Agent 认证、TLS、权限、密钥管理
 Related: [baseline risk-hotspots](../../../baseline/risk-hotspots.md)
 
 ## One-Screen Summary
 
-底座含三层安全：传输加密（TLS）、身份认证（token）、访问控制（RBAC）。
+当前仅落地身份认证（token + JWT）；传输加密（TLS）与访问控制（RBAC）未做（Phase 4 强化项）。
 密钥不硬编码，从环境变量/secret 注入。
 
 ## Current Position
 
-设计阶段。起步水位：TLS + token；mTLS 与 RBAC 列为强化项（Phase 4）。
+已落地：token 严格匹配认证（空则拒绝）+ JWT 控制台认证 + 单点错误边界；TLS 未做（明文 gRPC），mTLS/RBAC 列为 Phase 4 强化项。
 
 ## Active Constraints
 

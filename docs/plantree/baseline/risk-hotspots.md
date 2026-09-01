@@ -1,7 +1,7 @@
 # 风险热点
 
 Role: detail-shard（baseline 全局上下文）
-Status: planning
+Status: active
 
 | 风险 | 影响 | 缓解方向 |
 |------|------|---------|
@@ -9,6 +9,6 @@ Status: planning
 | 并发与背压（大量 Agent 同时上报/大文件） | Server 过载、OOM | 流式处理、限流、背压、批量落库、队列 |
 | 安全（认证、密钥、命令注入、明文传输） | 被控主机沦陷 | TLS/mTLS、token 轮换、命令白名单、最小权限、审计日志 |
 | 跨平台差异（Windows vs Linux 命令/进程/文件系统） | 命令不可移植 | Agent 内做平台抽象层，Server 只发语义指令不关心实现 |
-| 存储迁移（SQLite → Postgres） | schema/方言不兼容 | sqlx 抽象 + 标准 SQL 迁移、避免 SQLite 专有特性 |
+| 时序指标膨胀（metrics 无保留/分区策略） | 表无限增长、查询变慢 | 滚动保留、分表、或迁独立时序库（Deferred） |
 | 流式大文件传输 | 内存爆、进度丢失 | 分块 + 断点续传 + 校验和 |
 | 契约漂移（Server/Agent 版本不一致） | 通信失败 | 版本握手、`buf breaking` 门禁、向前兼容 |

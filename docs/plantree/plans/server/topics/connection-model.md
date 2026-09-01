@@ -1,7 +1,7 @@
 # 连接模型
 
 Role: topic-capsule
-Status: planning
+Status: active
 Read when: 需要理解正/反向连接、双向流、断线重连、会话状态
 Related: [decisions/002](../decisions/002-bidirectional-stream-connection-model.md)
 
@@ -12,13 +12,13 @@ Related: [decisions/002](../decisions/002-bidirectional-stream-connection-model.
 
 ## Current Position
 
-设计已定，未落地。connection_registry 是 Server 侧的活跃连接事实来源。
+已落地：connection_registry 是 Server 侧活跃连接事实来源；反向重连已实现（3s 退避）。
 
 ## Active Constraints
 
 - 反向：Agent 是 client，Server 是 listener（`AgentService.OpenChannel`）。
 - 正向：Agent 是 server，Server 是 client，拨号后建同一条双向流。
-- 重连后必须重放 Register + 未完成的 Job 结果；所有消息幂等。
+- 重连后重新 Register（已实现）；未完成 Job 结果重放与消息幂等**未实现**（见 runtime-flows 关键不变量）。
 
 ## Open Risks Or Questions
 

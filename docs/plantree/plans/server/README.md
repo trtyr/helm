@@ -1,7 +1,7 @@
 # Plan: Server（后端控制端）
 
 Role: entrypoint（plan root）
-Status: planning
+Status: active
 
 集中式运维平台的**后端**计划。聚焦 Server 控制端 + 共享 protobuf 契约。
 Agent 被控端另立 plan，但其契约在此定义。前端控制台独立工程，不在本树。

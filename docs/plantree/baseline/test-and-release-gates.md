@@ -1,16 +1,16 @@
 # 测试与发布门禁
 
 Role: detail-shard（baseline 全局上下文）
-Status: planning
+Status: active
 
 ## 测试分层
 
 | 层 | 范围 | 工具 |
 |----|------|------|
 | 单元测试 | domain/application 纯逻辑 | `#[cfg(test)]` |
-| 集成测试 | store 仓储 + sqlx | `tests/` + 内存/临时 SQLite |
-| 契约测试 | protobuf 服务定义一致性 | buf + grpcurl |
-| 端到端 | 一条链路：Agent 连入 → 下发命令 → 拿回输出 | 本地 fixture |
+| 集成测试 | store 仓储 + sqlx | `tests/` + 真实 Postgres（docker compose） |
+| 契约测试 | protobuf 服务定义一致性 | `buf lint` + `buf breaking` |
+| 端到端 | 一条链路：Agent 连入 → 下发命令 → 拿回输出 | `scripts/e2e-smoke.sh` |
 
 ## 发布门禁（合并前必须通过）
 
