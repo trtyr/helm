@@ -18,7 +18,7 @@ Status: active
 
 | Plan | 状态 | 阶段 | 最后落地 | 下一步 |
 |------|------|------|----------|--------|
-| [server](plans/server/README.md) | Active | Phase 0–3 已落地，Phase 4 部分 | 正向连接 API（`c0456f0`） | mTLS / RBAC / 审计日志等强化项 |
+| [server](plans/server/README.md) | Active | Phase 0–4 已落地，Phase 5–8 C2 规划中 | 正向连接 API（`c0456f0`） | Phase 5 监听器 + 在线状态 |
 
 ## 如何阅读
 
@@ -29,4 +29,4 @@ Status: active
 
 ## 边界
 
-本树只治理**后端**（Server 控制端 + 共享 protobuf 契约）。Agent 被控端将另立 plan root，但其共享契约在 `plans/server/` 中定义。前端控制台独立工程，不在此树范围内（仅定义其访问后端的接口）。
+本树治理**后端**（Server 控制端 + Agent 被控端 + 共享 proto），以运维平台能力为主线（参考 C2 控制面：监听器、在线状态、会话、服务管理、文件、控制、持久化、安全、API；不做隐蔽性设计）。Agent 内部的深度设计（如插件机制）另立 plan root；前端控制台独立工程，不在此树范围内（仅定义其访问后端的接口）。

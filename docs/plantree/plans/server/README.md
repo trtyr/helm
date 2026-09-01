@@ -3,8 +3,7 @@
 Role: entrypoint（plan root）
 Status: active
 
-集中式运维平台的**后端**计划。聚焦 Server 控制端 + 共享 protobuf 契约。
-Agent 被控端另立 plan，但其契约在此定义。前端控制台独立工程，不在本树。
+集中式运维平台的**后端**计划。以运维平台能力为主线（参考 C2 控制面，不做隐蔽性设计），覆盖 Server 控制端 + Agent 被控端 + 共享 proto。前端控制台独立工程，不在本树。
 
 ## 核心原则（用户明确要求）
 
