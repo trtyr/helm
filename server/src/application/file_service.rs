@@ -2,14 +2,18 @@
 
 use crate::domain::{Error, Result};
 use crate::grpc::connection_registry::ConnectionRegistry;
+use crate::grpc::file_list_registry::FileListRegistry;
 use crate::grpc::transfer_registry::TransferRegistry;
 use crate::store::{Db, agent_repo::AgentRepo, file_transfer_repo::FileTransferRepo};
-use helm_proto::pb::{FileChunk, FileRequest, ServerMessage, file_request, server_message};
+use helm_proto::pb::{
+    FileChunk, FileEntry, FileList, FileRequest, ServerMessage, file_request, server_message,
+};
 use sha2::{Digest, Sha256};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
 const CHUNK_SIZE: usize = 64 * 1024;
+const LIST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// 文件传输用例。
 #[derive(Clone)]
@@ -17,14 +21,21 @@ pub struct FileService {
     db: Db,
     registry: ConnectionRegistry,
     transfers: TransferRegistry,
+    file_list: FileListRegistry,
 }
 
 impl FileService {
-    pub fn new(db: Db, registry: ConnectionRegistry, transfers: TransferRegistry) -> Self {
+    pub fn new(
+        db: Db,
+        registry: ConnectionRegistry,
+        transfers: TransferRegistry,
+        file_list: FileListRegistry,
+    ) -> Self {
         Self {
             db,
             registry,
             transfers,
+            file_list,
         }
     }
 
@@ -142,6 +153,32 @@ impl FileService {
             .await?;
 
         Ok((transfer_id, ok))
+    }
+
+    /// 列目录：下发 FileList，等 FileListResult 回传。
+    pub async fn list_dir(&self, agent_id: &str, path: &str) -> Result<Vec<FileEntry>> {
+        let request_id = Uuid::new_v4().to_string();
+        let rx = self.file_list.register(request_id.clone()).await;
+        let msg = ServerMessage {
+            kind: Some(server_message::Kind::FileList(FileList {
+                request_id: request_id.clone(),
+                path: path.to_string(),
+            })),
+        };
+        self.registry
+            .send(agent_id, msg)
+            .await
+            .map_err(|e| Error::NotConnected(e.to_string()))?;
+
+        let result = tokio::time::timeout(LIST_TIMEOUT, rx)
+            .await
+            .map_err(|_| Error::Internal("file list timeout".into()))?
+            .map_err(|_| Error::Internal("file list channel closed".into()))?;
+
+        if let Some(err) = result.error {
+            return Err(Error::Internal(err));
+        }
+        Ok(result.entries)
     }
 }
 

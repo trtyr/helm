@@ -3,7 +3,11 @@ mod connection;
 mod exec;
 mod file;
 mod forward;
+mod fs;
 mod monitor;
+mod process;
+mod pty;
+mod service;
 mod telemetry;
 mod uninstall;
 

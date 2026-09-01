@@ -4,7 +4,11 @@ use std::collections::HashMap;
 use std::pin::Pin;
 
 use crate::grpc::connection_registry::ConnectionRegistry;
+use crate::grpc::file_list_registry::FileListRegistry;
+use crate::grpc::query_registry::{QueryRegistry, QueryResponse};
+use crate::grpc::session_registry::SessionRegistry;
 use crate::grpc::transfer_registry::TransferRegistry;
+use crate::store::service_repo::ServiceRepo;
 use crate::store::{Db, agent_repo::AgentRepo, job_repo::JobRepo, metric_repo::MetricRepo};
 use helm_proto::pb::{
     AgentMessage, RegisterAck, ServerMessage, agent_message, agent_service_server::AgentService,
@@ -21,6 +25,9 @@ use uuid::Uuid;
 pub struct AgentServiceImpl {
     registry: ConnectionRegistry,
     transfers: TransferRegistry,
+    sessions: SessionRegistry,
+    file_list: FileListRegistry,
+    query: QueryRegistry,
     db: Db,
     server_token: String,
 }
@@ -29,12 +36,18 @@ impl AgentServiceImpl {
     pub fn new(
         registry: ConnectionRegistry,
         transfers: TransferRegistry,
+        sessions: SessionRegistry,
+        file_list: FileListRegistry,
+        query: QueryRegistry,
         db: Db,
         server_token: String,
     ) -> Self {
         Self {
             registry,
             transfers,
+            sessions,
+            file_list,
+            query,
             db,
             server_token,
         }
@@ -123,12 +136,15 @@ impl AgentService for AgentServiceImpl {
         // 后台任务：消费入站流；流结束时注销。
         let registry = self.registry.clone();
         let transfers = self.transfers.clone();
+        let sessions = self.sessions.clone();
+        let file_list = self.file_list.clone();
+        let query = self.query.clone();
         let db = self.db.clone();
         let agent_id_inner = agent_id.clone();
         tokio::spawn(async move {
             let job_repo = JobRepo::new(db.clone());
             let metric_repo = MetricRepo::new(db.clone());
-            let agent_repo = AgentRepo::new(db);
+            let agent_repo = AgentRepo::new(db.clone());
             let mut outputs: HashMap<String, String> = HashMap::new();
 
             loop {
@@ -205,6 +221,58 @@ impl AgentService for AgentServiceImpl {
                             let tid = status.transfer_id.clone();
                             transfers.complete(&tid, status).await;
                         }
+                        Some(agent_message::Kind::SessionOpened(opened)) => {
+                            tracing::info!(session_id = %opened.session_id, "session opened");
+                        }
+                        Some(agent_message::Kind::SessionOutput(out)) => {
+                            let _ = sessions.forward(&out.session_id, out.data).await;
+                        }
+                        Some(agent_message::Kind::SessionClosed(closed)) => {
+                            sessions.unregister(&closed.session_id).await;
+                            tracing::info!(session_id = %closed.session_id, "session closed");
+                        }
+                        Some(agent_message::Kind::ServiceStatus(st)) => {
+                            if let Ok(id) = Uuid::parse_str(&st.service_id) {
+                                let repo = ServiceRepo::new(db.clone());
+                                if !st.log.is_empty() {
+                                    let _ = repo.append_log(id, &st.log).await;
+                                }
+                                match map_service_status(&st.status) {
+                                    Some("running") => {
+                                        let _ = repo.set_status(id, "running", st.pid, None).await;
+                                    }
+                                    Some("failed") => {
+                                        let _ =
+                                            repo.set_status(id, "failed", None, st.exit_code).await;
+                                    }
+                                    Some("stopped") => {
+                                        let _ = repo
+                                            .set_status(id, "stopped", None, st.exit_code)
+                                            .await;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        Some(agent_message::Kind::FileListResult(result)) => {
+                            file_list.complete(result).await;
+                        }
+                        Some(agent_message::Kind::ProcessListResult(result)) => {
+                            let rid = result.request_id.clone();
+                            query
+                                .complete(&rid, QueryResponse::ProcessList(result))
+                                .await;
+                        }
+                        Some(agent_message::Kind::ProcessKillResult(result)) => {
+                            let rid = result.request_id.clone();
+                            query
+                                .complete(&rid, QueryResponse::ProcessKill(result))
+                                .await;
+                        }
+                        Some(agent_message::Kind::NetInfoResult(result)) => {
+                            let rid = result.request_id.clone();
+                            query.complete(&rid, QueryResponse::NetInfo(result)).await;
+                        }
                         Some(agent_message::Kind::Register(_)) => {
                             tracing::warn!(agent_id = %agent_id_inner, "duplicate register ignored");
                         }
@@ -250,6 +318,16 @@ pub fn job_status(error: Option<&str>, exit_code: Option<i32>) -> &'static str {
     }
 }
 
+/// 将 agent 上报的服务状态映射为 DB status（纯函数，便于测试）。
+pub fn map_service_status(status: &str) -> Option<&'static str> {
+    match status {
+        "running" => Some("running"),
+        "failed" => Some("failed"),
+        "exited" => Some("stopped"),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -269,5 +347,13 @@ mod tests {
         assert_eq!(job_status(None, Some(1)), "failed");
         assert_eq!(job_status(Some("boom"), None), "failed");
         assert_eq!(job_status(None, None), "succeeded");
+    }
+
+    #[test]
+    fn map_service_status_rules() {
+        assert_eq!(map_service_status("running"), Some("running"));
+        assert_eq!(map_service_status("failed"), Some("failed"));
+        assert_eq!(map_service_status("exited"), Some("stopped"));
+        assert_eq!(map_service_status("unknown"), None);
     }
 }

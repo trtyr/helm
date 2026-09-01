@@ -5,7 +5,7 @@ use std::pin::Pin;
 use crate::config::Config;
 use anyhow::Result;
 use helm_proto::pb::{
-    AgentMessage, ServerMessage,
+    AgentMessage, ServerMessage, SessionOpened, agent_message,
     forward_agent_service_server::{ForwardAgentService, ForwardAgentServiceServer},
     server_message,
 };
@@ -44,6 +44,8 @@ impl ForwardAgentService for ForwardAgentServiceImpl {
 
         tokio::spawn(async move {
             let mut file_handler = crate::file::FileHandler::new();
+            let sessions = crate::pty::SessionManager::new();
+            let services = crate::service::ServiceManager::new();
             while let Ok(Some(msg)) = inbound.message().await {
                 tracing::debug!(kind = ?msg.kind, "forward inbound message");
                 match msg.kind {
@@ -67,6 +69,70 @@ impl ForwardAgentService for ForwardAgentServiceImpl {
                             "uninstall command received (forward)"
                         );
                         crate::uninstall::self_destruct(sd.remove_binary);
+                    }
+                    Some(server_message::Kind::SessionOpen(req)) => {
+                        let tx_out = tx.clone();
+                        match sessions.open(
+                            &req.session_id,
+                            req.cols as u16,
+                            req.rows as u16,
+                            &req.command,
+                            tx_out.clone(),
+                        ) {
+                            Ok(()) => {
+                                let _ = tx_out
+                                    .send(AgentMessage {
+                                        kind: Some(agent_message::Kind::SessionOpened(
+                                            SessionOpened {
+                                                session_id: req.session_id.clone(),
+                                            },
+                                        )),
+                                    })
+                                    .await;
+                            }
+                            Err(e) => {
+                                tracing::warn!(session_id = %req.session_id, error = %e, "session open failed");
+                            }
+                        }
+                    }
+                    Some(server_message::Kind::SessionInput(req)) => {
+                        sessions.input(&req.session_id, &req.data);
+                    }
+                    Some(server_message::Kind::SessionClose(req)) => {
+                        sessions.close(&req.session_id);
+                    }
+                    Some(server_message::Kind::SessionResize(req)) => {
+                        sessions.resize(&req.session_id, req.cols as u16, req.rows as u16);
+                    }
+                    Some(server_message::Kind::ServiceStart(req)) => {
+                        services
+                            .start(
+                                &req.service_id,
+                                &req.command,
+                                &req.args,
+                                &req.restart_policy,
+                                tx.clone(),
+                            )
+                            .await;
+                    }
+                    Some(server_message::Kind::ServiceStop(req)) => {
+                        services.stop(&req.service_id).await;
+                    }
+                    Some(server_message::Kind::FileList(req)) => {
+                        let msg = crate::fs::list_dir(&req.request_id, &req.path);
+                        let _ = tx.send(msg).await;
+                    }
+                    Some(server_message::Kind::ProcessList(req)) => {
+                        let msg = crate::process::list_processes(&req.request_id);
+                        let _ = tx.send(msg).await;
+                    }
+                    Some(server_message::Kind::ProcessKill(req)) => {
+                        let msg = crate::process::kill_process(&req.request_id, req.pid);
+                        let _ = tx.send(msg).await;
+                    }
+                    Some(server_message::Kind::NetInfo(req)) => {
+                        let msg = crate::process::net_info(&req.request_id);
+                        let _ = tx.send(msg).await;
                     }
                     _ => {}
                 }

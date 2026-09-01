@@ -25,3 +25,4 @@ hostname.workspace = true
 sysinfo.workspace = true
 sha2.workspace = true
 hex.workspace = true
+portable-pty.workspace = true

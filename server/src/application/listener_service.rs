@@ -2,7 +2,10 @@
 
 use crate::domain::{Error, Result};
 use crate::grpc::connection_registry::ConnectionRegistry;
+use crate::grpc::file_list_registry::FileListRegistry;
 use crate::grpc::listener_registry::ListenerRegistry;
+use crate::grpc::query_registry::QueryRegistry;
+use crate::grpc::session_registry::SessionRegistry;
 use crate::grpc::transfer_registry::TransferRegistry;
 use crate::store::Db;
 use crate::store::listener_repo::{ListenerRepo, ListenerRow};
@@ -40,15 +43,22 @@ pub struct ListenerService {
     listeners: ListenerRegistry,
     registry: ConnectionRegistry,
     transfers: TransferRegistry,
+    sessions: SessionRegistry,
+    file_list: FileListRegistry,
+    query: QueryRegistry,
     fallback_token: String,
 }
 
 impl ListenerService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: Db,
         listeners: ListenerRegistry,
         registry: ConnectionRegistry,
         transfers: TransferRegistry,
+        sessions: SessionRegistry,
+        file_list: FileListRegistry,
+        query: QueryRegistry,
         fallback_token: String,
     ) -> Self {
         Self {
@@ -56,6 +66,9 @@ impl ListenerService {
             listeners,
             registry,
             transfers,
+            sessions,
+            file_list,
+            query,
             fallback_token,
         }
     }
@@ -101,6 +114,9 @@ impl ListenerService {
                 &row,
                 self.registry.clone(),
                 self.transfers.clone(),
+                self.sessions.clone(),
+                self.file_list.clone(),
+                self.query.clone(),
                 self.db.clone(),
                 token,
             )
@@ -139,6 +155,9 @@ impl ListenerService {
                         &row,
                         self.registry.clone(),
                         self.transfers.clone(),
+                        self.sessions.clone(),
+                        self.file_list.clone(),
+                        self.query.clone(),
                         self.db.clone(),
                         token,
                     )
@@ -161,6 +180,9 @@ impl ListenerService {
                     &row,
                     self.registry.clone(),
                     self.transfers.clone(),
+                    self.sessions.clone(),
+                    self.file_list.clone(),
+                    self.query.clone(),
                     self.db.clone(),
                     token,
                 )

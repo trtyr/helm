@@ -30,6 +30,9 @@ pub async fn run() -> Result<()> {
     let registry = grpc::connection_registry::ConnectionRegistry::new();
     let transfers = grpc::transfer_registry::TransferRegistry::new();
     let listeners = grpc::listener_registry::ListenerRegistry::new();
+    let sessions = grpc::session_registry::SessionRegistry::new();
+    let file_list = grpc::file_list_registry::FileListRegistry::new();
+    let query = grpc::query_registry::QueryRegistry::new();
 
     // 恢复已落库的定时任务
     let exec = application::exec_service::ExecService::new(db.clone(), registry.clone());
@@ -41,6 +44,9 @@ pub async fn run() -> Result<()> {
         listeners.clone(),
         registry.clone(),
         transfers.clone(),
+        sessions.clone(),
+        file_list.clone(),
+        query.clone(),
         config.server_token.clone(),
     )
     .resume_or_seed(&config.grpc_addr)
@@ -52,6 +58,9 @@ pub async fn run() -> Result<()> {
         registry.clone(),
         transfers.clone(),
         listeners.clone(),
+        sessions.clone(),
+        file_list.clone(),
+        query.clone(),
     )
     .await?;
 

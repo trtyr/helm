@@ -6,6 +6,9 @@ use std::sync::Arc;
 
 use crate::grpc::agent_service::AgentServiceImpl;
 use crate::grpc::connection_registry::ConnectionRegistry;
+use crate::grpc::file_list_registry::FileListRegistry;
+use crate::grpc::query_registry::QueryRegistry;
+use crate::grpc::session_registry::SessionRegistry;
 use crate::grpc::transfer_registry::TransferRegistry;
 use crate::store::Db;
 use crate::store::listener_repo::ListenerRow;
@@ -44,6 +47,9 @@ impl ListenerRegistry {
         listener: &ListenerRow,
         registry: ConnectionRegistry,
         transfers: TransferRegistry,
+        sessions: SessionRegistry,
+        file_list: FileListRegistry,
+        query: QueryRegistry,
         db: Db,
         token: String,
     ) -> Result<(), ListenerError> {
@@ -55,7 +61,9 @@ impl ListenerRegistry {
             .addr
             .parse()
             .map_err(|_| ListenerError::InvalidAddr(listener.addr.clone()))?;
-        let svc = AgentServiceServer::new(AgentServiceImpl::new(registry, transfers, db, token));
+        let svc = AgentServiceServer::new(AgentServiceImpl::new(
+            registry, transfers, sessions, file_list, query, db, token,
+        ));
         let (tx, rx) = oneshot::channel::<()>();
         let id = listener.id;
         let addr_str = listener.addr.clone();

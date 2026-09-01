@@ -29,6 +29,9 @@ fn service(state: &AppState) -> ListenerService {
         state.listeners.clone(),
         state.registry.clone(),
         state.transfers.clone(),
+        state.sessions.clone(),
+        state.file_list.clone(),
+        state.query.clone(),
         state.server_token.clone(),
     )
 }

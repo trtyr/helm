@@ -6,9 +6,10 @@ use crate::http::AppState;
 use crate::store::agent_repo::AgentRepo;
 use crate::store::host_repo::{HostRepo, HostRow, NewHost};
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Path, Query, State};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use uuid::Uuid;
 
 /// 创建主机参数。
 #[derive(Debug, Deserialize)]
@@ -39,13 +40,32 @@ struct HostView {
     stale: bool,
 }
 
-/// 列出主机：GET /api/v1/hosts（附在线状态 + 最后心跳 + 心跳超时标记）
-pub async fn list_hosts(State(state): State<AppState>) -> Result<Json<Value>, Error> {
+/// 列表查询参数（可选标签过滤）。
+#[derive(Debug, Deserialize)]
+pub struct ListQuery {
+    #[serde(default)]
+    pub tag: Option<String>,
+}
+
+/// 设置标签参数。
+#[derive(Debug, Deserialize)]
+pub struct SetTagsBody {
+    pub tags: Vec<String>,
+}
+
+/// 列出主机：GET /api/v1/hosts（附在线状态 + 最后心跳 + 心跳超时标记；支持 ?tag= 过滤）
+pub async fn list_hosts(
+    State(state): State<AppState>,
+    Query(q): Query<ListQuery>,
+) -> Result<Json<Value>, Error> {
     let db = state.db.clone();
     let registry = state.registry.clone();
     let timeout = chrono::Duration::seconds(state.heartbeat_timeout_secs as i64);
 
-    let hosts = HostRepo::new(db.clone()).list().await?;
+    let hosts = match &q.tag {
+        Some(tag) => HostRepo::new(db.clone()).list_by_tag(tag).await?,
+        None => HostRepo::new(db.clone()).list().await?,
+    };
     let agent_repo = AgentRepo::new(db);
 
     let mut views = Vec::with_capacity(hosts.len());
@@ -87,5 +107,18 @@ pub async fn create_host(
             addr: body.addr,
         })
         .await?;
+    Ok(Json(json!({ "host": host })))
+}
+
+/// 设置主机标签：POST /api/v1/hosts/{id}/tags
+pub async fn set_host_tags(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<SetTagsBody>,
+) -> Result<Json<Value>, Error> {
+    let host = HostRepo::new(state.db)
+        .set_tags(id, &body.tags)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("host: {id}")))?;
     Ok(Json(json!({ "host": host })))
 }

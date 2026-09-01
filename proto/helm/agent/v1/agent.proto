@@ -26,6 +26,14 @@ message AgentMessage {
     ExecResult exec_result = 4;
     FileChunk file_chunk = 5;
     FileStatus file_status = 6;
+    SessionOpened session_opened = 7;
+    SessionOutput session_output = 8;
+    SessionClosed session_closed = 9;
+    ServiceStatus service_status = 10;
+    FileListResult file_list_result = 11;
+    ProcessListResult process_list_result = 12;
+    ProcessKillResult process_kill_result = 13;
+    NetInfoResult net_info_result = 14;
   }
 }
 
@@ -38,6 +46,16 @@ message ServerMessage {
     MetricRequest metric_request = 4;
     FileChunk file_chunk = 5;  // upload 方向：Server 下发文件数据
     SelfDestruct self_destruct = 6;  // 卸载/自杀指令
+    SessionOpen session_open = 7;
+    SessionInput session_input = 8;
+    SessionClose session_close = 9;
+    SessionResize session_resize = 10;
+    ServiceStart service_start = 11;
+    ServiceStop service_stop = 12;
+    FileList file_list = 13;
+    ProcessList process_list = 14;
+    ProcessKill process_kill = 15;
+    NetInfo net_info = 16;
   }
 }
 
@@ -136,4 +154,145 @@ message StreamChunk {
 message SelfDestruct {
   // 是否删除自身二进制文件（true = 完整卸载）。
   bool remove_binary = 1;
+}
+
+// 交互会话（PTY 终端）
+// 打开会话：Agent 分配 PTY 并启动 shell。
+message SessionOpen {
+  string session_id = 1;
+  uint32 cols = 2;
+  uint32 rows = 3;
+  string command = 4;  // 空则用默认 shell
+}
+
+// 会话输入：控制台 → Agent 写入 PTY 的字节。
+message SessionInput {
+  string session_id = 1;
+  bytes data = 2;
+}
+
+// 关闭会话。
+message SessionClose {
+  string session_id = 1;
+}
+
+// 调整终端窗口大小。
+message SessionResize {
+  string session_id = 1;
+  uint32 cols = 2;
+  uint32 rows = 3;
+}
+
+// Agent → Server：会话已打开。
+message SessionOpened {
+  string session_id = 1;
+}
+
+// Agent → Server：会话输出（PTY 读到的字节）。
+message SessionOutput {
+  string session_id = 1;
+  bytes data = 2;
+}
+
+// Agent → Server：会话已关闭。
+message SessionClosed {
+  string session_id = 1;
+  optional int32 exit_code = 2;
+}
+
+// 常驻服务/后台任务
+// Server → Agent：启动一个常驻服务。
+message ServiceStart {
+  string service_id = 1;
+  string command = 2;
+  repeated string args = 3;
+  string restart_policy = 4;  // "no" | "always"
+}
+
+// Server → Agent：停止常驻服务。
+message ServiceStop {
+  string service_id = 1;
+}
+
+// Agent → Server：服务状态 + 增量日志。
+message ServiceStatus {
+  string service_id = 1;
+  string status = 2;  // "running" | "exited" | "failed"
+  optional int32 pid = 3;
+  optional int32 exit_code = 4;
+  bytes log = 5;
+}
+
+// Server → Agent：列目录。
+message FileList {
+  string request_id = 1;
+  string path = 2;
+}
+
+// 目录条目。
+message FileEntry {
+  string name = 1;
+  bool is_dir = 2;
+  uint64 size = 3;
+  int64 modified_unix_ms = 4;
+  string mode = 5;  // 权限字符串，如 "rw-r--r--"
+}
+
+// Agent → Server：目录内容。
+message FileListResult {
+  string request_id = 1;
+  string path = 2;
+  repeated FileEntry entries = 3;
+  optional string error = 4;
+}
+
+// 进程信息。
+message ProcessInfo {
+  int32 pid = 1;
+  string name = 2;
+  float cpu_percent = 3;
+  uint64 mem_bytes = 4;
+}
+
+// Server → Agent：列出进程。
+message ProcessList {
+  string request_id = 1;
+}
+
+// Agent → Server：进程列表。
+message ProcessListResult {
+  string request_id = 1;
+  repeated ProcessInfo processes = 2;
+}
+
+// Server → Agent：终止进程。
+message ProcessKill {
+  string request_id = 1;
+  int32 pid = 2;
+}
+
+// Agent → Server：终止结果。
+message ProcessKillResult {
+  string request_id = 1;
+  int32 pid = 2;
+  bool ok = 3;
+  optional string error = 4;
+}
+
+// 网络接口。
+message NetInterface {
+  string name = 1;
+  repeated string addrs = 2;
+}
+
+// Server → Agent：采集网络信息。
+message NetInfo {
+  string request_id = 1;
+}
+
+// Agent → Server：网络信息。
+message NetInfoResult {
+  string request_id = 1;
+  string hostname = 2;
+  repeated NetInterface interfaces = 3;
 }

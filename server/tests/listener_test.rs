@@ -2,7 +2,10 @@
 
 use helm_server::application::listener_service::ListenerService;
 use helm_server::grpc::connection_registry::ConnectionRegistry;
+use helm_server::grpc::file_list_registry::FileListRegistry;
 use helm_server::grpc::listener_registry::ListenerRegistry;
+use helm_server::grpc::query_registry::QueryRegistry;
+use helm_server::grpc::session_registry::SessionRegistry;
 use helm_server::grpc::transfer_registry::TransferRegistry;
 use helm_server::store::Db;
 use helm_server::store::listener_repo::ListenerRepo;
@@ -59,6 +62,9 @@ async fn listener_service_create_start_stop() {
         listeners.clone(),
         registry.clone(),
         transfers.clone(),
+        SessionRegistry::new(),
+        FileListRegistry::new(),
+        QueryRegistry::new(),
         "fallback-token".into(),
     );
 

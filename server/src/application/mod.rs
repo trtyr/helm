@@ -7,4 +7,6 @@ pub mod file_service;
 pub mod forward_service;
 pub mod listener_service;
 pub mod online_status;
+pub mod process_service;
 pub mod scheduler;
+pub mod service_service;

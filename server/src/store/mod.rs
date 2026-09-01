@@ -8,6 +8,7 @@ pub mod host_repo;
 pub mod job_repo;
 pub mod listener_repo;
 pub mod metric_repo;
+pub mod service_repo;
 pub mod task_repo;
 pub mod user_repo;
 

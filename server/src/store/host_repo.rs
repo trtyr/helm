@@ -79,6 +79,29 @@ impl HostRepo {
         .await
     }
 
+    /// 按标签过滤主机（`tag = ANY(tags)`）。
+    pub async fn list_by_tag(&self, tag: &str) -> sqlx::Result<Vec<HostRow>> {
+        sqlx::query_as::<_, HostRow>(
+            "SELECT id, hostname, os, arch, platform, tags, conn_mode, addr
+             FROM hosts WHERE deleted_at IS NULL AND $1 = ANY(tags) ORDER BY created_at DESC",
+        )
+        .bind(tag)
+        .fetch_all(self.db.pool())
+        .await
+    }
+
+    /// 覆盖设置主机标签，返回更新后的行（未找到返回 None）。
+    pub async fn set_tags(&self, id: Uuid, tags: &[String]) -> sqlx::Result<Option<HostRow>> {
+        sqlx::query_as::<_, HostRow>(
+            "UPDATE hosts SET tags = $2, updated_at = now() WHERE id = $1 AND deleted_at IS NULL
+             RETURNING id, hostname, os, arch, platform, tags, conn_mode, addr",
+        )
+        .bind(id)
+        .bind(tags)
+        .fetch_optional(self.db.pool())
+        .await
+    }
+
     /// 软删除主机，返回受影响行数。
     pub async fn soft_delete(&self, id: Uuid) -> sqlx::Result<u64> {
         sqlx::query("UPDATE hosts SET deleted_at = now() WHERE id = $1")
