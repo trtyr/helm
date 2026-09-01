@@ -22,6 +22,7 @@ async fn host_repo_insert_list_soft_delete() {
         platform: "linux-x86_64".into(),
         tags: vec!["itest".into()],
         conn_mode: "reverse".into(),
+        addr: String::new(),
     };
 
     let row = repo.insert(&host).await.expect("insert");

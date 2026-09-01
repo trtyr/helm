@@ -14,6 +14,7 @@ pub struct HostRow {
     pub platform: String,
     pub tags: Vec<String>,
     pub conn_mode: String,
+    pub addr: String,
 }
 
 /// 新建主机参数。
@@ -25,6 +26,7 @@ pub struct NewHost {
     pub platform: String,
     pub tags: Vec<String>,
     pub conn_mode: String,
+    pub addr: String,
 }
 
 /// hosts 表仓储。
@@ -41,9 +43,9 @@ impl HostRepo {
     /// 插入一台主机并返回完整行。
     pub async fn insert(&self, h: &NewHost) -> sqlx::Result<HostRow> {
         sqlx::query_as::<_, HostRow>(
-            r#"INSERT INTO hosts (hostname, os, arch, platform, tags, conn_mode)
-               VALUES ($1, $2, $3, $4, $5, $6)
-               RETURNING id, hostname, os, arch, platform, tags, conn_mode"#,
+            "INSERT INTO hosts (hostname, os, arch, platform, tags, conn_mode, addr)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             RETURNING id, hostname, os, arch, platform, tags, conn_mode, addr",
         )
         .bind(&h.hostname)
         .bind(&h.os)
@@ -51,14 +53,26 @@ impl HostRepo {
         .bind(&h.platform)
         .bind(&h.tags)
         .bind(&h.conn_mode)
+        .bind(&h.addr)
         .fetch_one(self.db.pool())
+        .await
+    }
+
+    /// 按主机名查主机（未删除）。
+    pub async fn get_by_hostname(&self, hostname: &str) -> sqlx::Result<Option<HostRow>> {
+        sqlx::query_as::<_, HostRow>(
+            "SELECT id, hostname, os, arch, platform, tags, conn_mode, addr
+             FROM hosts WHERE hostname = $1 AND deleted_at IS NULL LIMIT 1",
+        )
+        .bind(hostname)
+        .fetch_optional(self.db.pool())
         .await
     }
 
     /// 列出所有未删除主机（按创建时间倒序）。
     pub async fn list(&self) -> sqlx::Result<Vec<HostRow>> {
         sqlx::query_as::<_, HostRow>(
-            "SELECT id, hostname, os, arch, platform, tags, conn_mode
+            "SELECT id, hostname, os, arch, platform, tags, conn_mode, addr
              FROM hosts WHERE deleted_at IS NULL ORDER BY created_at DESC",
         )
         .fetch_all(self.db.pool())

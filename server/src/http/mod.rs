@@ -42,7 +42,7 @@ pub async fn serve(
 
     // 受保护路由（需 JWT）
     let protected = Router::new()
-        .route("/hosts", get(hosts::list_hosts))
+        .route("/hosts", get(hosts::list_hosts).post(hosts::create_host))
         .route("/exec", post(exec::exec))
         .route("/jobs/{id}", get(jobs::get_job))
         .route("/metrics", get(metrics::list_metrics))
