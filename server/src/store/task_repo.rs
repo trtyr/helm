@@ -38,4 +38,16 @@ impl TaskRepo {
         .fetch_one(self.db.pool())
         .await
     }
+
+    /// 查询所有定时任务（kind=exec 且带 interval_secs）。
+    pub async fn list_scheduled(&self) -> sqlx::Result<Vec<TaskRow>> {
+        sqlx::query_as::<_, TaskRow>(
+            "SELECT id, name, kind, params, timeout_secs
+             FROM tasks
+             WHERE kind = 'exec' AND params->>'interval_secs' IS NOT NULL
+               AND deleted_at IS NULL",
+        )
+        .fetch_all(self.db.pool())
+        .await
+    }
 }

@@ -177,15 +177,7 @@ impl AgentService for AgentServiceImpl {
                             }
                             if er.finished {
                                 let output = outputs.remove(&job_id).unwrap_or_default();
-                                let status = if er.error.is_some() {
-                                    "failed"
-                                } else {
-                                    match er.exit_code {
-                                        Some(0) => "succeeded",
-                                        Some(_) => "failed",
-                                        None => "succeeded",
-                                    }
-                                };
+                                let status = job_status(er.error.as_deref(), er.exit_code);
                                 match Uuid::parse_str(&job_id) {
                                     Ok(id) => {
                                         if let Err(e) =
@@ -245,6 +237,19 @@ pub fn token_matches(server_token: &str, provided: &str) -> bool {
     !server_token.is_empty() && provided == server_token
 }
 
+/// 由执行结果判断 Job 终态（纯函数，便于测试）。
+pub fn job_status(error: Option<&str>, exit_code: Option<i32>) -> &'static str {
+    if error.is_some() {
+        "failed"
+    } else {
+        match exit_code {
+            Some(0) => "succeeded",
+            Some(_) => "failed",
+            None => "succeeded",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,5 +261,13 @@ mod tests {
         assert!(!token_matches("secret", ""));
         // 空 server_token 也拒绝（默认值非空，严格匹配）
         assert!(!token_matches("", ""));
+    }
+
+    #[test]
+    fn job_status_rules() {
+        assert_eq!(job_status(None, Some(0)), "succeeded");
+        assert_eq!(job_status(None, Some(1)), "failed");
+        assert_eq!(job_status(Some("boom"), None), "failed");
+        assert_eq!(job_status(None, None), "succeeded");
     }
 }

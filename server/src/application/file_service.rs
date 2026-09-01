@@ -36,7 +36,7 @@ impl FileService {
         remote_path: &str,
     ) -> Result<(String, bool)> {
         let data = tokio::fs::read(local_path).await?;
-        let expected = hex::encode(Sha256::digest(&data));
+        let expected = checksum(&data);
         let transfer_id = Uuid::new_v4().to_string();
 
         let host_id = AgentRepo::new(self.db.clone())
@@ -128,7 +128,7 @@ impl FileService {
         let result = rx
             .await
             .map_err(|_| Error::Internal("transfer channel closed".into()))?;
-        let local_checksum = hex::encode(Sha256::digest(&result.data));
+        let local_checksum = checksum(&result.data);
         let ok = result.status.checksum == local_checksum;
         tokio::fs::write(local_path, &result.data).await?;
 
@@ -142,5 +142,29 @@ impl FileService {
             .await?;
 
         Ok((transfer_id, ok))
+    }
+}
+
+/// 计算 sha256 校验和（hex 编码，纯函数）。
+pub fn checksum(data: &[u8]) -> String {
+    hex::encode(Sha256::digest(data))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn checksum_known_value() {
+        // sha256("abc") 的标准值
+        assert_eq!(
+            checksum(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn checksum_differs_on_input() {
+        assert_ne!(checksum(b"a"), checksum(b"b"));
     }
 }

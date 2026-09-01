@@ -30,6 +30,10 @@ pub async fn run() -> Result<()> {
     let registry = grpc::connection_registry::ConnectionRegistry::new();
     let transfers = grpc::transfer_registry::TransferRegistry::new();
 
+    // 恢复已落库的定时任务
+    let exec = application::exec_service::ExecService::new(db.clone(), registry.clone());
+    application::scheduler::resume_scheduled(db.clone(), exec).await?;
+
     tokio::try_join!(
         http::serve(
             config.clone(),
