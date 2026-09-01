@@ -39,6 +39,7 @@ pub struct AppState {
     pub jwt_secret: String,
     pub server_token: String,
     pub heartbeat_timeout_secs: u64,
+    pub session_idle_timeout_secs: u64,
 }
 
 /// 启动 HTTP 服务（控制台 API + health）。
@@ -64,6 +65,7 @@ pub async fn serve(
         jwt_secret: config.jwt_secret.clone(),
         server_token: config.server_token.clone(),
         heartbeat_timeout_secs: config.heartbeat_timeout_secs,
+        session_idle_timeout_secs: config.session_idle_timeout_secs,
     };
 
     // 受保护路由（需 JWT）

@@ -1,6 +1,6 @@
 //! PTY 会话管理：spawn 交互 shell + 读写伪终端（跨平台，Windows 走 ConPTY）。
 
-use helm_proto::pb::{AgentMessage, SessionOutput, agent_message};
+use helm_proto::pb::{AgentMessage, SessionClosed, SessionOutput, agent_message};
 use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -64,6 +64,8 @@ impl SessionManager {
         let master = pair.master;
 
         let sid = session_id.to_string();
+        let inner = self.inner.clone();
+        let sid_for_close = session_id.to_string();
         // 读线程：阻塞读 master，输出转 SessionOutput 回传。
         std::thread::spawn(move || {
             let mut buf = [0u8; 8192];
@@ -83,6 +85,15 @@ impl SessionManager {
                     }
                 }
             }
+            // shell 自行退出：发 SessionClosed 并回收会话（双向关闭）。
+            let close = AgentMessage {
+                kind: Some(agent_message::Kind::SessionClosed(SessionClosed {
+                    session_id: sid_for_close.clone(),
+                    exit_code: None,
+                })),
+            };
+            let _ = tx.blocking_send(close);
+            inner.lock().unwrap().remove(&sid_for_close);
         });
 
         self.inner.lock().unwrap().insert(

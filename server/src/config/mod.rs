@@ -35,6 +35,10 @@ pub struct Config {
     /// 心跳超时判定阈值（秒），超过视为离线（默认 30s = 3×心跳间隔）
     #[arg(long, env = "HELM_HEARTBEAT_TIMEOUT", default_value = "30")]
     pub heartbeat_timeout_secs: u64,
+
+    /// 会话空闲超时（秒），无输入/输出超过该时长自动关闭会话（默认 300s）
+    #[arg(long, env = "HELM_SESSION_IDLE_TIMEOUT", default_value = "300")]
+    pub session_idle_timeout_secs: u64,
 }
 
 impl Config {

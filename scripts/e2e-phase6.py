@@ -57,6 +57,51 @@ async def run_terminal(token: str) -> bytes:
         return out
 
 
+async def run_multi_terminal(token: str) -> None:
+    import websockets
+
+    uri = f"ws://{HTTP_ADDR}/api/v1/agents/{AGENT_ID}/terminal?token={token}"
+
+    async def session(marker: str) -> bool:
+        async with websockets.connect(uri) as ws:
+            await asyncio.sleep(1.0)
+            await ws.send(f"echo {marker}\r")
+            out = b""
+            deadline = time.time() + 8
+            while time.time() < deadline:
+                try:
+                    m = await asyncio.wait_for(ws.recv(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
+                out += m if isinstance(m, bytes) else m.encode()
+                if marker.encode() in out:
+                    return True
+            return marker.encode() in out
+
+    ok = await asyncio.gather(session("MULTI_A_9921"), session("MULTI_B_3344"))
+    assert all(ok), f"多会话失败: {ok}"
+    print("✓ 多会话通过（两个并发 WS 各自独立回显）")
+
+
+async def run_idle_timeout(token: str) -> None:
+    import websockets
+
+    uri = f"ws://{HTTP_ADDR}/api/v1/agents/{AGENT_ID}/terminal?token={token}"
+    t0 = time.time()
+    try:
+        async with websockets.connect(uri) as ws:
+            while True:
+                try:
+                    await asyncio.wait_for(ws.recv(), timeout=10)
+                except asyncio.TimeoutError:
+                    break
+    except Exception:
+        pass  # server 主动 Close 会抛 ConnectionClosed，属预期
+    elapsed = time.time() - t0
+    assert elapsed < 9, f"空闲超时未触发（耗时 {elapsed:.1f}s）"
+    print(f"✓ 会话空闲超时通过（{elapsed:.1f}s 后自动关闭）")
+
+
 def test_service(token: str) -> None:
     svc = http_json(
         "POST", "/services",
@@ -166,7 +211,7 @@ def main() -> None:
         print("==> 启动 Server")
         procs.append(
             start_background(
-                ["./target/debug/helm-server", "--http-addr", HTTP_ADDR, "--grpc-addr", GRPC_ADDR],
+                ["./target/debug/helm-server", "--http-addr", HTTP_ADDR, "--grpc-addr", GRPC_ADDR, "--session-idle-timeout-secs", "6"],
                 "/tmp/helm-phase6-server.log",
             )
         )
@@ -190,6 +235,10 @@ def main() -> None:
         print("==> WebSocket 会话终端")
         out = asyncio.run(run_terminal(token))
         print(f"✓ 会话终端通过（命令输出回传）: {out[:120]!r}")
+
+        print("==> 会话多开 + 空闲超时")
+        asyncio.run(run_multi_terminal(token))
+        asyncio.run(run_idle_timeout(token))
 
         print("==> 常驻服务管理")
         test_service(token)

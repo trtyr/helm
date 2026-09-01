@@ -54,6 +54,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, agent_id: String)
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Vec<u8>>();
     state.sessions.register(&session_id, out_tx).await;
 
+    let idle = std::time::Duration::from_secs(state.session_idle_timeout_secs);
+
     loop {
         tokio::select! {
             msg = socket.recv() => {
@@ -84,6 +86,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, agent_id: String)
                     }
                     None => break,
                 }
+            }
+            _ = tokio::time::sleep(idle) => {
+                tracing::info!(session_id = %session_id, "session idle timeout, closing");
+                break;
             }
         }
     }
