@@ -1,7 +1,18 @@
 //! Agent 仓储：注册时落库 host + agent（事务）。
 
 use crate::store::Db;
+use sqlx::FromRow;
 use uuid::Uuid;
+
+/// `agents` 表行。
+#[derive(Debug, Clone, FromRow, serde::Serialize)]
+pub struct AgentRow {
+    pub id: String,
+    pub host_id: Uuid,
+    pub version: String,
+    pub registered_at: chrono::DateTime<chrono::Utc>,
+    pub last_heartbeat_at: Option<chrono::DateTime<chrono::Utc>>,
+}
 
 /// Agent 注册仓储。
 #[derive(Clone)]
@@ -94,6 +105,55 @@ impl AgentRepo {
         sqlx::query("UPDATE agents SET last_heartbeat_at = $2 WHERE id = $1")
             .bind(agent_id)
             .bind(ts)
+            .execute(self.db.pool())
+            .await?;
+        Ok(())
+    }
+
+    /// 按 host 列出所有 agent_id（在线判定用）。
+    pub async fn list_agent_ids(&self, host_id: Uuid) -> sqlx::Result<Vec<String>> {
+        sqlx::query_scalar("SELECT id FROM agents WHERE host_id = $1")
+            .bind(host_id)
+            .fetch_all(self.db.pool())
+            .await
+    }
+
+    /// 主机最近心跳时间（取该 host 所有 agent 的最大 last_heartbeat_at）。
+    pub async fn last_heartbeat(
+        &self,
+        host_id: Uuid,
+    ) -> sqlx::Result<Option<chrono::DateTime<chrono::Utc>>> {
+        sqlx::query_scalar("SELECT MAX(last_heartbeat_at) FROM agents WHERE host_id = $1")
+            .bind(host_id)
+            .fetch_one(self.db.pool())
+            .await
+    }
+
+    /// 列出所有 agent（按注册时间倒序）。
+    pub async fn list_all(&self) -> sqlx::Result<Vec<AgentRow>> {
+        sqlx::query_as::<_, AgentRow>(
+            "SELECT id, host_id, version, registered_at, last_heartbeat_at
+             FROM agents ORDER BY registered_at DESC",
+        )
+        .fetch_all(self.db.pool())
+        .await
+    }
+
+    /// 按 agent_id 查行。
+    pub async fn get(&self, agent_id: &str) -> sqlx::Result<Option<AgentRow>> {
+        sqlx::query_as::<_, AgentRow>(
+            "SELECT id, host_id, version, registered_at, last_heartbeat_at
+             FROM agents WHERE id = $1",
+        )
+        .bind(agent_id)
+        .fetch_optional(self.db.pool())
+        .await
+    }
+
+    /// 注销：永久删除 agent 记录。
+    pub async fn delete(&self, agent_id: &str) -> sqlx::Result<()> {
+        sqlx::query("DELETE FROM agents WHERE id = $1")
+            .bind(agent_id)
             .execute(self.db.pool())
             .await?;
         Ok(())

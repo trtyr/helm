@@ -5,6 +5,7 @@ mod file;
 mod forward;
 mod monitor;
 mod telemetry;
+mod uninstall;
 
 use anyhow::Result;
 

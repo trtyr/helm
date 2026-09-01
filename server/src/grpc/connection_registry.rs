@@ -55,6 +55,12 @@ impl ConnectionRegistry {
         self.inner.lock().await.contains_key(agent_id)
     }
 
+    /// 给定一组 agent_id，是否任一在线（单次加锁）。
+    pub async fn any_online(&self, agent_ids: &[String]) -> bool {
+        let map = self.inner.lock().await;
+        agent_ids.iter().any(|id| map.contains_key(id))
+    }
+
     /// 在线 Agent 数量。
     pub async fn online_count(&self) -> usize {
         self.inner.lock().await.len()

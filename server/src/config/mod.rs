@@ -31,6 +31,10 @@ pub struct Config {
     /// 日志级别
     #[arg(long, env = "HELM_LOG", default_value = "info")]
     pub log_level: String,
+
+    /// 心跳超时判定阈值（秒），超过视为离线（默认 30s = 3×心跳间隔）
+    #[arg(long, env = "HELM_HEARTBEAT_TIMEOUT", default_value = "30")]
+    pub heartbeat_timeout_secs: u64,
 }
 
 impl Config {

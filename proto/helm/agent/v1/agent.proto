@@ -37,6 +37,7 @@ message ServerMessage {
     FileRequest file_request = 3;
     MetricRequest metric_request = 4;
     FileChunk file_chunk = 5;  // upload 方向：Server 下发文件数据
+    SelfDestruct self_destruct = 6;  // 卸载/自杀指令
   }
 }
 
@@ -129,4 +130,10 @@ message StreamChunk {
   }
   Kind kind = 1;
   bytes data = 2;
+}
+
+// 卸载/自杀指令：Agent 收到后停止、删除自身二进制、移除服务/自启。
+message SelfDestruct {
+  // 是否删除自身二进制文件（true = 完整卸载）。
+  bool remove_binary = 1;
 }

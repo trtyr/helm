@@ -29,20 +29,31 @@ pub async fn run() -> Result<()> {
 
     let registry = grpc::connection_registry::ConnectionRegistry::new();
     let transfers = grpc::transfer_registry::TransferRegistry::new();
+    let listeners = grpc::listener_registry::ListenerRegistry::new();
 
     // 恢复已落库的定时任务
     let exec = application::exec_service::ExecService::new(db.clone(), registry.clone());
     application::scheduler::resume_scheduled(db.clone(), exec).await?;
 
-    tokio::try_join!(
-        http::serve(
-            config.clone(),
-            db.clone(),
-            registry.clone(),
-            transfers.clone()
-        ),
-        grpc::serve(config, db, registry, transfers),
-    )?;
+    // 恢复/初始化监听器（首次启动 seed 默认监听器）
+    application::listener_service::ListenerService::new(
+        db.clone(),
+        listeners.clone(),
+        registry.clone(),
+        transfers.clone(),
+        config.server_token.clone(),
+    )
+    .resume_or_seed(&config.grpc_addr)
+    .await?;
+
+    http::serve(
+        config.clone(),
+        db.clone(),
+        registry.clone(),
+        transfers.clone(),
+        listeners.clone(),
+    )
+    .await?;
 
     Ok(())
 }

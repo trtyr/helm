@@ -98,6 +98,14 @@ async fn connect_once(config: &Config) -> Result<()> {
             Some(server_message::Kind::FileChunk(chunk)) => {
                 file_handler.handle_chunk(chunk, &tx).await;
             }
+            Some(server_message::Kind::SelfDestruct(sd)) => {
+                tracing::warn!(
+                    agent_id = %config.agent_id,
+                    remove_binary = sd.remove_binary,
+                    "uninstall command received"
+                );
+                crate::uninstall::self_destruct(sd.remove_binary);
+            }
             other => {
                 tracing::debug!(agent_id = %config.agent_id, ?other, "server message (later phase)");
             }

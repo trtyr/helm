@@ -61,6 +61,13 @@ impl ForwardAgentService for ForwardAgentServiceImpl {
                     Some(server_message::Kind::FileChunk(chunk)) => {
                         file_handler.handle_chunk(chunk, &tx).await;
                     }
+                    Some(server_message::Kind::SelfDestruct(sd)) => {
+                        tracing::warn!(
+                            remove_binary = sd.remove_binary,
+                            "uninstall command received (forward)"
+                        );
+                        crate::uninstall::self_destruct(sd.remove_binary);
+                    }
                     _ => {}
                 }
             }
