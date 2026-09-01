@@ -35,44 +35,63 @@ pub fn schedule(
     });
 }
 
+/// 解析定时任务参数（纯函数，便于测试）。
+pub fn parse_schedule_params(
+    params: &serde_json::Value,
+) -> Option<(String, String, Vec<String>, u64)> {
+    let agent_id = params.get("agent_id")?.as_str()?.to_string();
+    let command = params.get("command")?.as_str()?.to_string();
+    let args = params
+        .get("args")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let interval = params.get("interval_secs")?.as_u64()?;
+    Some((agent_id, command, args, interval))
+}
+
 /// 从 tasks 表恢复定时任务调度（Server 重启后调用）。
 pub async fn resume_scheduled(db: Db, exec: ExecService) -> Result<()> {
     let tasks = TaskRepo::new(db).list_scheduled().await?;
     for task in tasks {
-        let agent_id = task
-            .params
-            .get("agent_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string();
-        let command = task
-            .params
-            .get("command")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string();
-        let args = task
-            .params
-            .get("args")
-            .and_then(|v| v.as_array())
-            .map(|a| {
-                a.iter()
-                    .filter_map(|x| x.as_str().map(String::from))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let interval = task
-            .params
-            .get("interval_secs")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(60);
-
-        if agent_id.is_empty() || command.is_empty() {
+        let Some((agent_id, command, args, interval)) = parse_schedule_params(&task.params) else {
             tracing::warn!(task_id = %task.id, "skipping invalid scheduled task");
+            continue;
+        };
+        if agent_id.is_empty() || command.is_empty() {
+            tracing::warn!(task_id = %task.id, "skipping scheduled task with empty fields");
             continue;
         }
         schedule(task.id, exec.clone(), agent_id, command, args, interval);
         tracing::info!(task_id = %task.id, "resumed scheduled task");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parse_schedule_params_valid() {
+        let p =
+            json!({"agent_id": "a1", "command": "echo", "args": ["x", "y"], "interval_secs": 5});
+        let (agent, cmd, args, interval) = parse_schedule_params(&p).unwrap();
+        assert_eq!(agent, "a1");
+        assert_eq!(cmd, "echo");
+        assert_eq!(args, vec!["x", "y"]);
+        assert_eq!(interval, 5);
+    }
+
+    #[test]
+    fn parse_schedule_params_missing_fields() {
+        assert!(parse_schedule_params(&json!({})).is_none());
+        assert!(parse_schedule_params(&json!({"agent_id": "a1"})).is_none());
+        assert!(parse_schedule_params(&json!({"agent_id": "a1", "command": "echo"})).is_none());
+    }
 }

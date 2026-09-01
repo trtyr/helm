@@ -74,3 +74,19 @@ impl ForwardService {
         Ok((output, exit_code))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn exec_invalid_addr_returns_invalid_argument() {
+        let service = ForwardService::new();
+        let err = service
+            .exec("not a valid uri", "echo", &[])
+            .await
+            .unwrap_err();
+        assert!(matches!(err, Error::InvalidArgument(_)));
+        assert_eq!(err.code(), "invalid_argument");
+    }
+}
