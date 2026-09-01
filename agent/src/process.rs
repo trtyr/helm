@@ -91,3 +91,33 @@ fn kill_by_pid(pid: i32) -> bool {
             .unwrap_or(false)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use helm_proto::pb::agent_message;
+
+    #[test]
+    fn kill_nonexistent_pid_returns_false() {
+        match kill_process("r", 999999).kind {
+            Some(agent_message::Kind::ProcessKillResult(r)) => assert!(!r.ok),
+            _ => panic!("expected ProcessKillResult"),
+        }
+    }
+
+    #[test]
+    fn list_processes_returns_entries() {
+        match list_processes("r").kind {
+            Some(agent_message::Kind::ProcessListResult(r)) => assert!(!r.processes.is_empty()),
+            _ => panic!("expected ProcessListResult"),
+        }
+    }
+
+    #[test]
+    fn net_info_returns_hostname() {
+        match net_info("r").kind {
+            Some(agent_message::Kind::NetInfoResult(r)) => assert!(!r.hostname.is_empty()),
+            _ => panic!("expected NetInfoResult"),
+        }
+    }
+}

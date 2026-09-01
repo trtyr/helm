@@ -38,3 +38,46 @@ impl QueryRegistry {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use helm_proto::pb::{NetInfoResult, ProcessKillResult};
+
+    #[tokio::test]
+    async fn register_complete_roundtrip() {
+        let reg = QueryRegistry::new();
+        let rx = reg.register("r1".to_string()).await;
+        reg.complete(
+            "r1",
+            QueryResponse::ProcessKill(ProcessKillResult {
+                request_id: "r1".into(),
+                pid: 42,
+                ok: true,
+                error: None,
+            }),
+        )
+        .await;
+        match rx.await.unwrap() {
+            QueryResponse::ProcessKill(r) => {
+                assert_eq!(r.pid, 42);
+                assert!(r.ok);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[tokio::test]
+    async fn complete_unknown_request_is_noop() {
+        let reg = QueryRegistry::new();
+        reg.complete(
+            "unknown",
+            QueryResponse::NetInfo(NetInfoResult {
+                request_id: "unknown".into(),
+                hostname: "h".into(),
+                interfaces: vec![],
+            }),
+        )
+        .await;
+    }
+}

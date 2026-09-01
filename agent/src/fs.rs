@@ -63,3 +63,42 @@ fn mode_string(meta: &Option<std::fs::Metadata>) -> String {
         String::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use helm_proto::pb::agent_message;
+
+    fn entries_of(request_id: &str, path: &str) -> helm_proto::pb::FileListResult {
+        match list_dir(request_id, path).kind {
+            Some(agent_message::Kind::FileListResult(r)) => r,
+            _ => panic!("expected FileListResult"),
+        }
+    }
+
+    #[test]
+    fn list_dir_returns_entries() {
+        let dir = std::env::temp_dir().join(format!("helm-fs-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.txt"), b"x").unwrap();
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+
+        let r = entries_of("r1", dir.to_str().unwrap());
+        assert!(r.error.is_none(), "unexpected error: {:?}", r.error);
+        let names: Vec<&str> = r.entries.iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains(&"a.txt"));
+        assert!(names.contains(&"sub"));
+        let a = r.entries.iter().find(|e| e.name == "a.txt").unwrap();
+        assert!(!a.is_dir);
+        assert_eq!(a.size, 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn list_dir_missing_path_returns_error() {
+        let r = entries_of("r2", "/nonexistent/helm-fs-test-xyz");
+        assert!(r.error.is_some(), "expected error for missing path");
+    }
+}

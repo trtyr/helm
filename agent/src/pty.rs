@@ -123,9 +123,38 @@ fn shell_command(command: &str) -> CommandBuilder {
     if !command.is_empty() {
         return CommandBuilder::new(command);
     }
+    CommandBuilder::new(default_shell())
+}
+
+/// 默认 shell（跨平台，纯函数便于测试）。
+pub fn default_shell() -> &'static str {
     #[cfg(target_os = "windows")]
-    let prog = "powershell.exe";
+    {
+        "powershell.exe"
+    }
     #[cfg(not(target_os = "windows"))]
-    let prog = "/bin/sh";
-    CommandBuilder::new(prog)
+    {
+        "/bin/sh"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_shell_is_expected() {
+        #[cfg(target_os = "windows")]
+        assert_eq!(default_shell(), "powershell.exe");
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(default_shell(), "/bin/sh");
+    }
+
+    #[test]
+    fn manager_input_close_unknown_session_is_noop() {
+        let m = SessionManager::new();
+        m.input("no-such-session", b"ls\r");
+        m.resize("no-such-session", 80, 24);
+        m.close("no-such-session"); // 不应 panic
+    }
 }

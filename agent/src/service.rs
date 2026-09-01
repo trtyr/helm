@@ -106,20 +106,33 @@ async fn monitor(
             }
         };
 
-        let failed = exit_code != Some(0);
         let _ = send(
             &tx,
             &service_id,
-            if failed { "failed" } else { "exited" },
+            terminal_status(exit_code),
             pid,
             exit_code,
             b"",
         )
         .await;
 
-        if restart_policy != "always" {
+        if !should_restart(&restart_policy) {
             return;
         }
+    }
+}
+
+/// 服务退出后是否重启（纯函数）。
+pub fn should_restart(restart_policy: &str) -> bool {
+    restart_policy == "always"
+}
+
+/// 由退出码判断服务终态（纯函数）。
+pub fn terminal_status(exit_code: Option<i32>) -> &'static str {
+    if exit_code == Some(0) {
+        "exited"
+    } else {
+        "failed"
     }
 }
 
@@ -170,4 +183,23 @@ async fn send(
         })),
     };
     tx.send(msg).await.map_err(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_restart_only_when_always() {
+        assert!(should_restart("always"));
+        assert!(!should_restart("no"));
+        assert!(!should_restart(""));
+    }
+
+    #[test]
+    fn terminal_status_by_exit_code() {
+        assert_eq!(terminal_status(Some(0)), "exited");
+        assert_eq!(terminal_status(Some(1)), "failed");
+        assert_eq!(terminal_status(None), "failed");
+    }
 }
