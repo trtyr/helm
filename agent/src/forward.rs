@@ -38,14 +38,17 @@ impl ForwardAgentService for ForwardAgentServiceImpl {
         &self,
         request: Request<Streaming<ServerMessage>>,
     ) -> Result<Response<Self::OpenForwardChannelStream>, Status> {
+        tracing::info!("forward channel request received");
         let mut inbound = request.into_inner();
         let (tx, rx) = mpsc::channel::<AgentMessage>(64);
 
         tokio::spawn(async move {
             let mut file_handler = crate::file::FileHandler::new();
             while let Ok(Some(msg)) = inbound.message().await {
+                tracing::debug!(kind = ?msg.kind, "forward inbound message");
                 match msg.kind {
                     Some(server_message::Kind::ExecRequest(req)) => {
+                        tracing::info!(job_id = %req.job_id, command = %req.command, "forward exec request");
                         let tx = tx.clone();
                         tokio::spawn(async move {
                             crate::exec::run_and_report(&req.job_id, &req.command, &req.args, &tx)

@@ -26,7 +26,13 @@ impl ForwardService {
         command: &str,
         args: &[String],
     ) -> Result<(String, Option<i32>)> {
-        let channel = Channel::from_shared(agent_addr.to_string())
+        // tonic 需要完整 URI；无 scheme 时补 http://（Agent 为明文 gRPC）
+        let uri = if agent_addr.starts_with("http://") || agent_addr.starts_with("https://") {
+            agent_addr.to_string()
+        } else {
+            format!("http://{agent_addr}")
+        };
+        let channel = Channel::from_shared(uri)
             .map_err(|e| Error::InvalidArgument(format!("bad agent addr: {e}")))?
             .connect()
             .await
