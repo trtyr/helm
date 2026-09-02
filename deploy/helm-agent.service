@@ -1,0 +1,21 @@
+[Unit]
+Description=Helm Agent (managed endpoint)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 部署时替换占位符：二进制路径、server 地址、token
+ExecStart=/usr/local/bin/helm-agent \
+    --agent-id ${HELM_AGENT_ID} \
+    --server-addr ${HELM_SERVER_ADDR} \
+    --token ${HELM_AGENT_TOKEN} \
+    --log-dir /var/log/helm-agent
+Restart=always
+RestartSec=5
+# 日志由 agent 落文件（--log-dir），journald 捕获 stdout 作补充
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

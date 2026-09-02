@@ -8,6 +8,7 @@ use crate::grpc::file_list_registry::FileListRegistry;
 use crate::grpc::query_registry::{QueryRegistry, QueryResponse};
 use crate::grpc::session_registry::SessionRegistry;
 use crate::grpc::transfer_registry::TransferRegistry;
+use crate::store::alert_repo::AlertRepo;
 use crate::store::service_repo::ServiceRepo;
 use crate::store::{Db, agent_repo::AgentRepo, job_repo::JobRepo, metric_repo::MetricRepo};
 use helm_proto::pb::{
@@ -145,6 +146,7 @@ impl AgentService for AgentServiceImpl {
             let job_repo = JobRepo::new(db.clone());
             let metric_repo = MetricRepo::new(db.clone());
             let agent_repo = AgentRepo::new(db.clone());
+            let alert_repo = AlertRepo::new(db.clone());
             let mut outputs: HashMap<String, String> = HashMap::new();
 
             loop {
@@ -180,6 +182,15 @@ impl AgentService for AgentServiceImpl {
                                         metric_repo.insert(host_id, &m.name, m.value, ts).await
                                     {
                                         tracing::warn!(error = %e, "failed to persist metric");
+                                    }
+                                    // 告警评估：超阈值落 alerts 表
+                                    if let Some(threshold) =
+                                        crate::application::alert_service::AlertService::threshold_for(&m.name)
+                                            .filter(|t| m.value > *t)
+                                    {
+                                        let _ = alert_repo
+                                            .insert(host_id, &m.name, threshold, m.value)
+                                            .await;
                                     }
                                 }
                             }

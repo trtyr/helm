@@ -1,10 +1,12 @@
 //! 监听器端点。
 
+use crate::application::audit_service::AuditService;
+use crate::application::auth_service::Claims;
 use crate::application::listener_service::ListenerService;
 use crate::domain::Error;
 use crate::http::AppState;
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Extension, Path, State};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -33,17 +35,27 @@ fn service(state: &AppState) -> ListenerService {
         state.file_list.clone(),
         state.query.clone(),
         state.server_token.clone(),
+        state.cert.clone(),
     )
 }
 
 /// 创建监听器：POST /api/v1/listeners
 pub async fn create_listener(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(body): Json<CreateListenerBody>,
 ) -> Result<Json<Value>, Error> {
     let listener = service(&state)
         .create(&body.name, &body.addr, &body.proto, &body.auth)
         .await?;
+    let _ = AuditService::new(state.db)
+        .record(
+            &claims.sub,
+            "listener_create",
+            &listener.id.to_string(),
+            json!({ "name": body.name, "addr": body.addr }),
+        )
+        .await;
     Ok(Json(json!({ "listener": listener })))
 }
 
@@ -56,17 +68,25 @@ pub async fn list_listeners(State(state): State<AppState>) -> Result<Json<Value>
 /// 启动监听器：POST /api/v1/listeners/{id}/start
 pub async fn start_listener(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, Error> {
     service(&state).start(id).await?;
+    let _ = AuditService::new(state.db)
+        .record(&claims.sub, "listener_start", &id.to_string(), json!({}))
+        .await;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// 停止监听器：POST /api/v1/listeners/{id}/stop
 pub async fn stop_listener(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, Error> {
     service(&state).stop(id).await?;
+    let _ = AuditService::new(state.db)
+        .record(&claims.sub, "listener_stop", &id.to_string(), json!({}))
+        .await;
     Ok(Json(json!({ "ok": true })))
 }

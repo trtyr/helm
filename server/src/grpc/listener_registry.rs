@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use crate::application::cert_service::CertService;
 use crate::grpc::agent_service::AgentServiceImpl;
 use crate::grpc::connection_registry::ConnectionRegistry;
 use crate::grpc::file_list_registry::FileListRegistry;
@@ -14,6 +15,7 @@ use crate::store::Db;
 use crate::store::listener_repo::ListenerRow;
 use helm_proto::pb::agent_service_server::AgentServiceServer;
 use tokio::sync::{Mutex, oneshot};
+use tonic::transport::{Certificate, Identity, ServerTlsConfig};
 use uuid::Uuid;
 
 /// 监听器运行时错误。
@@ -52,6 +54,7 @@ impl ListenerRegistry {
         query: QueryRegistry,
         db: Db,
         token: String,
+        cert: CertService,
     ) -> Result<(), ListenerError> {
         let mut map = self.inner.lock().await;
         if map.contains_key(&listener.id) {
@@ -67,10 +70,27 @@ impl ListenerRegistry {
         let (tx, rx) = oneshot::channel::<()>();
         let id = listener.id;
         let addr_str = listener.addr.clone();
+        let cert = cert.clone();
         tokio::spawn(async move {
             tracing::info!(listener_id = %id, addr = %addr_str, "listener started");
-            let _ = tonic::transport::Server::builder()
-                .add_service(svc)
+            let mut builder = tonic::transport::Server::builder();
+            if cert.enabled() {
+                let tls = ServerTlsConfig::new()
+                    .identity(Identity::from_pem(
+                        cert.server_cert_pem(),
+                        cert.server_key_pem(),
+                    ))
+                    .client_ca_root(Certificate::from_pem(cert.ca_cert_pem()));
+                builder = match builder.tls_config(tls) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        tracing::error!(listener_id = %id, error = %e, "tls config failed");
+                        return;
+                    }
+                };
+            }
+            let server = builder.add_service(svc);
+            let _ = server
                 .serve_with_shutdown(addr, async move {
                     let _ = rx.await;
                 })

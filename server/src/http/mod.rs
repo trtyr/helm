@@ -1,5 +1,8 @@
 pub mod agents;
+pub mod alerts;
+pub mod audit;
 pub mod auth;
+pub mod cert;
 pub mod error;
 pub mod exec;
 pub mod files;
@@ -14,6 +17,7 @@ pub mod services;
 pub mod tasks;
 pub mod terminal;
 
+use crate::application::cert_service::CertService;
 use crate::config::Config;
 use crate::grpc::connection_registry::ConnectionRegistry;
 use crate::grpc::file_list_registry::FileListRegistry;
@@ -40,6 +44,7 @@ pub struct AppState {
     pub server_token: String,
     pub heartbeat_timeout_secs: u64,
     pub session_idle_timeout_secs: u64,
+    pub cert: CertService,
 }
 
 /// 启动 HTTP 服务（控制台 API + health）。
@@ -53,6 +58,7 @@ pub async fn serve(
     sessions: SessionRegistry,
     file_list: FileListRegistry,
     query: QueryRegistry,
+    cert: CertService,
 ) -> anyhow::Result<()> {
     let state = AppState {
         db,
@@ -66,6 +72,7 @@ pub async fn serve(
         server_token: config.server_token.clone(),
         heartbeat_timeout_secs: config.heartbeat_timeout_secs,
         session_idle_timeout_secs: config.session_idle_timeout_secs,
+        cert,
     };
 
     // 受保护路由（需 JWT）
@@ -101,6 +108,8 @@ pub async fn serve(
         .route("/processes/list", post(process::list_processes))
         .route("/processes/kill", post(process::kill_process))
         .route("/net/info", post(process::net_info))
+        .route("/audit", get(audit::list_audit))
+        .route("/alerts", get(alerts::list_alerts))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_auth,
@@ -110,6 +119,7 @@ pub async fn serve(
         .route("/healthz", get(health::healthz))
         .route("/api/v1/auth/login", post(auth::login))
         .route("/api/v1/agents/{id}/terminal", get(terminal::terminal))
+        .route("/api/v1/agents/cert", post(cert::issue_cert))
         .nest("/api/v1", protected)
         .with_state(state);
 

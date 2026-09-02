@@ -1,5 +1,6 @@
 //! 监听器集成测试：连真实 Postgres 验证 listener_repo + listener_service 启停。
 
+use helm_server::application::cert_service::CertService;
 use helm_server::application::listener_service::ListenerService;
 use helm_server::grpc::connection_registry::ConnectionRegistry;
 use helm_server::grpc::file_list_registry::FileListRegistry;
@@ -66,6 +67,7 @@ async fn listener_service_create_start_stop() {
         FileListRegistry::new(),
         QueryRegistry::new(),
         "fallback-token".into(),
+        CertService::generate("localhost", false).unwrap(),
     );
 
     let addr = free_addr();

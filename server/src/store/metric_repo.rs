@@ -54,4 +54,13 @@ impl MetricRepo {
             .await?;
         Ok(())
     }
+
+    /// 删除指定时间之前的指标（时序保留）。
+    pub async fn delete_before(&self, cutoff: DateTime<Utc>) -> sqlx::Result<u64> {
+        sqlx::query("DELETE FROM metrics WHERE ts < $1")
+            .bind(cutoff)
+            .execute(self.db.pool())
+            .await
+            .map(|r| r.rows_affected())
+    }
 }

@@ -3,6 +3,8 @@
 //! 所有数据库访问经 [`Db`] 聚合根；仓储按实体拆分。
 
 pub mod agent_repo;
+pub mod alert_repo;
+pub mod audit_repo;
 pub mod file_transfer_repo;
 pub mod host_repo;
 pub mod job_repo;

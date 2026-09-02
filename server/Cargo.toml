@@ -34,3 +34,5 @@ bcrypt.workspace = true
 jsonwebtoken.workspace = true
 sha2.workspace = true
 hex.workspace = true
+rcgen.workspace = true
+time.workspace = true

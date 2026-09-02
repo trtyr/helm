@@ -2,6 +2,8 @@
 //! 需 `HELM_DATABASE_URL`（默认 docker compose 的 5433）与已启动的 Postgres。
 
 use helm_server::store::Db;
+use helm_server::store::alert_repo::AlertRepo;
+use helm_server::store::audit_repo::AuditRepo;
 use helm_server::store::host_repo::{HostRepo, NewHost};
 
 fn test_url() -> String {
@@ -86,4 +88,62 @@ async fn host_repo_list_by_tag_and_set_tags() {
     assert!(missing.is_none());
 
     let _ = repo.soft_delete(row.id).await;
+}
+
+#[tokio::test]
+async fn audit_repo_insert_list() {
+    let db = Db::connect(&test_url()).await.expect("connect");
+    db.migrate().await.expect("migrate");
+    let repo = AuditRepo::new(db);
+
+    let row = repo
+        .insert(
+            "admin",
+            "exec",
+            "agent-x",
+            &serde_json::json!({ "command": "ls" }),
+        )
+        .await
+        .expect("insert");
+    assert_eq!(row.actor, "admin");
+    assert_eq!(row.action, "exec");
+    assert_eq!(row.resource, "agent-x");
+
+    let rows = repo.list(10).await.expect("list");
+    assert!(rows.iter().any(|r| r.id == row.id));
+}
+
+#[tokio::test]
+async fn alert_repo_insert_list_cleanup() {
+    let db = Db::connect(&test_url()).await.expect("connect");
+    db.migrate().await.expect("migrate");
+    let host = HostRepo::new(db.clone())
+        .insert(&NewHost {
+            hostname: format!("itest-alert-{}", std::process::id()),
+            os: String::new(),
+            arch: String::new(),
+            platform: String::new(),
+            tags: vec![],
+            conn_mode: "reverse".into(),
+            addr: String::new(),
+        })
+        .await
+        .expect("host");
+    let repo = AlertRepo::new(db);
+
+    let row = repo
+        .insert(host.id, "cpu.usage", 90.0, 95.0)
+        .await
+        .expect("insert");
+    assert_eq!(row.metric_name, "cpu.usage");
+
+    let rows = repo.list(10).await.expect("list");
+    assert!(rows.iter().any(|r| r.id == row.id));
+
+    // 时序保留：删除未来时间之前（即全部）应删 1 条
+    let n = repo
+        .delete_before(chrono::Utc::now() + chrono::Duration::hours(1))
+        .await
+        .expect("delete");
+    assert_eq!(n, 1);
 }

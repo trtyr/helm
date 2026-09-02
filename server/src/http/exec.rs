@@ -1,10 +1,12 @@
 //! 命令执行 HTTP 端点。
 
+use crate::application::audit_service::AuditService;
+use crate::application::auth_service::Claims;
 use crate::application::exec_service::ExecService;
 use crate::domain::Error;
 use crate::http::AppState;
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Extension, State};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -19,8 +21,17 @@ pub struct ExecBody {
 /// 下发命令：POST /api/v1/exec
 pub async fn exec(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(body): Json<ExecBody>,
 ) -> Result<Json<Value>, Error> {
+    let _ = AuditService::new(state.db.clone())
+        .record(
+            &claims.sub,
+            "exec",
+            &body.agent_id,
+            json!({ "command": body.command }),
+        )
+        .await;
     let service = ExecService::new(state.db, state.registry);
     let job_id = service
         .exec(&body.agent_id, &body.command, &body.args)

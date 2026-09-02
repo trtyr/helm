@@ -10,7 +10,7 @@ use helm_proto::pb::{
 };
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::transport::Channel;
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
 const RECONNECT_DELAY: Duration = Duration::from_secs(3);
@@ -32,9 +32,7 @@ pub async fn run_agent(config: &Config) -> Result<()> {
 
 /// 单次连接：建立双向流 → 发送 Register → 心跳 → 直到断开。
 async fn connect_once(config: &Config) -> Result<()> {
-    let channel = Channel::from_shared(config.server_addr.clone())?
-        .connect()
-        .await?;
+    let channel = build_channel(config).await?;
     let mut client = AgentServiceClient::new(channel);
 
     // outbound：先发 Register，之后由心跳 task 持续发 Heartbeat。
@@ -207,4 +205,90 @@ fn now_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+/// 建立到 Server 的 channel：cert_dir 非空时走 mTLS（换证书 + 双向认证）。
+async fn build_channel(config: &Config) -> Result<Channel> {
+    if config.cert_dir.is_empty() {
+        return Ok(Channel::from_shared(config.server_addr.clone())?
+            .connect()
+            .await?);
+    }
+
+    let http_addr = if config.server_http_addr.is_empty() {
+        derive_http_addr(&config.server_addr)
+    } else {
+        config.server_http_addr.clone()
+    };
+
+    let cert = crate::cert::obtain(
+        &config.cert_dir,
+        &config.agent_id,
+        &config.token,
+        &http_addr,
+    )
+    .await?;
+
+    let client_tls = ClientTlsConfig::new()
+        .domain_name(config.tls_server_name.clone())
+        .ca_certificate(Certificate::from_pem(cert.ca_pem))
+        .identity(Identity::from_pem(cert.cert_pem, cert.key_pem));
+
+    // tonic 仅在 scheme 为 https 时才走 TLS（见 connector.rs 的 is_https 判断）
+    let tls_addr = to_https_addr(&config.server_addr);
+    Ok(Channel::from_shared(tls_addr)?
+        .tls_config(client_tls)?
+        .connect()
+        .await?)
+}
+
+/// 把 http:// 转 https://（mTLS 连接用），其余原样。
+fn to_https_addr(server_addr: &str) -> String {
+    if let Some(rest) = server_addr.strip_prefix("http://") {
+        format!("https://{rest}")
+    } else {
+        server_addr.to_string()
+    }
+}
+
+/// 由 gRPC 地址推导 HTTP 地址（换证书用），默认端口 18080。
+fn derive_http_addr(server_addr: &str) -> String {
+    match server_addr.find("://") {
+        Some(i) => {
+            let rest = &server_addr[i + 3..];
+            match rest.rsplit_once(':') {
+                Some((host, _)) => format!("{}://{}:18080", &server_addr[..i], host),
+                None => server_addr.to_string(),
+            }
+        }
+        None => server_addr.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn derive_http_addr_replaces_port() {
+        assert_eq!(
+            derive_http_addr("http://127.0.0.1:50051"),
+            "http://127.0.0.1:18080"
+        );
+        assert_eq!(
+            derive_http_addr("https://example.com:8443"),
+            "https://example.com:18080"
+        );
+        assert_eq!(derive_http_addr("http://host"), "http://host");
+    }
+
+    #[test]
+    fn to_https_addr_swaps_scheme() {
+        assert_eq!(
+            to_https_addr("http://127.0.0.1:50051"),
+            "https://127.0.0.1:50051"
+        );
+        assert_eq!(to_https_addr("https://h:50051"), "https://h:50051");
+        assert_eq!(to_https_addr("h:50051"), "h:50051");
+    }
 }

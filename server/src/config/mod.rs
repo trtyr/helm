@@ -39,6 +39,14 @@ pub struct Config {
     /// 会话空闲超时（秒），无输入/输出超过该时长自动关闭会话（默认 300s）
     #[arg(long, env = "HELM_SESSION_IDLE_TIMEOUT", default_value = "300")]
     pub session_idle_timeout_secs: u64,
+
+    /// mTLS server 证书 SAN 名（默认 localhost，Agent 校验证书用）
+    #[arg(long, env = "HELM_TLS_SERVER_NAME", default_value = "localhost")]
+    pub tls_server_name: String,
+
+    /// 是否启用 mTLS（Agent↔Server 双向认证）
+    #[arg(long, env = "HELM_MTLS", action = clap::ArgAction::SetTrue)]
+    pub mtls: bool,
 }
 
 impl Config {

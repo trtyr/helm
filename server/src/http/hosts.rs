@@ -1,12 +1,14 @@
 //! 主机查询与创建端点。
 
+use crate::application::audit_service::AuditService;
+use crate::application::auth_service::Claims;
 use crate::application::online_status::is_stale;
 use crate::domain::Error;
 use crate::http::AppState;
 use crate::store::agent_repo::AgentRepo;
 use crate::store::host_repo::{HostRepo, HostRow, NewHost};
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -88,6 +90,7 @@ pub async fn list_hosts(
 /// 创建主机：POST /api/v1/hosts
 pub async fn create_host(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(body): Json<CreateHostBody>,
 ) -> Result<Json<Value>, Error> {
     let conn_mode = if body.conn_mode == "forward" {
@@ -95,18 +98,26 @@ pub async fn create_host(
     } else {
         "reverse".to_string()
     };
-    let host = HostRepo::new(state.db)
+    let host = HostRepo::new(state.db.clone())
         .insert(&NewHost {
-            hostname: body.hostname,
+            hostname: body.hostname.clone(),
             // forward 模式下目标机细节未知，拨号成功后由 Agent 回报补全
             os: String::new(),
             arch: String::new(),
             platform: String::new(),
-            tags: body.tags,
+            tags: body.tags.clone(),
             conn_mode,
             addr: body.addr,
         })
         .await?;
+    let _ = AuditService::new(state.db)
+        .record(
+            &claims.sub,
+            "host_create",
+            &host.id.to_string(),
+            json!({ "hostname": body.hostname }),
+        )
+        .await;
     Ok(Json(json!({ "host": host })))
 }
 

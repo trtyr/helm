@@ -31,6 +31,22 @@ pub struct Config {
     /// forward 模式监听地址
     #[arg(long, env = "HELM_LISTEN_ADDR", default_value = "0.0.0.0:50052")]
     pub listen_addr: String,
+
+    /// 日志目录（非空则按天滚动落文件，供无控制台的服务模式使用）
+    #[arg(long, env = "HELM_LOG_DIR", default_value = "")]
+    pub log_dir: String,
+
+    /// mTLS server 证书 SAN 名（默认 localhost，用于证书校验）
+    #[arg(long, env = "HELM_TLS_SERVER_NAME", default_value = "localhost")]
+    pub tls_server_name: String,
+
+    /// 证书缓存目录（非空则启用 mTLS，证书/密钥/CA 落此目录）
+    #[arg(long, env = "HELM_CERT_DIR", default_value = "")]
+    pub cert_dir: String,
+
+    /// Server HTTP 地址（换证书用，默认空则从 server_addr 推导 http://host:18080）
+    #[arg(long, env = "HELM_SERVER_HTTP_ADDR", default_value = "")]
+    pub server_http_addr: String,
 }
 
 impl Config {

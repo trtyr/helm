@@ -33,6 +33,8 @@ pub async fn run() -> Result<()> {
     let sessions = grpc::session_registry::SessionRegistry::new();
     let file_list = grpc::file_list_registry::FileListRegistry::new();
     let query = grpc::query_registry::QueryRegistry::new();
+    let cert =
+        application::cert_service::CertService::generate(&config.tls_server_name, config.mtls)?;
 
     // 恢复已落库的定时任务
     let exec = application::exec_service::ExecService::new(db.clone(), registry.clone());
@@ -48,9 +50,26 @@ pub async fn run() -> Result<()> {
         file_list.clone(),
         query.clone(),
         config.server_token.clone(),
+        cert.clone(),
     )
     .resume_or_seed(&config.grpc_addr)
     .await?;
+
+    // 时序保留清理：后台每 24h 删除 30 天前的 metrics + alerts
+    let cleanup_db = db.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
+            let cutoff = chrono::Utc::now() - chrono::Duration::days(30);
+            let m = store::metric_repo::MetricRepo::new(cleanup_db.clone())
+                .delete_before(cutoff)
+                .await;
+            let a = store::alert_repo::AlertRepo::new(cleanup_db.clone())
+                .delete_before(cutoff)
+                .await;
+            tracing::info!(metrics_deleted = ?m, alerts_deleted = ?a, "retention cleanup");
+        }
+    });
 
     http::serve(
         config.clone(),
@@ -61,6 +80,7 @@ pub async fn run() -> Result<()> {
         sessions.clone(),
         file_list.clone(),
         query.clone(),
+        cert.clone(),
     )
     .await?;
 

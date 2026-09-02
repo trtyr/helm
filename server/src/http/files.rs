@@ -1,10 +1,12 @@
 //! 文件传输端点。
 
+use crate::application::audit_service::AuditService;
+use crate::application::auth_service::Claims;
 use crate::application::file_service::FileService;
 use crate::domain::Error;
 use crate::http::AppState;
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Extension, State};
 use helm_proto::pb::FileEntry;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -54,8 +56,17 @@ impl From<FileEntry> for FileEntryView {
 /// 下发文件：POST /api/v1/files/upload
 pub async fn upload(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(body): Json<UploadBody>,
 ) -> Result<Json<Value>, Error> {
+    let _ = AuditService::new(state.db.clone())
+        .record(
+            &claims.sub,
+            "file_upload",
+            &body.agent_id,
+            json!({ "remote_path": body.remote_path }),
+        )
+        .await;
     let service = FileService::new(state.db, state.registry, state.transfers, state.file_list);
     let (transfer_id, checksum_ok) = service
         .upload(&body.agent_id, &body.local_path, &body.remote_path)
@@ -69,8 +80,17 @@ pub async fn upload(
 /// 取回文件：POST /api/v1/files/download
 pub async fn download(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(body): Json<DownloadBody>,
 ) -> Result<Json<Value>, Error> {
+    let _ = AuditService::new(state.db.clone())
+        .record(
+            &claims.sub,
+            "file_download",
+            &body.agent_id,
+            json!({ "remote_path": body.remote_path }),
+        )
+        .await;
     let service = FileService::new(state.db, state.registry, state.transfers, state.file_list);
     let (transfer_id, checksum_ok) = service
         .download(&body.agent_id, &body.remote_path, &body.local_path)

@@ -1,5 +1,6 @@
 //! 应用层：监听器编排（创建 / 列表 / 启停 / 重启恢复）。
 
+use crate::application::cert_service::CertService;
 use crate::domain::{Error, Result};
 use crate::grpc::connection_registry::ConnectionRegistry;
 use crate::grpc::file_list_registry::FileListRegistry;
@@ -47,6 +48,7 @@ pub struct ListenerService {
     file_list: FileListRegistry,
     query: QueryRegistry,
     fallback_token: String,
+    cert: CertService,
 }
 
 impl ListenerService {
@@ -60,6 +62,7 @@ impl ListenerService {
         file_list: FileListRegistry,
         query: QueryRegistry,
         fallback_token: String,
+        cert: CertService,
     ) -> Self {
         Self {
             db,
@@ -70,6 +73,7 @@ impl ListenerService {
             file_list,
             query,
             fallback_token,
+            cert,
         }
     }
 
@@ -119,6 +123,7 @@ impl ListenerService {
                 self.query.clone(),
                 self.db.clone(),
                 token,
+                self.cert.clone(),
             )
             .await
             .map_err(|e| Error::InvalidArgument(e.to_string()))?;
@@ -160,6 +165,7 @@ impl ListenerService {
                         self.query.clone(),
                         self.db.clone(),
                         token,
+                        self.cert.clone(),
                     )
                     .await
                     .map_err(|e| Error::Internal(e.to_string()))?;
@@ -185,6 +191,7 @@ impl ListenerService {
                     self.query.clone(),
                     self.db.clone(),
                     token,
+                    self.cert.clone(),
                 )
                 .await
             {
