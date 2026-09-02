@@ -48,6 +48,13 @@ impl ServiceService {
         Ok(ServiceRepo::new(self.db.clone()).list().await?)
     }
 
+    /// 分页列出服务。
+    pub async fn list_paged(&self, limit: i64, offset: i64) -> Result<Vec<ServiceRow>> {
+        Ok(ServiceRepo::new(self.db.clone())
+            .list_paged(limit, offset)
+            .await?)
+    }
+
     /// 启动服务：找到 host 的在线 agent，下发 ServiceStart。
     pub async fn start(&self, id: Uuid) -> Result<()> {
         let svc = ServiceRepo::new(self.db.clone())
@@ -114,6 +121,39 @@ impl ServiceService {
             .get(id)
             .await?
             .ok_or_else(|| Error::NotFound(format!("service: {id}")))
+    }
+
+    /// 更新服务（name/command/args/restart_policy）。
+    pub async fn update(
+        &self,
+        id: Uuid,
+        name: &str,
+        command: &str,
+        args: &[String],
+        restart_policy: &str,
+    ) -> Result<ServiceRow> {
+        let rp = if restart_policy == "always" {
+            "always"
+        } else {
+            "no"
+        };
+        ServiceRepo::new(self.db.clone())
+            .update(id, name, command, args, rp)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("service: {id}")))
+    }
+
+    /// 删除服务（运行中先停）。
+    pub async fn delete(&self, id: Uuid) -> Result<()> {
+        let svc = self.get(id).await?;
+        if svc.status == "running" {
+            let _ = self.stop(id).await;
+        }
+        let n = ServiceRepo::new(self.db.clone()).delete(id).await?;
+        if n == 0 {
+            return Err(Error::NotFound(format!("service: {id}")));
+        }
+        Ok(())
     }
 
     /// 找到 host 的一个在线 agent。

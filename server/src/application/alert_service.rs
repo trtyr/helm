@@ -39,6 +39,13 @@ impl AlertService {
     pub async fn list(&self, limit: i64) -> Result<Vec<AlertRow>> {
         Ok(AlertRepo::new(self.db.clone()).list(limit).await?)
     }
+
+    /// 分页列出告警。
+    pub async fn list_paged(&self, limit: i64, offset: i64) -> Result<Vec<AlertRow>> {
+        Ok(AlertRepo::new(self.db.clone())
+            .list_paged(limit, offset)
+            .await?)
+    }
 }
 
 #[cfg(test)]

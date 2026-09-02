@@ -60,6 +60,18 @@ impl AlertRepo {
         .await
     }
 
+    /// 分页列出告警。
+    pub async fn list_paged(&self, limit: i64, offset: i64) -> sqlx::Result<Vec<AlertRow>> {
+        sqlx::query_as::<_, AlertRow>(
+            "SELECT id, host_id, metric_name, threshold, value, level, created_at
+             FROM alerts ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(self.db.pool())
+        .await
+    }
+
     /// 删除指定时间之前的告警（时序保留）。
     pub async fn delete_before(&self, cutoff: DateTime<Utc>) -> sqlx::Result<u64> {
         sqlx::query("DELETE FROM alerts WHERE created_at < $1")

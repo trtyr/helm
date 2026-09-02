@@ -7,6 +7,7 @@ use crate::grpc::file_list_registry::FileListRegistry;
 use crate::grpc::listener_registry::ListenerRegistry;
 use crate::grpc::query_registry::QueryRegistry;
 use crate::grpc::session_registry::SessionRegistry;
+use crate::grpc::stream_registry::StreamRegistry;
 use crate::grpc::transfer_registry::TransferRegistry;
 use crate::store::Db;
 use crate::store::listener_repo::{ListenerRepo, ListenerRow};
@@ -47,6 +48,7 @@ pub struct ListenerService {
     sessions: SessionRegistry,
     file_list: FileListRegistry,
     query: QueryRegistry,
+    streams: StreamRegistry,
     fallback_token: String,
     cert: CertService,
 }
@@ -61,6 +63,7 @@ impl ListenerService {
         sessions: SessionRegistry,
         file_list: FileListRegistry,
         query: QueryRegistry,
+        streams: StreamRegistry,
         fallback_token: String,
         cert: CertService,
     ) -> Self {
@@ -72,6 +75,7 @@ impl ListenerService {
             sessions,
             file_list,
             query,
+            streams,
             fallback_token,
             cert,
         }
@@ -121,6 +125,7 @@ impl ListenerService {
                 self.sessions.clone(),
                 self.file_list.clone(),
                 self.query.clone(),
+                self.streams.clone(),
                 self.db.clone(),
                 token,
                 self.cert.clone(),
@@ -147,6 +152,32 @@ impl ListenerService {
         Ok(())
     }
 
+    /// 更新监听器（name/addr/proto/auth）。
+    pub async fn update(
+        &self,
+        id: Uuid,
+        name: &str,
+        addr: &str,
+        proto: &str,
+        auth: &str,
+    ) -> Result<ListenerView> {
+        let row = ListenerRepo::new(self.db.clone())
+            .update(id, name, addr, proto, auth)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("listener: {id}")))?;
+        let running = self.listeners.is_running(id).await;
+        Ok(ListenerView::from_row(row, running))
+    }
+
+    /// 删除监听器（先停再删）。
+    pub async fn delete(&self, id: Uuid) -> Result<()> {
+        if self.listeners.is_running(id).await {
+            let _ = self.listeners.stop(id).await;
+        }
+        ListenerRepo::new(self.db.clone()).delete(id).await?;
+        Ok(())
+    }
+
     /// 重启恢复：恢复所有 running 监听器；首次启动（表为空）时 seed 默认监听器。
     pub async fn resume_or_seed(&self, default_addr: &str) -> Result<()> {
         let repo = ListenerRepo::new(self.db.clone());
@@ -163,6 +194,7 @@ impl ListenerService {
                         self.sessions.clone(),
                         self.file_list.clone(),
                         self.query.clone(),
+                        self.streams.clone(),
                         self.db.clone(),
                         token,
                         self.cert.clone(),
@@ -189,6 +221,7 @@ impl ListenerService {
                     self.sessions.clone(),
                     self.file_list.clone(),
                     self.query.clone(),
+                    self.streams.clone(),
                     self.db.clone(),
                     token,
                     self.cert.clone(),

@@ -42,11 +42,41 @@ struct HostView {
     stale: bool,
 }
 
-/// 列表查询参数（可选标签过滤）。
+/// 列表查询参数（可选标签过滤 + 分页）。
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
     #[serde(default)]
     pub tag: Option<String>,
+    #[serde(default = "default_page")]
+    pub page: i64,
+    #[serde(default = "default_limit")]
+    pub limit: i64,
+}
+
+fn default_page() -> i64 {
+    1
+}
+
+fn default_limit() -> i64 {
+    20
+}
+
+/// 更新主机参数。
+#[derive(Debug, Deserialize)]
+pub struct UpdateHostBody {
+    pub hostname: String,
+    #[serde(default = "default_conn_mode")]
+    pub conn_mode: String,
+    #[serde(default)]
+    pub addr: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub os: String,
+    #[serde(default)]
+    pub arch: String,
+    #[serde(default)]
+    pub platform: String,
 }
 
 /// 设置标签参数。
@@ -55,7 +85,7 @@ pub struct SetTagsBody {
     pub tags: Vec<String>,
 }
 
-/// 列出主机：GET /api/v1/hosts（附在线状态 + 最后心跳 + 心跳超时标记；支持 ?tag= 过滤）
+/// 列出主机：GET /api/v1/hosts（附在线状态 + 最后心跳 + 心跳超时标记；支持 ?tag= 过滤 + ?page=&limit= 分页）
 pub async fn list_hosts(
     State(state): State<AppState>,
     Query(q): Query<ListQuery>,
@@ -66,7 +96,12 @@ pub async fn list_hosts(
 
     let hosts = match &q.tag {
         Some(tag) => HostRepo::new(db.clone()).list_by_tag(tag).await?,
-        None => HostRepo::new(db.clone()).list().await?,
+        None => {
+            let offset = (q.page.max(1) - 1) * q.limit.max(1);
+            HostRepo::new(db.clone())
+                .list_paged(q.limit.max(1), offset)
+                .await?
+        }
     };
     let agent_repo = AgentRepo::new(db);
 
@@ -132,4 +167,53 @@ pub async fn set_host_tags(
         .await?
         .ok_or_else(|| Error::NotFound(format!("host: {id}")))?;
     Ok(Json(json!({ "host": host })))
+}
+
+/// 更新主机：PUT /api/v1/hosts/{id}
+pub async fn update_host(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateHostBody>,
+) -> Result<Json<Value>, Error> {
+    let conn_mode = if body.conn_mode == "forward" {
+        "forward".to_string()
+    } else {
+        "reverse".to_string()
+    };
+    let host = HostRepo::new(state.db.clone())
+        .update(
+            id,
+            &NewHost {
+                hostname: body.hostname,
+                os: body.os,
+                arch: body.arch,
+                platform: body.platform,
+                tags: body.tags,
+                conn_mode,
+                addr: body.addr,
+            },
+        )
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("host: {id}")))?;
+    let _ = AuditService::new(state.db)
+        .record(&claims.sub, "host_update", &id.to_string(), json!({}))
+        .await;
+    Ok(Json(json!({ "host": host })))
+}
+
+/// 删除主机：DELETE /api/v1/hosts/{id}（软删除）
+pub async fn delete_host(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Value>, Error> {
+    let n = HostRepo::new(state.db.clone()).soft_delete(id).await?;
+    if n == 0 {
+        return Err(Error::NotFound(format!("host: {id}")));
+    }
+    let _ = AuditService::new(state.db)
+        .record(&claims.sub, "host_delete", &id.to_string(), json!({}))
+        .await;
+    Ok(Json(json!({ "ok": true })))
 }

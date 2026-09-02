@@ -33,4 +33,15 @@ impl AuditService {
     pub async fn list(&self, limit: i64) -> Result<Vec<crate::store::audit_repo::AuditRow>> {
         Ok(AuditRepo::new(self.db.clone()).list(limit).await?)
     }
+
+    /// 分页列出审计记录。
+    pub async fn list_paged(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<crate::store::audit_repo::AuditRow>> {
+        Ok(AuditRepo::new(self.db.clone())
+            .list_paged(limit, offset)
+            .await?)
+    }
 }

@@ -96,4 +96,16 @@ impl JobRepo {
         .fetch_optional(self.db.pool())
         .await
     }
+
+    /// 分页列出 job（按 started_at 倒序）。
+    pub async fn list_paged(&self, limit: i64, offset: i64) -> sqlx::Result<Vec<JobRow>> {
+        sqlx::query_as::<_, JobRow>(
+            "SELECT id, task_id, host_id, status, command, args, output, exit_code,
+                    started_at, finished_at FROM jobs ORDER BY started_at DESC NULLS LAST LIMIT $1 OFFSET $2",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(self.db.pool())
+        .await
+    }
 }

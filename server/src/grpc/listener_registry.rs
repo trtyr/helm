@@ -10,6 +10,7 @@ use crate::grpc::connection_registry::ConnectionRegistry;
 use crate::grpc::file_list_registry::FileListRegistry;
 use crate::grpc::query_registry::QueryRegistry;
 use crate::grpc::session_registry::SessionRegistry;
+use crate::grpc::stream_registry::StreamRegistry;
 use crate::grpc::transfer_registry::TransferRegistry;
 use crate::store::Db;
 use crate::store::listener_repo::ListenerRow;
@@ -52,6 +53,7 @@ impl ListenerRegistry {
         sessions: SessionRegistry,
         file_list: FileListRegistry,
         query: QueryRegistry,
+        streams: StreamRegistry,
         db: Db,
         token: String,
         cert: CertService,
@@ -65,7 +67,7 @@ impl ListenerRegistry {
             .parse()
             .map_err(|_| ListenerError::InvalidAddr(listener.addr.clone()))?;
         let svc = AgentServiceServer::new(AgentServiceImpl::new(
-            registry, transfers, sessions, file_list, query, db, token,
+            registry, transfers, sessions, file_list, query, streams, db, token,
         ));
         let (tx, rx) = oneshot::channel::<()>();
         let id = listener.id;

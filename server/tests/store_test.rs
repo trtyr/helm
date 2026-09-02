@@ -91,6 +91,55 @@ async fn host_repo_list_by_tag_and_set_tags() {
 }
 
 #[tokio::test]
+async fn host_repo_get_update_paged() {
+    let db = Db::connect(&test_url()).await.expect("connect");
+    db.migrate().await.expect("migrate");
+    let repo = HostRepo::new(db);
+
+    let hostname = format!("itest-upd-{}", std::process::id());
+    let row = repo
+        .insert(&NewHost {
+            hostname: hostname.clone(),
+            os: "linux".into(),
+            arch: "x86_64".into(),
+            platform: "linux-x86_64".into(),
+            tags: vec!["a".into()],
+            conn_mode: "reverse".into(),
+            addr: String::new(),
+        })
+        .await
+        .expect("insert");
+
+    let got = repo.get(row.id).await.expect("get").expect("row");
+    assert_eq!(got.hostname, hostname);
+
+    let updated = repo
+        .update(
+            row.id,
+            &NewHost {
+                hostname: "renamed".into(),
+                os: "linux".into(),
+                arch: "x86_64".into(),
+                platform: "linux-x86_64".into(),
+                tags: vec!["b".into()],
+                conn_mode: "forward".into(),
+                addr: "1.2.3.4:50052".into(),
+            },
+        )
+        .await
+        .expect("update")
+        .expect("row");
+    assert_eq!(updated.hostname, "renamed");
+    assert_eq!(updated.tags, vec!["b".to_string()]);
+    assert_eq!(updated.conn_mode, "forward");
+
+    let paged = repo.list_paged(1, 0).await.expect("list_paged");
+    assert_eq!(paged.len(), 1);
+
+    let _ = repo.soft_delete(row.id).await;
+}
+
+#[tokio::test]
 async fn audit_repo_insert_list() {
     let db = Db::connect(&test_url()).await.expect("connect");
     db.migrate().await.expect("migrate");

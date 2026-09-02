@@ -25,6 +25,16 @@ fn default_proto() -> String {
     "grpc".to_string()
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateListenerBody {
+    pub name: String,
+    pub addr: String,
+    #[serde(default = "default_proto")]
+    pub proto: String,
+    #[serde(default)]
+    pub auth: String,
+}
+
 fn service(state: &AppState) -> ListenerService {
     ListenerService::new(
         state.db.clone(),
@@ -34,6 +44,7 @@ fn service(state: &AppState) -> ListenerService {
         state.sessions.clone(),
         state.file_list.clone(),
         state.query.clone(),
+        state.streams.clone(),
         state.server_token.clone(),
         state.cert.clone(),
     )
@@ -87,6 +98,35 @@ pub async fn stop_listener(
     service(&state).stop(id).await?;
     let _ = AuditService::new(state.db)
         .record(&claims.sub, "listener_stop", &id.to_string(), json!({}))
+        .await;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// 更新监听器：PUT /api/v1/listeners/{id}
+pub async fn update_listener(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateListenerBody>,
+) -> Result<Json<Value>, Error> {
+    let listener = service(&state)
+        .update(id, &body.name, &body.addr, &body.proto, &body.auth)
+        .await?;
+    let _ = AuditService::new(state.db)
+        .record(&claims.sub, "listener_update", &id.to_string(), json!({}))
+        .await;
+    Ok(Json(json!({ "listener": listener })))
+}
+
+/// 删除监听器：DELETE /api/v1/listeners/{id}
+pub async fn delete_listener(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Value>, Error> {
+    service(&state).delete(id).await?;
+    let _ = AuditService::new(state.db)
+        .record(&claims.sub, "listener_delete", &id.to_string(), json!({}))
         .await;
     Ok(Json(json!({ "ok": true })))
 }

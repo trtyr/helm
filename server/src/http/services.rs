@@ -4,14 +4,40 @@ use crate::application::service_service::ServiceService;
 use crate::domain::Error;
 use crate::http::AppState;
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
+pub struct ListQuery {
+    #[serde(default = "default_page")]
+    pub page: i64,
+    #[serde(default = "default_limit")]
+    pub limit: i64,
+}
+
+fn default_page() -> i64 {
+    1
+}
+
+fn default_limit() -> i64 {
+    20
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CreateServiceBody {
     pub agent_id: String,
+    pub name: String,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub restart_policy: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateServiceBody {
     pub name: String,
     pub command: String,
     #[serde(default)]
@@ -41,9 +67,13 @@ pub async fn create_service(
     Ok(Json(json!({ "service": row })))
 }
 
-/// 列出服务：GET /api/v1/services
-pub async fn list_services(State(state): State<AppState>) -> Result<Json<Value>, Error> {
-    let rows = service(&state).list().await?;
+/// 列出服务：GET /api/v1/services?page=&limit=
+pub async fn list_services(
+    State(state): State<AppState>,
+    Query(q): Query<ListQuery>,
+) -> Result<Json<Value>, Error> {
+    let offset = (q.page.max(1) - 1) * q.limit.max(1);
+    let rows = service(&state).list_paged(q.limit.max(1), offset).await?;
     Ok(Json(json!({ "services": rows })))
 }
 
@@ -81,4 +111,31 @@ pub async fn service_logs(
 ) -> Result<Json<Value>, Error> {
     let row = service(&state).get(id).await?;
     Ok(Json(json!({ "log": row.log })))
+}
+
+/// 更新服务：PUT /api/v1/services/{id}
+pub async fn update_service(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateServiceBody>,
+) -> Result<Json<Value>, Error> {
+    let row = service(&state)
+        .update(
+            id,
+            &body.name,
+            &body.command,
+            &body.args,
+            &body.restart_policy,
+        )
+        .await?;
+    Ok(Json(json!({ "service": row })))
+}
+
+/// 删除服务：DELETE /api/v1/services/{id}
+pub async fn delete_service(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Value>, Error> {
+    service(&state).delete(id).await?;
+    Ok(Json(json!({ "ok": true })))
 }

@@ -1,11 +1,15 @@
 //! Agent 生命周期端点：列出 / 下线注销 / 卸载。
 
 use crate::application::agent_lifecycle_service::AgentLifecycleService;
+use crate::application::audit_service::AuditService;
+use crate::application::auth_service::Claims;
 use crate::domain::Error;
 use crate::http::AppState;
+use crate::store::agent_repo::{AgentRepo, AgentRow};
+use crate::store::host_repo::HostRepo;
 use axum::Json;
-use axum::extract::{Path, State};
-use serde::Deserialize;
+use axum::extract::{Extension, Path, State};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 /// 卸载指令参数。
@@ -14,6 +18,20 @@ pub struct UninstallBody {
     /// 是否删除自身二进制文件（默认 true = 完整卸载）。
     #[serde(default = "default_true")]
     pub remove_binary: bool,
+}
+
+/// 设置标签参数。
+#[derive(Debug, Deserialize)]
+pub struct SetTagsBody {
+    pub tags: Vec<String>,
+}
+
+/// agent 详情视图：附在线状态。
+#[derive(Debug, Serialize)]
+pub struct AgentDetail {
+    #[serde(flatten)]
+    pub agent: AgentRow,
+    pub online: bool,
 }
 
 fn default_true() -> bool {
@@ -49,4 +67,38 @@ pub async fn uninstall_agent(
         .uninstall(&agent_id, body.remove_binary)
         .await?;
     Ok(Json(json!({ "ok": true })))
+}
+
+/// 详情：GET /api/v1/agents/{id}
+pub async fn get_agent(
+    State(state): State<AppState>,
+    Path(agent_id): Path<String>,
+) -> Result<Json<Value>, Error> {
+    let agent = AgentRepo::new(state.db)
+        .get(&agent_id)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("agent: {agent_id}")))?;
+    let online = state.registry.is_online(&agent_id).await;
+    Ok(Json(json!({ "agent": AgentDetail { agent, online } })))
+}
+
+/// 更新 agent 所属 host 的标签：PUT /api/v1/agents/{id}/tags
+pub async fn update_agent_tags(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(agent_id): Path<String>,
+    Json(body): Json<SetTagsBody>,
+) -> Result<Json<Value>, Error> {
+    let host_id = AgentRepo::new(state.db.clone())
+        .get_host_id(&agent_id)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("agent: {agent_id}")))?;
+    let host = HostRepo::new(state.db.clone())
+        .set_tags(host_id, &body.tags)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("host: {host_id}")))?;
+    let _ = AuditService::new(state.db)
+        .record(&claims.sub, "agent_tags", &agent_id, json!({}))
+        .await;
+    Ok(Json(json!({ "host": host })))
 }

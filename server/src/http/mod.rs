@@ -14,6 +14,7 @@ pub mod listeners;
 pub mod metrics;
 pub mod process;
 pub mod services;
+pub mod stream;
 pub mod tasks;
 pub mod terminal;
 
@@ -24,11 +25,12 @@ use crate::grpc::file_list_registry::FileListRegistry;
 use crate::grpc::listener_registry::ListenerRegistry;
 use crate::grpc::query_registry::QueryRegistry;
 use crate::grpc::session_registry::SessionRegistry;
+use crate::grpc::stream_registry::StreamRegistry;
 use crate::grpc::transfer_registry::TransferRegistry;
 use crate::store::Db;
 use axum::Router;
 use axum::middleware;
-use axum::routing::{delete, get, post};
+use axum::routing::{get, post, put};
 
 /// HTTP 层共享状态。
 #[derive(Clone)]
@@ -40,6 +42,7 @@ pub struct AppState {
     pub sessions: SessionRegistry,
     pub file_list: FileListRegistry,
     pub query: QueryRegistry,
+    pub streams: StreamRegistry,
     pub jwt_secret: String,
     pub server_token: String,
     pub heartbeat_timeout_secs: u64,
@@ -58,6 +61,7 @@ pub async fn serve(
     sessions: SessionRegistry,
     file_list: FileListRegistry,
     query: QueryRegistry,
+    streams: StreamRegistry,
     cert: CertService,
 ) -> anyhow::Result<()> {
     let state = AppState {
@@ -68,6 +72,7 @@ pub async fn serve(
         sessions,
         file_list,
         query,
+        streams,
         jwt_secret: config.jwt_secret.clone(),
         server_token: config.server_token.clone(),
         heartbeat_timeout_secs: config.heartbeat_timeout_secs,
@@ -78,8 +83,13 @@ pub async fn serve(
     // 受保护路由（需 JWT）
     let protected = Router::new()
         .route("/hosts", get(hosts::list_hosts).post(hosts::create_host))
+        .route(
+            "/hosts/{id}",
+            put(hosts::update_host).delete(hosts::delete_host),
+        )
         .route("/hosts/{id}/tags", post(hosts::set_host_tags))
         .route("/exec", post(exec::exec))
+        .route("/jobs", get(jobs::list_jobs))
         .route("/jobs/{id}", get(jobs::get_job))
         .route("/metrics", get(metrics::list_metrics))
         .route("/files/upload", post(files::upload))
@@ -94,8 +104,16 @@ pub async fn serve(
         )
         .route("/listeners/{id}/start", post(listeners::start_listener))
         .route("/listeners/{id}/stop", post(listeners::stop_listener))
+        .route(
+            "/listeners/{id}",
+            put(listeners::update_listener).delete(listeners::delete_listener),
+        )
         .route("/agents", get(agents::list_agents))
-        .route("/agents/{id}", delete(agents::deregister_agent))
+        .route(
+            "/agents/{id}",
+            get(agents::get_agent).delete(agents::deregister_agent),
+        )
+        .route("/agents/{id}/tags", put(agents::update_agent_tags))
         .route("/agents/{id}/uninstall", post(agents::uninstall_agent))
         .route(
             "/services",
@@ -105,6 +123,10 @@ pub async fn serve(
         .route("/services/{id}/stop", post(services::stop_service))
         .route("/services/{id}/restart", post(services::restart_service))
         .route("/services/{id}/logs", get(services::service_logs))
+        .route(
+            "/services/{id}",
+            put(services::update_service).delete(services::delete_service),
+        )
         .route("/processes/list", post(process::list_processes))
         .route("/processes/kill", post(process::kill_process))
         .route("/net/info", post(process::net_info))
@@ -119,6 +141,12 @@ pub async fn serve(
         .route("/healthz", get(health::healthz))
         .route("/api/v1/auth/login", post(auth::login))
         .route("/api/v1/agents/{id}/terminal", get(terminal::terminal))
+        .route(
+            "/api/v1/services/{id}/logs/stream",
+            get(stream::service_logs_stream),
+        )
+        .route("/api/v1/jobs/{id}/stream", get(stream::job_stream))
+        .route("/api/v1/metrics/stream", get(stream::metrics_stream))
         .route("/api/v1/agents/cert", post(cert::issue_cert))
         .nest("/api/v1", protected)
         .with_state(state);

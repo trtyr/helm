@@ -79,6 +79,49 @@ impl HostRepo {
         .await
     }
 
+    /// 按 id 查主机（未删除）。
+    pub async fn get(&self, id: Uuid) -> sqlx::Result<Option<HostRow>> {
+        sqlx::query_as::<_, HostRow>(
+            "SELECT id, hostname, os, arch, platform, tags, conn_mode, addr
+             FROM hosts WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(id)
+        .fetch_optional(self.db.pool())
+        .await
+    }
+
+    /// 更新主机信息，返回更新后的行（未找到返回 None）。
+    pub async fn update(&self, id: Uuid, h: &NewHost) -> sqlx::Result<Option<HostRow>> {
+        sqlx::query_as::<_, HostRow>(
+            "UPDATE hosts SET hostname = $2, os = $3, arch = $4, platform = $5,
+                 tags = $6, conn_mode = $7, addr = $8, updated_at = now()
+             WHERE id = $1 AND deleted_at IS NULL
+             RETURNING id, hostname, os, arch, platform, tags, conn_mode, addr",
+        )
+        .bind(id)
+        .bind(&h.hostname)
+        .bind(&h.os)
+        .bind(&h.arch)
+        .bind(&h.platform)
+        .bind(&h.tags)
+        .bind(&h.conn_mode)
+        .bind(&h.addr)
+        .fetch_optional(self.db.pool())
+        .await
+    }
+
+    /// 分页列出（按创建时间倒序）。
+    pub async fn list_paged(&self, limit: i64, offset: i64) -> sqlx::Result<Vec<HostRow>> {
+        sqlx::query_as::<_, HostRow>(
+            "SELECT id, hostname, os, arch, platform, tags, conn_mode, addr
+             FROM hosts WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(self.db.pool())
+        .await
+    }
+
     /// 按标签过滤主机（`tag = ANY(tags)`）。
     pub async fn list_by_tag(&self, tag: &str) -> sqlx::Result<Vec<HostRow>> {
         sqlx::query_as::<_, HostRow>(

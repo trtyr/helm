@@ -1,0 +1,1193 @@
+openapi: 3.0.3
+info:
+  title: Helm 运维平台 API
+  description: |
+    Helm 控制面（Server）的完整 HTTP API 契约，覆盖控制台、Agent 生命周期、
+    命令执行、文件、服务、监听器、实时流（WebSocket）与审计/告警端点。
+    除 `/healthz`、`/auth/login`、`/agents/cert` 与 WebSocket 端点外，
+    所有 `/api/v1` 端点均需 `Authorization: Bearer <JWT>`。
+  version: 1.0.0
+servers:
+  - url: http://127.0.0.1:18080
+    description: 本地开发（端口可用 HELM_HTTP_ADDR 覆盖）
+tags:
+  - name: auth
+    description: 认证
+  - name: hosts
+    description: 主机管理
+  - name: agents
+    description: Agent 生命周期
+  - name: exec
+    description: 命令执行
+  - name: jobs
+    description: Job 查询
+  - name: metrics
+    description: 指标与告警
+  - name: files
+    description: 文件传输
+  - name: tasks
+    description: 脚本与定时任务
+  - name: forward
+    description: 正向连接执行
+  - name: listeners
+    description: 监听器管理
+  - name: services
+    description: 常驻服务管理
+  - name: process
+    description: 进程与网络信息
+  - name: audit
+    description: 审计日志
+  - name: stream
+    description: 实时流（WebSocket）
+
+paths:
+  /healthz:
+    get:
+      tags: [auth]
+      summary: 健康检查
+      responses:
+        "200":
+          description: 服务正常
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      summary: 控制台登录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        "200":
+          description: 登录成功，返回 JWT
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/agents/cert:
+    post:
+      tags: [agents]
+      summary: Agent 提交 CSR 换 mTLS 证书（token 放 body，无需 JWT）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, token, csr_pem]
+              properties:
+                agent_id: { type: string }
+                token: { type: string }
+                csr_pem: { type: string }
+      responses:
+        "200":
+          description: 签发成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cert_pem: { type: string }
+                  ca_cert_pem: { type: string }
+
+  /api/v1/hosts:
+    get:
+      tags: [hosts]
+      summary: 列出主机（附在线状态 + 最后心跳 + 超时标记；支持 tag 过滤与分页）
+      parameters:
+        - name: tag
+          in: query
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        "200":
+          description: 主机列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hosts:
+                    type: array
+                    items: { $ref: "#/components/schemas/HostView" }
+    post:
+      tags: [hosts]
+      summary: 创建主机
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateHost" }
+      responses:
+        "200":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  host: { $ref: "#/components/schemas/Host" }
+
+  /api/v1/hosts/{id}:
+    parameters:
+      - $ref: "#/components/parameters/HostId"
+    put:
+      tags: [hosts]
+      summary: 更新主机
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateHost" }
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  host: { $ref: "#/components/schemas/Host" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [hosts]
+      summary: 删除主机（软删除）
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+
+  /api/v1/hosts/{id}/tags:
+    parameters:
+      - $ref: "#/components/parameters/HostId"
+    post:
+      tags: [hosts]
+      summary: 设置主机标签
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tags]
+              properties:
+                tags:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200":
+          description: 设置成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  host: { $ref: "#/components/schemas/Host" }
+
+  /api/v1/agents:
+    get:
+      tags: [agents]
+      summary: 列出已注册 Agent
+      responses:
+        "200":
+          description: Agent 列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents:
+                    type: array
+                    items: { $ref: "#/components/schemas/Agent" }
+
+  /api/v1/agents/{id}:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      tags: [agents]
+      summary: 查询 Agent 详情（附在线状态）
+      responses:
+        "200":
+          description: Agent 详情
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent: { $ref: "#/components/schemas/AgentDetail" }
+    delete:
+      tags: [agents]
+      summary: 注销 Agent（删 agent 行 + 孤儿主机软删）
+      responses:
+        "200":
+          description: 注销成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+
+  /api/v1/agents/{id}/tags:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    put:
+      tags: [agents]
+      summary: 更新 Agent 关联主机的标签
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tags]
+              properties:
+                tags:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  host: { $ref: "#/components/schemas/Host" }
+
+  /api/v1/agents/{id}/uninstall:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    post:
+      tags: [agents]
+      summary: 下发卸载指令（SelfDestruct，可选删除二进制）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                remove_binary: { type: boolean, default: true }
+      responses:
+        "200":
+          description: 指令已下发
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        "409":
+          $ref: "#/components/responses/NotConnected"
+
+  /api/v1/agents/{id}/terminal:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+      - name: token
+        in: query
+        required: true
+        schema: { type: string }
+        description: JWT（WebSocket 握手无法带 Authorization header）
+    get:
+      tags: [stream]
+      summary: 交互式会话终端（WebSocket，二进制帧双向流转）
+      responses:
+        "101":
+          description: WebSocket 升级成功
+
+  /api/v1/exec:
+    post:
+      tags: [exec]
+      summary: 下发命令执行
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, command]
+              properties:
+                agent_id: { type: string }
+                command: { type: string }
+                args:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200":
+          description: 返回 job_id
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id: { type: string, format: uuid }
+
+  /api/v1/jobs:
+    get:
+      tags: [jobs]
+      summary: 分页列出 Job
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        "200":
+          description: Job 列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobs:
+                    type: array
+                    items: { $ref: "#/components/schemas/Job" }
+
+  /api/v1/jobs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      tags: [jobs]
+      summary: 查询单个 Job
+      responses:
+        "200":
+          description: Job 详情
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job: { $ref: "#/components/schemas/Job" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/jobs/{id}/stream:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+      - name: token
+        in: query
+        required: true
+        schema: { type: string }
+    get:
+      tags: [stream]
+      summary: Job 输出实时流（WebSocket，二进制帧为输出增量）
+      responses:
+        "101":
+          description: WebSocket 升级成功
+
+  /api/v1/metrics:
+    get:
+      tags: [metrics]
+      summary: 查询指标（时序）
+      responses:
+        "200":
+          description: 指标列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metrics:
+                    type: array
+                    items: { $ref: "#/components/schemas/Metric" }
+
+  /api/v1/metrics/stream:
+    get:
+      tags: [stream]
+      summary: 指标实时流（WebSocket，二进制帧为 JSON 指标点）
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "101":
+          description: WebSocket 升级成功
+
+  /api/v1/files/upload:
+    post:
+      tags: [files]
+      summary: 上传文件到 Agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, local_path, remote_path]
+              properties:
+                agent_id: { type: string }
+                local_path: { type: string }
+                remote_path: { type: string }
+      responses:
+        "200":
+          description: 上传完成（含 SHA256 校验结果）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  checksum_ok: { type: boolean }
+
+  /api/v1/files/download:
+    post:
+      tags: [files]
+      summary: 从 Agent 下载文件
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, remote_path, local_path]
+              properties:
+                agent_id: { type: string }
+                remote_path: { type: string }
+                local_path: { type: string }
+      responses:
+        "200":
+          description: 下载完成（含 SHA256 校验结果）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  checksum_ok: { type: boolean }
+
+  /api/v1/files/list:
+    post:
+      tags: [files]
+      summary: 列目录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, path]
+              properties:
+                agent_id: { type: string }
+                path: { type: string }
+      responses:
+        "200":
+          description: 目录条目
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path: { type: string }
+                  entries:
+                    type: array
+                    items: { $ref: "#/components/schemas/FileEntry" }
+
+  /api/v1/tasks/script:
+    post:
+      tags: [tasks]
+      summary: 下发脚本任务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, script]
+              properties:
+                agent_id: { type: string }
+                script: { type: string }
+      responses:
+        "200":
+          description: 任务已创建
+
+  /api/v1/tasks/schedule:
+    post:
+      tags: [tasks]
+      summary: 创建定时任务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, command, interval_secs]
+              properties:
+                agent_id: { type: string }
+                command: { type: string }
+                args:
+                  type: array
+                  items: { type: string }
+                interval_secs: { type: integer }
+      responses:
+        "200":
+          description: 定时任务已创建
+
+  /api/v1/forward/exec:
+    post:
+      tags: [forward]
+      summary: 正向连接执行（Server 拨号 Agent）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [command]
+              properties:
+                hostname: { type: string, description: 按主机名解析（conn_mode=forward） }
+                agent_addr: { type: string, description: 直接拨号地址 host:port }
+                command: { type: string }
+                args:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200":
+          description: 执行结果
+
+  /api/v1/listeners:
+    get:
+      tags: [listeners]
+      summary: 列出监听器
+      responses:
+        "200":
+          description: 监听器列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  listeners:
+                    type: array
+                    items: { $ref: "#/components/schemas/Listener" }
+    post:
+      tags: [listeners]
+      summary: 创建监听器（默认 stopped）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateListener" }
+      responses:
+        "200":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  listener: { $ref: "#/components/schemas/Listener" }
+
+  /api/v1/listeners/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ListenerId"
+    put:
+      tags: [listeners]
+      summary: 更新监听器
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateListener" }
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  listener: { $ref: "#/components/schemas/Listener" }
+    delete:
+      tags: [listeners]
+      summary: 删除监听器
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+
+  /api/v1/listeners/{id}/start:
+    parameters:
+      - $ref: "#/components/parameters/ListenerId"
+    post:
+      tags: [listeners]
+      summary: 启动监听器（动态绑定 gRPC）
+      responses:
+        "200":
+          description: 启动成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+
+  /api/v1/listeners/{id}/stop:
+    parameters:
+      - $ref: "#/components/parameters/ListenerId"
+    post:
+      tags: [listeners]
+      summary: 停止监听器
+      responses:
+        "200":
+          description: 停止成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+
+  /api/v1/services:
+    get:
+      tags: [services]
+      summary: 分页列出服务
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        "200":
+          description: 服务列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  services:
+                    type: array
+                    items: { $ref: "#/components/schemas/Service" }
+    post:
+      tags: [services]
+      summary: 创建常驻服务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateService" }
+      responses:
+        "200":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service: { $ref: "#/components/schemas/Service" }
+
+  /api/v1/services/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ServiceId"
+    put:
+      tags: [services]
+      summary: 更新服务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateService" }
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service: { $ref: "#/components/schemas/Service" }
+    delete:
+      tags: [services]
+      summary: 删除服务（running 状态需先 stop）
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+
+  /api/v1/services/{id}/start:
+    parameters:
+      - $ref: "#/components/parameters/ServiceId"
+    post:
+      tags: [services]
+      summary: 启动服务
+      responses:
+        "200":
+          description: 启动成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+
+  /api/v1/services/{id}/stop:
+    parameters:
+      - $ref: "#/components/parameters/ServiceId"
+    post:
+      tags: [services]
+      summary: 停止服务
+      responses:
+        "200":
+          description: 停止成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+
+  /api/v1/services/{id}/restart:
+    parameters:
+      - $ref: "#/components/parameters/ServiceId"
+    post:
+      tags: [services]
+      summary: 重启服务（stop + start）
+      responses:
+        "200":
+          description: 重启成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+
+  /api/v1/services/{id}/logs:
+    parameters:
+      - $ref: "#/components/parameters/ServiceId"
+    get:
+      tags: [services]
+      summary: 查询服务日志（快照）
+      responses:
+        "200":
+          description: 日志内容
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  log: { type: string }
+
+  /api/v1/services/{id}/logs/stream:
+    parameters:
+      - $ref: "#/components/parameters/ServiceId"
+      - name: token
+        in: query
+        required: true
+        schema: { type: string }
+    get:
+      tags: [stream]
+      summary: 服务日志实时流（WebSocket，二进制帧为日志增量）
+      responses:
+        "101":
+          description: WebSocket 升级成功
+
+  /api/v1/processes/list:
+    post:
+      tags: [process]
+      summary: 列出 Agent 进程
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id]
+              properties:
+                agent_id: { type: string }
+      responses:
+        "200":
+          description: 进程列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  processes:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProcessInfo" }
+
+  /api/v1/processes/kill:
+    post:
+      tags: [process]
+      summary: 杀进程（不存在返回 ok=false，仍 200）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, pid]
+              properties:
+                agent_id: { type: string }
+                pid: { type: integer }
+      responses:
+        "200":
+          description: 结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+
+  /api/v1/net/info:
+    post:
+      tags: [process]
+      summary: 采集 Agent 网络信息
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id]
+              properties:
+                agent_id: { type: string }
+      responses:
+        "200":
+          description: 网络信息
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hostname: { type: string }
+                  interfaces:
+                    type: array
+                    items: { $ref: "#/components/schemas/NetInterface" }
+
+  /api/v1/audit:
+    get:
+      tags: [audit]
+      summary: 分页列出审计日志
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+      responses:
+        "200":
+          description: 审计记录
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  audit:
+                    type: array
+                    items: { $ref: "#/components/schemas/Audit" }
+
+  /api/v1/alerts:
+    get:
+      tags: [metrics]
+      summary: 分页列出告警
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+      responses:
+        "200":
+          description: 告警列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alerts:
+                    type: array
+                    items: { $ref: "#/components/schemas/Alert" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    HostId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AgentId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    JobId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ListenerId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ServiceId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Error:
+      description: 错误
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code: { type: string }
+                  message: { type: string }
+    Unauthorized:
+      description: 未授权
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: object }
+    NotFound:
+      description: 未找到
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: object }
+    NotConnected:
+      description: Agent 离线
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: object }
+  schemas:
+    Host:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        hostname: { type: string }
+        os: { type: string }
+        arch: { type: string }
+        platform: { type: string }
+        tags: { type: array, items: { type: string } }
+        conn_mode: { type: string, enum: [reverse, forward] }
+        addr: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    HostView:
+      allOf:
+        - $ref: "#/components/schemas/Host"
+        - type: object
+          properties:
+            online: { type: boolean }
+            last_seen: { type: string, format: date-time, nullable: true }
+            stale: { type: boolean }
+    CreateHost:
+      type: object
+      required: [hostname]
+      properties:
+        hostname: { type: string }
+        conn_mode: { type: string, enum: [reverse, forward], default: reverse }
+        addr: { type: string }
+        tags: { type: array, items: { type: string } }
+    UpdateHost:
+      type: object
+      required: [hostname]
+      properties:
+        hostname: { type: string }
+        conn_mode: { type: string, enum: [reverse, forward] }
+        addr: { type: string }
+        tags: { type: array, items: { type: string } }
+        os: { type: string }
+        arch: { type: string }
+        platform: { type: string }
+    Agent:
+      type: object
+      properties:
+        id: { type: string }
+        host_id: { type: string, format: uuid }
+        version: { type: string }
+        hostname: { type: string }
+        last_heartbeat_at: { type: string, format: date-time, nullable: true }
+    AgentDetail:
+      allOf:
+        - $ref: "#/components/schemas/Agent"
+        - type: object
+          properties:
+            online: { type: boolean }
+    Job:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        task_id: { type: string, format: uuid, nullable: true }
+        host_id: { type: string, format: uuid }
+        status: { type: string }
+        command: { type: string }
+        args: { type: array, items: { type: string } }
+        output: { type: string, nullable: true }
+        exit_code: { type: integer, nullable: true }
+        started_at: { type: string, format: date-time, nullable: true }
+        finished_at: { type: string, format: date-time, nullable: true }
+    Metric:
+      type: object
+      properties:
+        host_id: { type: string, format: uuid }
+        name: { type: string }
+        value: { type: number }
+        labels: { type: object, additionalProperties: { type: string } }
+        ts: { type: string, format: date-time }
+    FileEntry:
+      type: object
+      properties:
+        name: { type: string }
+        is_dir: { type: boolean }
+        size: { type: integer }
+        modified_unix_ms: { type: integer }
+        mode: { type: string }
+    Listener:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        addr: { type: string }
+        proto: { type: string, enum: [grpc] }
+        status: { type: string, enum: [running, stopped] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    CreateListener:
+      type: object
+      required: [name, addr]
+      properties:
+        name: { type: string }
+        addr: { type: string }
+        proto: { type: string, enum: [grpc], default: grpc }
+        auth: { type: string }
+    UpdateListener:
+      type: object
+      required: [name, addr]
+      properties:
+        name: { type: string }
+        addr: { type: string }
+        proto: { type: string, enum: [grpc] }
+        auth: { type: string }
+    Service:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        host_id: { type: string, format: uuid }
+        name: { type: string }
+        command: { type: string }
+        args: { type: array, items: { type: string } }
+        status: { type: string, enum: [running, stopped, failed] }
+        restart_policy: { type: string, enum: ["no", "always"] }
+        pid: { type: integer, nullable: true }
+        exit_code: { type: integer, nullable: true }
+        log: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    CreateService:
+      type: object
+      required: [agent_id, name, command]
+      properties:
+        agent_id: { type: string }
+        name: { type: string }
+        command: { type: string }
+        args: { type: array, items: { type: string } }
+        restart_policy: { type: string, enum: ["no", "always"], default: "no" }
+    UpdateService:
+      type: object
+      required: [name, command]
+      properties:
+        name: { type: string }
+        command: { type: string }
+        args: { type: array, items: { type: string } }
+        restart_policy: { type: string, enum: ["no", "always"] }
+    ProcessInfo:
+      type: object
+      properties:
+        pid: { type: integer }
+        name: { type: string }
+        cpu_percent: { type: number }
+        mem_bytes: { type: integer }
+    NetInterface:
+      type: object
+      properties:
+        name: { type: string }
+        addrs:
+          type: array
+          items: { type: string }
+    Audit:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        actor: { type: string }
+        action: { type: string }
+        resource: { type: string }
+        detail: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+    Alert:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        host_id: { type: string, format: uuid }
+        metric_name: { type: string }
+        threshold: { type: number }
+        value: { type: number }
+        level: { type: string }
+        created_at: { type: string, format: date-time }
+
+security:
+  - bearerAuth: []

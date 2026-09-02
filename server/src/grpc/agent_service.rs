@@ -7,6 +7,7 @@ use crate::grpc::connection_registry::ConnectionRegistry;
 use crate::grpc::file_list_registry::FileListRegistry;
 use crate::grpc::query_registry::{QueryRegistry, QueryResponse};
 use crate::grpc::session_registry::SessionRegistry;
+use crate::grpc::stream_registry::StreamRegistry;
 use crate::grpc::transfer_registry::TransferRegistry;
 use crate::store::alert_repo::AlertRepo;
 use crate::store::service_repo::ServiceRepo;
@@ -29,17 +30,20 @@ pub struct AgentServiceImpl {
     sessions: SessionRegistry,
     file_list: FileListRegistry,
     query: QueryRegistry,
+    streams: StreamRegistry,
     db: Db,
     server_token: String,
 }
 
 impl AgentServiceImpl {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         registry: ConnectionRegistry,
         transfers: TransferRegistry,
         sessions: SessionRegistry,
         file_list: FileListRegistry,
         query: QueryRegistry,
+        streams: StreamRegistry,
         db: Db,
         server_token: String,
     ) -> Self {
@@ -49,6 +53,7 @@ impl AgentServiceImpl {
             sessions,
             file_list,
             query,
+            streams,
             db,
             server_token,
         }
@@ -140,6 +145,7 @@ impl AgentService for AgentServiceImpl {
         let sessions = self.sessions.clone();
         let file_list = self.file_list.clone();
         let query = self.query.clone();
+        let streams = self.streams.clone();
         let db = self.db.clone();
         let agent_id_inner = agent_id.clone();
         tokio::spawn(async move {
@@ -192,6 +198,16 @@ impl AgentService for AgentServiceImpl {
                                             .insert(host_id, &m.name, threshold, m.value)
                                             .await;
                                     }
+                                    // 实时流：推送指标
+                                    let payload = serde_json::json!({
+                                        "host_id": host_id,
+                                        "name": m.name,
+                                        "value": m.value,
+                                        "ts": m.timestamp_unix_ms,
+                                    });
+                                    streams
+                                        .broadcast("metrics", payload.to_string().into_bytes())
+                                        .await;
                                 }
                             }
                             tracing::debug!(agent_id = %agent_id_inner, count, "metrics received");
@@ -201,6 +217,10 @@ impl AgentService for AgentServiceImpl {
                             let entry = outputs.entry(job_id.clone()).or_default();
                             if let Some(chunk) = er.chunk {
                                 entry.push_str(&String::from_utf8_lossy(&chunk.data));
+                                // 实时流：推送 job 输出增量
+                                streams
+                                    .broadcast(&format!("job:{job_id}"), chunk.data)
+                                    .await;
                             }
                             if er.finished {
                                 let output = outputs.remove(&job_id).unwrap_or_default();
@@ -247,6 +267,10 @@ impl AgentService for AgentServiceImpl {
                                 let repo = ServiceRepo::new(db.clone());
                                 if !st.log.is_empty() {
                                     let _ = repo.append_log(id, &st.log).await;
+                                    // 实时流：推送服务日志增量
+                                    streams
+                                        .broadcast(&format!("service:{id}"), st.log.clone())
+                                        .await;
                                 }
                                 match map_service_status(&st.status) {
                                     Some("running") => {

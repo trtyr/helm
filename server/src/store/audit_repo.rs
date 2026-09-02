@@ -59,4 +59,16 @@ impl AuditRepo {
         .fetch_all(self.db.pool())
         .await
     }
+
+    /// 分页列出审计记录。
+    pub async fn list_paged(&self, limit: i64, offset: i64) -> sqlx::Result<Vec<AuditRow>> {
+        sqlx::query_as::<_, AuditRow>(
+            "SELECT id, actor, action, resource, detail, created_at
+             FROM audit_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(self.db.pool())
+        .await
+    }
 }

@@ -33,6 +33,7 @@ pub async fn run() -> Result<()> {
     let sessions = grpc::session_registry::SessionRegistry::new();
     let file_list = grpc::file_list_registry::FileListRegistry::new();
     let query = grpc::query_registry::QueryRegistry::new();
+    let streams = grpc::stream_registry::StreamRegistry::new();
     let cert =
         application::cert_service::CertService::generate(&config.tls_server_name, config.mtls)?;
 
@@ -49,6 +50,7 @@ pub async fn run() -> Result<()> {
         sessions.clone(),
         file_list.clone(),
         query.clone(),
+        streams.clone(),
         config.server_token.clone(),
         cert.clone(),
     )
@@ -80,6 +82,7 @@ pub async fn run() -> Result<()> {
         sessions.clone(),
         file_list.clone(),
         query.clone(),
+        streams.clone(),
         cert.clone(),
     )
     .await?;

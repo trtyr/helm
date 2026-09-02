@@ -65,6 +65,18 @@ impl ServiceRepo {
         .await
     }
 
+    /// 分页列出服务。
+    pub async fn list_paged(&self, limit: i64, offset: i64) -> sqlx::Result<Vec<ServiceRow>> {
+        sqlx::query_as::<_, ServiceRow>(
+            "SELECT id, host_id, name, command, args, status, restart_policy, pid, exit_code, log, created_at, updated_at
+             FROM services ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(self.db.pool())
+        .await
+    }
+
     /// 按 id 查服务。
     pub async fn get(&self, id: Uuid) -> sqlx::Result<Option<ServiceRow>> {
         sqlx::query_as::<_, ServiceRow>(
@@ -107,5 +119,37 @@ impl ServiceRepo {
         .execute(self.db.pool())
         .await?;
         Ok(())
+    }
+
+    /// 删除服务（停掉的才删，运行中返回 None 由调用方判断）。
+    pub async fn delete(&self, id: Uuid) -> sqlx::Result<u64> {
+        sqlx::query("DELETE FROM services WHERE id = $1 AND status <> 'running'")
+            .bind(id)
+            .execute(self.db.pool())
+            .await
+            .map(|r| r.rows_affected())
+    }
+
+    /// 更新服务（name/command/args/restart_policy），返回更新后的行。
+    pub async fn update(
+        &self,
+        id: Uuid,
+        name: &str,
+        command: &str,
+        args: &[String],
+        restart_policy: &str,
+    ) -> sqlx::Result<Option<ServiceRow>> {
+        sqlx::query_as::<_, ServiceRow>(
+            "UPDATE services SET name = $2, command = $3, args = $4, restart_policy = $5, updated_at = now()
+             WHERE id = $1
+             RETURNING id, host_id, name, command, args, status, restart_policy, pid, exit_code, log, created_at, updated_at",
+        )
+        .bind(id)
+        .bind(name)
+        .bind(command)
+        .bind(args)
+        .bind(restart_policy)
+        .fetch_optional(self.db.pool())
+        .await
     }
 }

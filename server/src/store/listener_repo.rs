@@ -99,4 +99,27 @@ impl ListenerRepo {
             .await?;
         Ok(())
     }
+
+    /// 更新监听器（name/addr/proto/auth），返回更新后的行。
+    pub async fn update(
+        &self,
+        id: Uuid,
+        name: &str,
+        addr: &str,
+        proto: &str,
+        auth: &str,
+    ) -> sqlx::Result<Option<ListenerRow>> {
+        sqlx::query_as::<_, ListenerRow>(
+            "UPDATE listeners SET name = $2, addr = $3, proto = $4, auth = $5, updated_at = now()
+             WHERE id = $1
+             RETURNING id, name, addr, proto, auth, status",
+        )
+        .bind(id)
+        .bind(name)
+        .bind(addr)
+        .bind(proto)
+        .bind(auth)
+        .fetch_optional(self.db.pool())
+        .await
+    }
 }
