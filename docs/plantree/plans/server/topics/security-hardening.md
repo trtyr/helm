@@ -12,9 +12,9 @@ Related: [decisions/007](../decisions/007-security-posture.md)
 
 ## Current Position
 
-已有：Agent token 严格认证、控制台 JWT + bcrypt、单点错误边界（不外泄内部串）。
-缺失：明文 gRPC（无 TLS）、RBAC 存而不查（`users.role` 不校验）、无审计、无白名单。
-规划中，未实现。
+已实现：Agent token 严格认证、控制台 JWT + bcrypt、单点错误边界、mTLS（rcgen 内置 CA + 自动签发）、
+审计日志（`audit_logs` 表 + `GET /api/v1/audit`，登录/exec/文件/主机/监听器落库）。
+未做：RBAC 强制（`users.role` 存而不查，单用户场景暂缓）、命令白名单。
 
 ## Active Constraints
 

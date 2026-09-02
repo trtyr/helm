@@ -11,7 +11,8 @@ Related: [roadmap](../roadmap.md)
 
 ## Current Position
 
-仅命令执行（`/api/v1/exec`，一次性、非交互）。无交互终端。规划中，未实现。
+已实现（Phase 6）：WebSocket + portable-pty PTY 实时双向流（`GET /api/v1/agents/{id}/terminal`），
+支持多开会话 + 空闲超时（`HELM_SESSION_IDLE_TIMEOUT`）。
 
 ## Active Constraints
 

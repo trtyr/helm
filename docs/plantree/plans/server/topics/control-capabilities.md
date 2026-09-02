@@ -12,8 +12,8 @@ Related: [roadmap](../roadmap.md)
 
 ## Current Position
 
-已实现：命令执行（`/api/v1/exec`）、文件上下传（`/api/v1/files/*`）、脚本/定时（`/api/v1/tasks/*`）。
-缺失：交互 shell、进程、网络、文件系统、分组。规划中，未实现。
+已实现（Phase 6）：命令执行、文件上下传/列目录、脚本/定时之外，补齐交互 shell（WS+PTY）、
+进程管理（list/kill）、网络信息、文件系统浏览、Agent 分组/标签。
 
 ## Active Constraints
 

@@ -7,12 +7,12 @@ Related: [decisions/004](../decisions/004-storage-postgres-direct.md)
 
 ## One-Screen Summary
 
-核心实体：Host / Agent / Task / Job / FileTransfer / Metric / User。
+核心实体：Host / Agent / Task / Job / FileTransfer / Metric / User / Listener / Service / AuditLog / Alert。
 Job 与 FileTransfer 有显式状态机。存储走 sqlx + migrations。
 
 ## Current Position
 
-schema 已落地（Postgres + 3 个迁移，见 `server/migrations/`）。
+schema 已落地（Postgres + 7 个迁移，见 `server/migrations/`）。
 
 ## Active Constraints
 

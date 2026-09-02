@@ -7,13 +7,12 @@ Related: [decisions/005](../decisions/005-listener-model.md)
 
 ## One-Screen Summary
 
-监听器是 Agent 的接入点。当前 gRPC 监听硬编码在 `server/src/grpc/mod.rs`；
-目标是把监听器提升为一等公民（DB 实体 + API 启停 + 重启恢复），接近 C2 的「监听器」语义。
+监听器是 Agent 的接入点，已提升为一等公民：DB 实体 + API 启停 + 重启恢复，接近 C2 的「监听器」语义。
 
 ## Current Position
 
-硬编码：Server 启动即监听 `config.grpc_addr`，无生命周期管理、无多监听、无 API。
-规划中，未实现（Phase 5）。
+已实现（Phase 5）：监听器为 `listeners` 表实体（id/name/addr/proto/auth/status），支持
+create/list/start/stop + 多实例 + 重启恢复；默认监听器由 `resume_or_seed` seed/resume。
 
 ## Active Constraints
 

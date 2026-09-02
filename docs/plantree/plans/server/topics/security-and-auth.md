@@ -7,12 +7,12 @@ Related: [baseline risk-hotspots](../../../baseline/risk-hotspots.md)
 
 ## One-Screen Summary
 
-当前仅落地身份认证（token + JWT）；传输加密（TLS）与访问控制（RBAC）未做（Phase 4 强化项）。
+身份认证（token + JWT）+ mTLS 双向认证已落地；RBAC 强制未做（单用户场景）。
 密钥不硬编码，从环境变量/secret 注入。
 
 ## Current Position
 
-已落地：token 严格匹配认证（空则拒绝）+ JWT 控制台认证 + 单点错误边界；TLS 未做（明文 gRPC），mTLS/RBAC 列为 Phase 4 强化项。
+已落地：token 严格匹配认证（空则拒绝）+ JWT 控制台认证 + 单点错误边界 + mTLS（rcgen 内置 CA 自动签发，Phase 7）；RBAC 强制未做（`users.role` 存而不查）。
 
 ## Active Constraints
 

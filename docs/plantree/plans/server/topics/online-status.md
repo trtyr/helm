@@ -12,8 +12,8 @@ Related: [decisions/006](../decisions/006-online-status-detection.md)
 
 ## Current Position
 
-心跳（10s）与内存注册表已存在，但无超时判离线逻辑，`GET /api/v1/hosts` 不返回在线状态。
-规划中，未实现（Phase 5）。
+已实现（Phase 5）：心跳超时判定 `is_stale(last_seen, now, timeout)`（阈值可配，默认 30s）；
+`GET /api/v1/hosts` 返回 online / last_seen / stale。
 
 ## Active Constraints
 

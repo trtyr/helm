@@ -10,7 +10,7 @@ Status: active
 | 单元测试 | domain/application 纯逻辑 | `#[cfg(test)]` |
 | 集成测试 | store 仓储 + sqlx | `tests/` + 真实 Postgres（docker compose） |
 | 契约测试 | protobuf 服务定义一致性 | `buf lint` + `buf breaking` |
-| 端到端 | 一条链路：Agent 连入 → 下发命令 → 拿回输出 | `scripts/e2e-smoke.sh` |
+| 端到端 | 一条链路：Agent 连入 → 下发命令 → 拿回输出 | `scripts/e2e-*.py`（Python） |
 
 ## 发布门禁（合并前必须通过）
 

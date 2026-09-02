@@ -12,9 +12,8 @@ Related: [roadmap](../roadmap.md)
 
 ## Current Position
 
-已实现：`agent/src/monitor.rs` 每 30s 采集 `cpu.usage` / `mem.used` / `mem.total` /
-`mem.percent` / `proc.count`，经 `MetricReport` 上报落库。
-缺失：磁盘 / 网络 / 进程列表、告警、时序保留。规划中，未实现。
+已实现（Phase 7）：`agent/src/monitor.rs` 每 30s 采集 cpu/mem/disk.usage/net.rx/tx/proc.count，
+经 `MetricReport` 上报落库；阈值告警落 `alerts` 表 + `GET /api/v1/alerts`；时序保留 30 天（后台清理）。
 
 ## Active Constraints
 

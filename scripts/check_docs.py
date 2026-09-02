@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""校验 docs/ 归档与代码现状一致（机器可查）。
+"""校验 docs/ 归档 + plantree 现状陈述与代码一致（机器可查）。
 
 检查项：
 1. 必需文档齐全。
-2. 无残留旧痕迹（已删脚本 / 旧测试数 / 旧迁移数 / 已删文件）。
+2. 无残留旧痕迹（已删脚本 / 旧测试数 / 旧迁移数 / 「未实现」现状陈述）。
 3. data-model.md 迁移版本数与 migrations/ 目录一致。
 4. tech-stack.md 关键依赖与 Cargo.toml 一致。
 5. api.md 关键端点覆盖。
+
+扫描范围：docs/ 归档 + 根 README + plantree 的 baseline/roadmap/topics/README
+（排除 decisions/——那是历史决策上下文，记录「决策时」的现状，属合理保留）。
 """
 
 import os
@@ -29,20 +32,35 @@ REQUIRED = [
     "README.md",
 ]
 
-# 过时痕迹（docs/ 归档 + README，不含 plantree 历史规划）。
+# 过时痕迹（现状陈述，不含 decisions/ 历史决策上下文）。
 STALE = [
-    ("e2e-smoke.sh", "已删的 bash e2e 脚本"),
-    ("e2e-scheduler.sh", "已删的 bash e2e 脚本"),
-    ("16 passed", "过时测试数（现 47）"),
-    ("3 个迁移", "过时迁移版本数（现 7）"),
-    ("孤儿 src/main.rs", "已删的孤儿文件"),
-    ("迁移（3 个版本）", "过时迁移版本数"),
+    "e2e-smoke.sh",
+    "e2e-scheduler.sh",
+    "16 passed",
+    "3 个迁移",
+    "0001..0003",
+    "12 个端点",
+    "规划中，未实现",
+    "无交互终端",
+    "无 systemd unit",
+    "无超时判离线",
 ]
 
 
-def read(path: str) -> str:
-    with open(os.path.join(ROOT, path)) as f:
+def read(rel: str) -> str:
+    with open(os.path.join(ROOT, rel)) as f:
         return f.read()
+
+
+def plantree_md_files() -> list[str]:
+    """plantree 下除 decisions/ 外的所有 .md（现状陈述），用相对路径返回。"""
+    out = []
+    for dirpath, dirnames, filenames in os.walk(os.path.join(DOCS, "plantree")):
+        dirnames[:] = [d for d in dirnames if d != "decisions"]
+        for fn in filenames:
+            if fn.endswith(".md"):
+                out.append(os.path.relpath(os.path.join(dirpath, fn), ROOT))
+    return out
 
 
 def main() -> None:
@@ -50,11 +68,12 @@ def main() -> None:
     for d in REQUIRED:
         assert os.path.exists(os.path.join(ROOT, d)), f"缺失文档: {d}"
 
-    # 2. 旧痕迹（仅 docs/*.md + README，不扫 plantree/）
-    for d in REQUIRED:
-        text = read(d)
-        for pat, desc in STALE:
-            assert pat not in text, f"{d} 残留旧痕迹 '{pat}'（{desc}）"
+    # 2. 旧痕迹：docs/ 归档 + README + plantree（现状陈述，排除 decisions）
+    scanned = list(REQUIRED) + plantree_md_files()
+    for rel in scanned:
+        text = read(rel)
+        for pat in STALE:
+            assert pat not in text, f"{rel} 残留旧痕迹 '{pat}'"
 
     # 3. 迁移版本数：data-model.md 与 migrations/ 目录一致
     migrations = sorted(
@@ -89,7 +108,8 @@ def main() -> None:
         assert ep in api, f"api.md 缺端点 '{ep}'"
 
     print(
-        f"✓ docs/ 归档与代码现状一致（{len(migrations)} 迁移、关键依赖/端点全覆盖、无旧痕迹）"
+        f"✓ docs/ + plantree 现状与代码一致（{len(migrations)} 迁移、关键依赖/端点全覆盖、无旧痕迹，"
+        f"扫描 {len(scanned)} 个文档）"
     )
 
 

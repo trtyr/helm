@@ -31,12 +31,12 @@ server/
 │   ├── main.rs / lib.rs        # 入口 + run() 装配
 │   ├── config/                 # clap 配置（env 覆盖）
 │   ├── domain/                 # 纯领域：error.rs（类型化错误）+ job.rs（状态机）
-│   ├── application/            # 用例编排：auth / exec / file / forward / scheduler
-│   ├── grpc/                   # gRPC 适配：agent_service + connection_registry + transfer_registry
-│   ├── http/                   # HTTP API 适配：auth/exec/files/hosts/jobs/metrics/tasks/forward/health
+│   ├── application/            # 用例编排：auth/exec/file/forward/scheduler/listener/online_status/agent_lifecycle/cert/audit/alert/process/service
+│   ├── grpc/                   # gRPC 适配：agent_service + connection/transfer/session/file_list/query/stream/listener registry
+│   ├── http/                   # HTTP API 适配：auth/exec/files/hosts/agents/jobs/metrics/tasks/forward/listeners/services/process/audit/alerts/cert/terminal/stream/health
 │   ├── store/                  # 持久化：Db 聚合根 + 各 *_repo.rs
 │   └── telemetry/              # tracing 初始化
-├── migrations/                 # sqlx 迁移（0001..0003）
+├── migrations/                 # sqlx 迁移（0001..0007）
 └── tests/                      # 集成测试（连真实 Postgres）
 proto/                          # 共享 protobuf 契约（workspace 顶层独立 crate）
 ```
@@ -52,6 +52,6 @@ proto/                          # 共享 protobuf 契约（workspace 顶层独�
 
 - 单二进制，Windows / Linux / macOS 各自编译，tokio 异步。
 - 反向模式：gRPC client 主动连 Server（`connection.rs`）；正向模式：gRPC server 监听（`forward.rs`）。
-- 能力模块：exec（命令执行）/ file（文件传输）/ monitor（指标采集）。
+- 能力模块：exec（命令执行）/ file（文件传输）/ monitor（指标采集）/ pty（交互终端）/ service（常驻服务）/ fs（目录浏览）/ process（进程/网络）/ cert（mTLS 证书）/ uninstall（自杀卸载）。
 
 详细实现见 [docs/architecture.md](../../architecture.md)。

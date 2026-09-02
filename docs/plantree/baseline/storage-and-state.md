@@ -22,12 +22,18 @@ Status: active
 | FileTransfer | id, host_id, direction, path, size, status | 文件传输 |
 | Metric | host_id, name, value, labels, ts | 状态指标时间序列 |
 | User | id, username, role | 控制台用户 |
+| Listener | id, name, addr, proto, auth, status | gRPC 监听器（动态启停，迁移 4） |
+| Service | id, host_id, name, command, args, status, restart_policy, log | 常驻服务（迁移 5） |
+| AuditLog | id, actor, action, resource, detail | 审计日志（迁移 6） |
+| Alert | id, host_id, metric_name, threshold, value, level | 阈值告警（迁移 7） |
 
 ## 状态机
 
 - **Job**：`queued → running → succeeded | failed | timed_out | cancelled`
 - **FileTransfer**：`pending → transferring → done | failed`
-- **Agent 在线**：由活跃连接推导（内存注册表 `ConnectionRegistry`），`last_heartbeat` 持久化。
+- **Listener**：`stopped ↔ running`（动态启停）
+- **Service**：`stopped → running → stopped | failed`（restart_policy=always 时自动重启）
+- **Agent 在线**：由活跃连接推导（内存注册表 `ConnectionRegistry`），`last_heartbeat` 持久化 + `is_stale` 判定。
 
 ## 迁移机制
 

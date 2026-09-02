@@ -12,11 +12,11 @@ Related: [roadmap](../roadmap.md)、[decisions/008](../decisions/008-agent-persi
 
 ## Current Position
 
-Agent 已是跨平台单二进制（`tokio` + `sysinfo` + `hostname`），但：
+Agent 已是跨平台单二进制（`tokio` + `sysinfo` + `hostname` + `portable-pty`），已做平台适配：
 
-- Windows 以控制台运行（黑窗口）、无服务化、非管理员用户受限（实测）。
-- Linux 无 systemd unit。
-- 平台相关能力（进程 / 文件 / 服务）未做 OS 抽象层。
+- Windows 去黑窗口（windows_subsystem）+ 服务化（nssm 脚本）+ ConPTY（portable-pty）。
+- Linux systemd unit + journald。
+- 平台相关能力（进程 / 文件 / 服务 / PTY）各自按 `cfg(target_os)` 适配。
 
 ## Active Constraints
 

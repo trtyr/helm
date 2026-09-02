@@ -8,7 +8,7 @@ Status: active
 ## 1. 反向连接与注册（默认模式，Agent 主动连 Server）
 
 ```text
-Agent 启动 → 读配置 → 明文 gRPC 拨号 Server 端点（无 TLS）
+Agent 启动 → 读配置 → 拨号 Server 端点（默认明文 gRPC，`--mtls` 时走 TLS 双向认证）
   → 建立 bidirectional stream（一条流承载双向信令）
   → 发送 Register(agent_id, token, host_info)
   → Server 校验 token（严格匹配，空则拒绝）→ 按 hostname 复用/新建 host + upsert agent
@@ -22,13 +22,13 @@ Agent 启动 → 读配置 → 明文 gRPC 拨号 Server 端点（无 TLS）
 控制台 → HTTP POST /api/v1/exec
   → ExecService 创建 Job（状态 = queued）→ 经 registry 推送 ExecRequest
   → Agent 执行 → 流式回报 stdout/stderr 分块 + finished 结果
-  → Server 落库 Job 终态（succeeded/failed）→ 前端轮询结果
+  → Server 落库 Job 终态（succeeded/failed）→ 前端轮询结果或 `jobs/{id}/stream` 实时流
 ```
 
 ## 3. 状态上报
 
 ```text
-Agent 定时（30s）采集 CPU / 内存 / 进程数
+Agent 定时（30s）采集 CPU / 内存 / 磁盘 / 网络 / 进程数
   → 流上推送 MetricReport
   → Server 逐条落库（时间序列）→ 前端看板
 ```

@@ -12,8 +12,8 @@ Related: [roadmap](../roadmap.md)
 
 ## Current Position
 
-仅有「定时任务」（`/api/v1/tasks/schedule`，按间隔重复下发命令，`application/scheduler.rs`）。
-无「常驻服务」概念：不能部署一个长跑进程并持续看它。规划中，未实现。
+已实现（Phase 6）：常驻服务 `services` 表 + `ServiceManager`（启动/停止/重启/日志 + restart_policy）。
+HTTP：`/api/v1/services` CRUD + start/stop/restart/logs + logs/stream 实时流。
 
 ## Active Constraints
 
@@ -25,7 +25,7 @@ Related: [roadmap](../roadmap.md)
 ## Open Risks Or Questions
 
 - 日志保留策略（环形缓冲大小 / 是否落盘）。
-- 是否复用 `tasks` 表还是新增 `services` 表（见 data-model）。
+- 已定：新增 `services` 表（migration 0005）。
 
 ## Details
 

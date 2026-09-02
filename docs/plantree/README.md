@@ -18,7 +18,7 @@ Status: active
 
 | Plan | 状态 | 阶段 | 最后落地 | 下一步 |
 |------|------|------|----------|--------|
-| [server](plans/server/README.md) | Active | Phase 0–4 已落地，Phase 5–8 C2 规划中 | 正向连接 API（`c0456f0`） | Phase 5 监听器 + 在线状态 |
+| [server](plans/server/README.md) | Active | Phase 0–8 已落地 | Phase 8 API 完整性（`a3e0300`） | — |
 
 ## 如何阅读
 

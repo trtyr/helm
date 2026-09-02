@@ -12,9 +12,9 @@ agents 独立列表/详情、批量操作。对应 Phase 8。
 
 ## Current Position
 
-已实现 12 个端点：`auth/login`、`hosts`（GET/POST）、`exec`、`jobs/{id}`、`metrics`、
-`files/upload|download`、`tasks/script|schedule`、`forward/exec`、`healthz`。
-缺失：DELETE/UPDATE、在线状态、实时流、分页、agents 详情、批量。规划中，未实现。
+已实现（Phase 8）：39 个端点（OpenAPI 3.0.3），覆盖全实体 CRUD（DELETE/UPDATE）、分页/过滤、
+agents 详情、WebSocket 实时流（服务日志 / job 输出 / metrics）；文件批量上传下载已支持。
+契约：`docs/openapi.yaml` + `scripts/check_openapi.py` 机器校验。
 
 ## Active Constraints
 

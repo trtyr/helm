@@ -12,8 +12,8 @@ Linux 用 systemd unit；日志落文件。对应 Phase 7。
 
 ## Current Position
 
-Agent 是控制台程序：Windows 运行时弹黑窗口、无开机自启；Linux 无 systemd unit。
-规划中，未实现。
+已实现（Phase 7）：Windows `#![windows_subsystem = "windows"]` 去黑窗口 + `deploy/install-windows-service.ps1`（nssm）；
+Linux `deploy/helm-agent.service` systemd unit；日志按天滚动落文件（`--log-dir`）。
 
 ## Active Constraints
 
