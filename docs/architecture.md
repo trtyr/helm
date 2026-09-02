@@ -22,21 +22,27 @@ helm/
 │   │   ├── http/                 # HTTP API 适配层（控制台）
 │   │   ├── store/                # 持久化适配层（sqlx + 各实体仓储）
 │   │   └── telemetry/            # tracing 初始化
-│   ├── migrations/               # sqlx 迁移（3 个版本）
+│   ├── migrations/               # sqlx 迁移（7 个版本）
 │   └── tests/                    # 集成测试（连真实 Postgres）
 ├── agent/                # Agent 被控端（单二进制、跨平台）
 │   └── src/
 │       ├── main.rs               # 入口：按 conn_mode 分派
 │       ├── config/               # clap 配置
+│       ├── cert.rs               # mTLS 证书获取与本地缓存
 │       ├── connection.rs         # 反向：拨号 Server + 双向流 + 心跳 + 重连
 │       ├── forward.rs            # 正向：gRPC server 监听
 │       ├── exec.rs               # 命令执行并回报
 │       ├── file.rs               # 文件传输（upload 会话 + download）
+│       ├── fs.rs                 # 目录浏览（list_dir）
 │       ├── monitor.rs            # 指标采集（sysinfo）
-│       └── telemetry/            # tracing 初始化
-├── scripts/              # e2e smoke / 调度恢复 e2e
-├── docs/plantree/        # 规划树（见 README 边界说明）
-└── src/main.rs           # ⚠ 孤儿 hello world，不在 workspace 内（见 current-state）
+│       ├── process.rs            # 进程列表 / kill + 网络信息
+│       ├── pty.rs                # 交互终端（portable-pty）
+│       ├── service.rs            # 常驻服务管理（ServiceManager）
+│       ├── uninstall.rs          # 自杀卸载（SelfDestruct）
+│       └── telemetry/            # tracing 初始化（含按天滚动落文件）
+├── deploy/               # 部署模板（systemd unit + Windows nssm 脚本）
+├── scripts/              # e2e 脚本（Python）+ OpenAPI 校验
+└── docs/                 # 本文档归档 + openapi.yaml + plantree 规划树
 ```
 
 ## Server 分层（六边形 / clean architecture）
@@ -61,39 +67,63 @@ helm/
 ## 各模块职责
 
 ### `server/src/domain/`（内层，无框架依赖）
+
 - `error.rs` — 领域/应用层统一错误类型 `Error`：稳定 `code()`、`retryable()`、`safe_message()`（不外泄内部串）。
 - `job.rs` — `JobStatus` 状态机（`queued → running → succeeded|failed|timed_out|cancelled`）与 `is_terminal()`。
 
 ### `server/src/application/`（用例编排，业务唯一入口）
+
 - `auth_service.rs` — 登录、JWT 签发/校验、seed 默认管理员。
 - `exec_service.rs` — 命令下发：建 Job → 经 `ConnectionRegistry` 推 `ExecRequest` → 置 running。
-- `file_service.rs` — 文件上传/下载编排 + sha256 校验和（`CHUNK_SIZE = 64KiB`）。
+- `file_service.rs` — 文件上传/下载/列目录编排 + sha256 校验和（`CHUNK_SIZE = 64KiB`）。
 - `forward_service.rs` — 正向连接：拨号 Agent、下发命令、收集输出与退出码。
 - `scheduler.rs` — 定时任务：`schedule` 循环 + `resume_scheduled` 启动恢复。
+- `listener_service.rs` — 监听器：create/list/start/stop + `resume_or_seed`（空表 seed 默认监听器，重启恢复 running 监听器）。
+- `online_status.rs` — 心跳超时判定纯函数 `is_stale(last_seen, now, timeout)`。
+- `agent_lifecycle_service.rs` — 注销（删 agent + 孤儿主机软删）+ 卸载下发。
+- `cert_service.rs` — rcgen 内置 CA 生成 + 签发 CSR（mTLS）。
+- `audit_service.rs` — 审计记录落库 + 查询。
+- `alert_service.rs` — 阈值告警判定（`threshold_for`）+ 落库。
+- `process_service.rs` — 进程 list/kill + 网络信息（经 QueryRegistry 请求-应答）。
+- `service_service.rs` — 常驻服务 CRUD + 启停/重启/日志。
 
 HTTP 与 gRPC 适配器**都**调用本层，适配层之间禁止互相 import。
 
 ### `server/src/grpc/`（gRPC 适配层，Agent 反向连入）
-- `agent_service.rs` — `AgentServiceImpl`：处理 `OpenChannel` 双向流；首条须为 `Register`，token 严格匹配；后台 task 消费入站流（心跳/指标/执行结果/文件 chunk），流结束注销。
+
+- `agent_service.rs` — `AgentServiceImpl`：处理 `OpenChannel` 双向流；首条须为 `Register`，token 严格匹配；后台 task 消费入站流（心跳/指标/执行结果/文件/会话/服务/进程/网络），流结束注销。
 - `connection_registry.rs` — 活跃连接注册表：`agent_id → mpsc::Sender<ServerMessage>`，单点路由。
 - `transfer_registry.rs` — 文件传输等待表：upload 等 `FileStatus`、download 累积 chunk。
+- `session_registry.rs` — 会话输出桥：`session_id → mpsc::Sender<Vec<u8>>`，把 Agent `SessionOutput` 转发给 WebSocket。
+- `file_list_registry.rs` / `query_registry.rs` — 请求-应答等待表：`request_id → oneshot::Sender`（FileList / Process/NetInfo 查询）。
+- `stream_registry.rs` — 实时流广播表：key（`service:{id}` / `job:{id}` / `metrics`）→ 订阅者列表，增量推送。
+- `listener_registry.rs` — 动态监听器：`HashMap<Uuid, oneshot::Sender>` 关停句柄 + `start` 绑定 gRPC（可 mTLS）。
 
 ### `server/src/http/`（HTTP API 适配层，控制台）
-- `mod.rs` — `AppState`、路由装配（`/healthz` 免认证、`/api/v1/*` 挂 JWT 中间件）。
+
+- `mod.rs` — `AppState`、路由装配（`/healthz` 免认证、`/api/v1/*` 挂 JWT 中间件、WS 端点挂顶层）。
 - `auth.rs` — 登录端点 + `require_auth` 中间件（claims 塞 request extension）。
 - `error.rs` — 领域错误 → HTTP 响应的**单点错误边界**（内部细节只进日志）。
-- 其余各端点：`hosts` / `exec` / `jobs` / `metrics` / `files` / `tasks` / `forward` / `health`。
+- 各端点模块：`hosts` / `agents` / `exec` / `jobs` / `metrics` / `files` / `tasks` / `forward` / `listeners` / `services` / `process` / `audit` / `alerts` / `cert` / `health` / `terminal`（WS）/ `stream`（WS 实时流）。
 
 ### `server/src/store/`（持久化适配层）
+
 - `mod.rs` — `Db` 聚合根：连接池（max 10）+ `migrate()`（`sqlx::migrate!("./migrations")`）。
-- 各 `*_repo.rs` — 按实体拆分仓储（host / agent / job / metric / file_transfer / task / user）。
+- 各 `*_repo.rs` — 按实体拆分仓储：host / agent / job / metric / file_transfer / task / user / listener / service / audit / alert。
 
 ### `agent/src/`（被控端）
+
 - `connection.rs` — 反向模式：`run_agent` 外层重连循环（3s 间隔）+ `connect_once`（Register → 心跳 10s → 消费入站流）。
 - `forward.rs` — 正向模式：`ForwardAgentServiceImpl` 监听，逻辑与反向同构。
 - `exec.rs` — `run_and_report`：执行命令，回传 stdout/stderr 分块 + `finished` 结果。
 - `file.rs` — `FileHandler`：upload 会话累积 chunk 写盘；download 读文件分块回传。
-- `monitor.rs` — 每 30s 采集 `cpu.usage / mem.* / proc.count`。
+- `monitor.rs` — 每 30s 采集 `cpu.usage / mem.* / disk.usage / net.* / proc.count`。
+- `pty.rs` — `SessionManager`：portable-pty 打开 PTY + shell，读输出回传 `SessionOutput`。
+- `service.rs` — `ServiceManager`：常驻服务启动/停止 + 重启策略 + 日志增量上报。
+- `process.rs` — 进程列表 / kill + 网络信息采集（sysinfo `Networks`）。
+- `fs.rs` — `list_dir`：目录浏览（排序 + 权限）。
+- `cert.rs` — mTLS：生成 CSR → HTTP 换证书 → 本地缓存。
+- `uninstall.rs` — `self_destruct`：移除自启 + 删二进制（Windows 延迟删除）+ 退出。
 
 ## 运行时流程
 
@@ -107,11 +137,24 @@ Agent 启动 → 拨号 Server gRPC → OpenChannel 双向流 → 首条 Registe
   → Agent 执行 → 流式 ExecResult(stdout/stderr 分块 + finished) → Server 落库 Job 终态
 ```
 
-详见 [docs/plantree/baseline/runtime-flows.md](plantree/baseline/runtime-flows.md)（规划稿，流程与实现一致）。
+交互终端链路（Phase 6）：
+
+```text
+控制台 WS GET /agents/{id}/terminal?token= → AuthService.verify → SessionOpen 下发 Agent
+  → Agent PTY 启动 shell → SessionOutput 回传 → SessionRegistry.forward → WS 二进制帧
+```
+
+实时流链路（Phase 8）：
+
+```text
+Agent 增量（ExecResult chunk / ServiceStatus log / MetricReport）
+  → Server StreamRegistry.broadcast(key) → 订阅该 key 的 WS 端点推给前端
+```
+
+详见 [docs/plantree/baseline/runtime-flows.md](plantree/baseline/runtime-flows.md)。
 
 ## 规划树（plantree）边界
 
-`docs/plantree/` 是项目早期的规划与决策树（baseline / plans / decisions）。
-**注意**：其中部分内容已过时——`baseline/README.md` 仍称项目为"空壳 hello world"，
-`baseline/module-map.md` 是目标设计而非现状。本归档（`docs/*.md`）以**当前实现**为准，
-plantree 中的**决策链**（001–004）仍有效，可交叉参考。
+`docs/plantree/` 是项目的规划与决策树（baseline / plans / decisions / topics）。
+本归档（`docs/*.md`）以**当前实现**为准；plantree 中的**决策链**（001–008）与 roadmap
+（Phase 0–8）保留历史规划性质，落地状态见 [roadmap.md](plantree/plans/server/roadmap.md)。

@@ -1,7 +1,7 @@
 # 会话 / 交互终端
 
 Role: topic-capsule
-Status: planning
+Status: active
 Read when: 需要了解实时交互终端（SSH 终端那类）的规划
 Related: [roadmap](../roadmap.md)
 

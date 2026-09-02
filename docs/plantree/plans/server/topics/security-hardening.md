@@ -1,7 +1,7 @@
 # 安全强化
 
 Role: topic-capsule
-Status: planning
+Status: active
 Read when: 需要了解 mTLS / RBAC / 审计 / 白名单的规划
 Related: [decisions/007](../decisions/007-security-posture.md)
 

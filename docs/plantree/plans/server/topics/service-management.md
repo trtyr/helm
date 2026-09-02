@@ -1,7 +1,7 @@
 # 服务管理（持久化后台任务）
 
 Role: topic-capsule
-Status: planning
+Status: active
 Read when: 需要了解「在 Agent 上跑常驻任务并持续监听」的规划
 Related: [roadmap](../roadmap.md)
 

@@ -1,7 +1,7 @@
 # 控制能力
 
 Role: topic-capsule
-Status: planning
+Status: active
 Read when: 需要了解 C2 控制能力（shell / 进程 / 网络 / 文件系统 / 分组）的规划
 Related: [roadmap](../roadmap.md)
 

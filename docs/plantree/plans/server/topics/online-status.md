@@ -1,7 +1,7 @@
 # 在线 / 离线状态
 
 Role: topic-capsule
-Status: planning
+Status: active
 Read when: 需要了解 Agent 在线状态的判定与 API 暴露
 Related: [decisions/006](../decisions/006-online-status-detection.md)
 

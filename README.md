@@ -1,17 +1,20 @@
 # helm — 集中式运维平台
 
 集中式运维平台后端：**Server 控制端** + 跨平台 **Agent 被控端**。
-下发 Agent 到目标主机（Windows / Linux / macOS），即可对该主机进行远程运维。
+下发 Agent 到目标主机（Windows / Linux / macOS），即可对该主机进行远程运维：
+命令执行、文件上下传、交互式终端、常驻服务管理、进程/网络管控、指标采集与告警、审计，
+并提供完整 HTTP API 与 OpenAPI 契约供前端控制台消费。
 
 ## 架构
 
 ```text
-[控制台 / HTTP API] ──► Server 控制端 ◄──gRPC 双向流──► Agent 被控端（各目标主机）
+[控制台 / HTTP API] ──► Server 控制端 ◄──gRPC 双向流（可选 mTLS）──► Agent 被控端（各目标主机）
 ```
 
 - **Server**（`server/`）：集中管理、任务编排、状态收集、持久化（Postgres）、
-  对外 HTTP API。
-- **Agent**（`agent/`）：装在目标机，执行命令、采集指标、文件传输。单二进制，跨平台。
+  对外 HTTP API（含 WebSocket 实时流）。
+- **Agent**（`agent/`）：装在目标机，执行命令、采集指标、文件传输、交互终端、
+  常驻服务、进程/网络信息。单二进制，跨平台。
 - **proto**（`proto/`）：gRPC 契约（protobuf），Server 与 Agent 的单一事实来源。
 
 ### 连接模式
@@ -33,11 +36,12 @@ server/               # Server 控制端（axum + tonic + sqlx）
   src/grpc            #   gRPC 适配层（Agent 连入）
   src/http            #   HTTP API 适配层（控制台）
   src/store           #   持久化层（sqlx + Postgres）
-  migrations/         #   数据库迁移
+  migrations/         #   数据库迁移（7 个版本）
 agent/                # Agent 被控端（tokio，跨平台）
-scripts/e2e-smoke.sh  # 一键端到端 smoke
+deploy/               # 部署模板（systemd unit + Windows nssm 脚本）
+scripts/              # e2e 脚本（Python）+ OpenAPI 校验
+docs/                 # 文档归档 + openapi.yaml + plantree 规划树
 docker-compose.yml    # 本地 Postgres
-docs/plantree/        # 规划与架构决策树
 ```
 
 ## 快速开始
@@ -64,6 +68,7 @@ cargo run -p helm-agent -- --agent-id my-host --server-addr http://127.0.0.1:500
 ```
 
 正向模式：`--conn-mode forward --listen-addr 0.0.0.0:50052`。
+mTLS：Server 加 `--mtls`，Agent 加 `--cert-dir /tmp/agent-cert`。
 
 ### 4. 下发命令
 
@@ -79,18 +84,48 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/exec \
 
 ## HTTP API（均需 `Authorization: Bearer <JWT>`）
 
+完整契约见 [docs/openapi.yaml](docs/openapi.yaml)（OpenAPI 3.0.3）。
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/api/v1/auth/login` | 登录，换取 JWT（免认证） |
-| GET  | `/api/v1/hosts` | 列出主机 |
+| POST | `/api/v1/agents/cert` | Agent 提交 CSR 换 mTLS 证书（免 JWT） |
+| GET/POST | `/api/v1/hosts` | 列出（分页/标签过滤/在线状态）/ 创建主机 |
+| PUT/DELETE | `/api/v1/hosts/{id}` | 更新 / 删除主机 |
+| POST | `/api/v1/hosts/{id}/tags` | 设置主机标签 |
+| GET | `/api/v1/agents` | 列出已注册 Agent |
+| GET/DELETE | `/api/v1/agents/{id}` | Agent 详情 / 注销 |
+| PUT | `/api/v1/agents/{id}/tags` | 更新 Agent 关联主机标签 |
+| POST | `/api/v1/agents/{id}/uninstall` | 下发卸载指令 |
 | POST | `/api/v1/exec` | 下发命令 |
-| GET  | `/api/v1/jobs/{id}` | 查询任务结果 |
-| GET  | `/api/v1/metrics?host_id=` | 查询主机指标 |
+| GET | `/api/v1/jobs` | 分页列出 Job |
+| GET | `/api/v1/jobs/{id}` | 查询任务结果 |
+| GET | `/api/v1/metrics?host_id=` | 查询主机指标 |
+| GET | `/api/v1/alerts` | 分页列出告警 |
 | POST | `/api/v1/files/upload` | 下发文件 |
 | POST | `/api/v1/files/download` | 取回文件 |
+| POST | `/api/v1/files/list` | 列目录 |
 | POST | `/api/v1/tasks/script` | 脚本执行 |
 | POST | `/api/v1/tasks/schedule` | 定时任务 |
 | POST | `/api/v1/forward/exec` | 正向连接执行命令 |
+| GET/POST | `/api/v1/listeners` | 列出 / 创建监听器 |
+| PUT/DELETE | `/api/v1/listeners/{id}` | 更新 / 删除监听器 |
+| POST | `/api/v1/listeners/{id}/start` | 启动监听器 |
+| POST | `/api/v1/listeners/{id}/stop` | 停止监听器 |
+| GET/POST | `/api/v1/services` | 分页列出 / 创建服务 |
+| PUT/DELETE | `/api/v1/services/{id}` | 更新 / 删除服务 |
+| POST | `/api/v1/services/{id}/start` | 启动服务 |
+| POST | `/api/v1/services/{id}/stop` | 停止服务 |
+| POST | `/api/v1/services/{id}/restart` | 重启服务 |
+| GET | `/api/v1/services/{id}/logs` | 查询服务日志 |
+| POST | `/api/v1/processes/list` | 列出进程 |
+| POST | `/api/v1/processes/kill` | 杀进程 |
+| POST | `/api/v1/net/info` | 网络信息 |
+| GET | `/api/v1/audit` | 分页列出审计日志 |
+| WS | `/api/v1/agents/{id}/terminal?token=` | 交互终端（PTY） |
+| WS | `/api/v1/services/{id}/logs/stream?token=` | 服务日志实时流 |
+| WS | `/api/v1/jobs/{id}/stream?token=` | job 输出实时流 |
+| WS | `/api/v1/metrics/stream?token=` | 指标实时流 |
 
 ## 配置（环境变量）
 
@@ -104,6 +139,10 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/exec \
 | `HELM_SERVER_TOKEN` | `dev-token-change-me` | Agent 认证 token（严格匹配，空则拒绝所有；生产必须改） |
 | `HELM_JWT_SECRET` | `dev-secret-change-me` | JWT 签名密钥（生产必须改） |
 | `HELM_LOG` | `info` | 日志级别 |
+| `HELM_HEARTBEAT_TIMEOUT` | `30` | 心跳超时阈值（秒） |
+| `HELM_SESSION_IDLE_TIMEOUT` | `300` | 会话空闲超时（秒） |
+| `HELM_TLS_SERVER_NAME` | `localhost` | mTLS server 证书 SAN 名 |
+| `HELM_MTLS` | 关 | 是否启用 mTLS（`--mtls`） |
 
 ### Agent
 
@@ -115,16 +154,23 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/exec \
 | `HELM_LOG` | `info` | 日志级别 |
 | `HELM_CONN_MODE` | `reverse` | 连接模式：reverse（主动连）/ forward（监听） |
 | `HELM_LISTEN_ADDR` | `0.0.0.0:50052` | forward 模式监听地址 |
+| `HELM_LOG_DIR` | 空 | 日志目录（非空按天滚动落文件） |
+| `HELM_TLS_SERVER_NAME` | `localhost` | mTLS server 证书 SAN 名 |
+| `HELM_CERT_DIR` | 空 | 证书缓存目录（非空启用 mTLS） |
+| `HELM_SERVER_HTTP_ADDR` | 空 | Server HTTP 地址（换证书用） |
 
 ## 开发
 
 ```bash
 just check       # fmt + clippy + test 全部门禁
 just buf-lint    # protobuf 契约 lint
-./scripts/e2e-smoke.sh   # 一键端到端 smoke
+python3 scripts/e2e-smoke.py      # 一键端到端 smoke
+python3 scripts/e2e-phase8.py     # CRUD + 实时流（Phase 8）
+python3 scripts/check_openapi.py  # OpenAPI 契约与路由一致性校验
 ```
 
-## 架构决策
+## 文档
 
-底座先行、一次到位。关键决策（gRPC 底座、正/反向同构、Postgres、分层架构）
-记录在 [docs/plantree](docs/plantree/README.md)。
+- [docs/](docs/) — 架构 / 技术栈 / API / 数据模型 / 运行部署 / 约定 / 现状归档。
+- [docs/openapi.yaml](docs/openapi.yaml) — HTTP API 契约（OpenAPI 3.0.3）。
+- [docs/plantree](docs/plantree/README.md) — 规划与架构决策树（决策 001–008 + roadmap Phase 0–8）。

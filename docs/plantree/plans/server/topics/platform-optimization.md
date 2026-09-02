@@ -1,7 +1,7 @@
 # Linux / Windows 平台优化
 
 Role: topic-capsule
-Status: planning
+Status: active
 Read when: 需要了解 Agent 跨平台能力与各 OS 适配的规划
 Related: [roadmap](../roadmap.md)、[decisions/008](../decisions/008-agent-persistence.md)
 

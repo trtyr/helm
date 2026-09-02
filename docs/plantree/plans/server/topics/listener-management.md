@@ -1,7 +1,7 @@
 # 监听器管理
 
 Role: topic-capsule
-Status: planning
+Status: active
 Read when: 需要了解「监听器」——Agent 接入点的模型与管理
 Related: [decisions/005](../decisions/005-listener-model.md)
 

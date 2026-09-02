@@ -1,7 +1,7 @@
 # Agent 持久化
 
 Role: topic-capsule
-Status: planning
+Status: active
 Read when: 需要了解 Agent 服务化 / 去黑窗口 / 开机自启的规划
 Related: [decisions/008](../decisions/008-agent-persistence.md)
 

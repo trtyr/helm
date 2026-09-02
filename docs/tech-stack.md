@@ -28,12 +28,13 @@
 |------|------|------|
 | tokio | 1.53（full） | 异步运行时 |
 | tokio-stream | 0.1 | 双向流包装（ReceiverStream） |
-| tonic / tonic-prost / prost | 0.14 | gRPC 服务端/客户端 |
+| tonic / tonic-prost / prost | 0.14（tonic 带 `tls-ring`） | gRPC 服务端/客户端 + mTLS（rustls/ring） |
 | tonic-prost-build | 0.14 | build.rs 编译 proto |
-| axum | 0.8 | HTTP API |
+| axum | 0.8（`ws`） | HTTP API + WebSocket |
 | http | 1 | 底层 HTTP 类型 |
 | sqlx | 0.9（runtime-tokio, tls-rustls, postgres, migrate, chrono, uuid, json） | 异步 DB + 迁移 |
-| tracing / tracing-subscriber | 0.1 / 0.3 | 结构化日志（env-filter, json） |
+| tracing / tracing-subscriber | 0.1 / 0.3（env-filter, json） | 结构化日志 |
+| tracing-appender | 0.2 | 日志按天滚动落文件（Agent 服务模式） |
 | serde / serde_json | 1 / 1 | 序列化 |
 | clap | 4.6（derive, env） | CLI 配置 |
 | thiserror / anyhow | 2 / 1 | 错误处理 |
@@ -42,23 +43,28 @@
 | jsonwebtoken | 11（rust_crypto） | JWT 签发/校验 |
 | bcrypt | 0.19 | 密码哈希 |
 | hostname | 0.4 | Agent 取主机名 |
-| sysinfo | 0.39 | Agent 采集指标 |
+| sysinfo | 0.39 | Agent 采集指标（CPU/内存/磁盘/网络/进程） |
 | sha2 / hex | 0.11 / 0.4 | 文件校验和 |
+| portable-pty | 0.9 | 交互终端 PTY（Linux/macOS pty + Windows ConPTY） |
+| rcgen | 0.14（crypto, pem, x509-parser） | Server 内置 CA 生成 + 签发 mTLS 证书 |
+| time | 0.3 | rcgen 证书时间字段 |
+| reqwest | 0.12（json） | Agent 换证书 HTTP 调用 |
 
 > 注：`sha2` 同时存在 0.11.0（直接依赖，声明 "0.11"）与 0.10.9（bcrypt/jsonwebtoken 等传递依赖）两个版本。
 
 ## crate 依赖分布
 
-- **helm-server**：helm-proto + tokio/tonic/prost/axum/sqlx/clap/tracing/serde/serde_json/tokio-stream/uuid/chrono/bcrypt/jsonwebtoken/sha2/hex。
-- **helm-agent**：helm-proto + tokio/tonic/prost/tracing/clap/serde/tokio-stream/hostname/sysinfo/sha2/hex。
+- **helm-server**：helm-proto + tokio/tonic/prost/axum/sqlx/clap/tracing/tracing-appender/serde/serde_json/tokio-stream/uuid/chrono/bcrypt/jsonwebtoken/sha2/hex/rcgen/time。
+- **helm-agent**：helm-proto + tokio/tonic/prost/tracing/tracing-appender/clap/serde/tokio-stream/hostname/sysinfo/sha2/hex/portable-pty/rcgen/reqwest。
 - **helm-proto**：prost/tonic/tonic-prost/http + build-dep tonic-prost-build。
 
 ## 契约工具
 
 - `buf.yaml`（v2）：`lint` 用 `STANDARD`（豁免 `RPC_REQUEST_STANDARD_NAME`、`RPC_RESPONSE_STANDARD_NAME`、`RPC_REQUEST_RESPONSE_UNIQUE`——双向流 envelope 语义）；`breaking` 用 `FILE`。
+- `docs/openapi.yaml`（OpenAPI 3.0.3）：HTTP API 契约，经 `scripts/check_openapi.py` 机器校验与 server 路由一致。
 
 ## 可观测性
 
 - `tracing` + `tracing-subscriber`，`EnvFilter` 优先读 `RUST_LOG`，否则用配置默认级别。
 - 结构化字段（agent_id / job_id / task_id / error / code / retryable）。
-- 健康探针 `GET /healthz`。
+- 健康探针 `GET /healthz`；审计日志 `GET /api/v1/audit`；告警 `GET /api/v1/alerts`。

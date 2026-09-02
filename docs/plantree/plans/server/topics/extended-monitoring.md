@@ -1,7 +1,7 @@
 # 监控扩展
 
 Role: topic-capsule
-Status: planning
+Status: active
 Read when: 需要了解指标采集扩展（磁盘 / 网络 / 进程 / 告警 / 保留）的规划
 Related: [roadmap](../roadmap.md)
 

@@ -1,7 +1,7 @@
 # API 完整性
 
 Role: topic-capsule
-Status: planning
+Status: active
 Read when: 需要了解 HTTP API 全量化（CRUD / 实时流 / 分页 / 详情）的规划
 Related: [roadmap](../roadmap.md)
 
