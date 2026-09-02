@@ -17,14 +17,18 @@ BASE = f"http://{HTTP_ADDR}/api/v1"
 
 
 def http_json(method: str, path: str, body=None, token: str | None = None) -> dict:
-    """发起 JSON HTTP 请求，返回解析后的 dict。"""
+    """发起 JSON HTTP 请求，返回解析后的 dict。
+
+    超时给 60s：debug 构建下 bcrypt 登录校验（cost 12）约需 30–40s，
+    10s 会在高负载机器上偶发超时。
+    """
     url = f"{BASE}{path}"
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header("Content-Type", "application/json")
     if token:
         req.add_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    with urllib.request.urlopen(req, timeout=60) as resp:
         return json.loads(resp.read().decode())
 
 
