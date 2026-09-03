@@ -60,6 +60,9 @@ Related: [路由地图](README.md)、[功能 F01](../topics/feature-inventory.md
 | 网络错误 | 行内错误「无法连接服务器」+ 重试链接 |
 | 已登录访问 /login | 直接重定向 /dashboard |
 
+> **M1 适配**：dashboard 路由在 M4 提供——M4 之前默认跳转目标为 `/`（→ /hosts），
+> 其余交互不变（已在 M1 实现并验证）。
+
 ## 交互细节
 
 - 密码错误后：password 清空并 focus，username 保留。

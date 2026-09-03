@@ -19,7 +19,7 @@ Status: active
 | Plan | 状态 | 阶段 | 最后落地 | 下一步 |
 |------|------|------|----------|--------|
 | [server](plans/server/README.md) | Active | Phase 0–9 已落地 | Phase 9 通知中心（`15005d8`） | open-questions 1–5 前端回投的 API 缺口评估 |
-| [frontend](plans/frontend/README.md) | Active | M1 骨架已落地 | helm-console 仓 `f17dfbc`（登录/布局/主机列表联调全过） | M2：主机详情 tabs + 终端 |
+| [frontend](plans/frontend/README.md) | Active | M1 骨架已落地 | helm-console 仓 `762800f`（登录/布局/主机列表联调全过，audit 整改后） | M2：主机详情 tabs + 终端 |
 
 ## 如何阅读
 
