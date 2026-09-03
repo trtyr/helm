@@ -18,7 +18,8 @@ Status: active
 
 | Plan | 状态 | 阶段 | 最后落地 | 下一步 |
 |------|------|------|----------|--------|
-| [server](plans/server/README.md) | Active | Phase 0–8 已落地 | 文档归档刷新到 HEAD（`53201c0`） | Phase 9 通知中心（规划中，[决策 009](plans/server/decisions/009-in-app-notifications.md)） |
+| [server](plans/server/README.md) | Active | Phase 0–9 已落地 | Phase 9 通知中心（`15005d8`） | open-questions 1–5 前端回投的 API 缺口评估 |
+| [frontend](plans/frontend/README.md) | Active | 设计规格完成 | 20 路由规格 + 70 功能 + 7 决策 | 建 helm-console 仓库开工实现 |
 
 ## 如何阅读
 
@@ -29,4 +30,8 @@ Status: active
 
 ## 边界
 
-本树治理**后端**（Server 控制端 + Agent 被控端 + 共享 proto），以运维平台能力为主线（参考 C2 控制面：监听器、在线状态、会话、服务管理、文件、控制、持久化、安全、API；不做隐蔽性设计）。Agent 内部的深度设计（如插件机制）另立 plan root；前端控制台独立工程，不在此树范围内（仅定义其访问后端的接口）。
+本树治理**后端**（Server 控制端 + Agent 被控端 + 共享 proto）与**前端设计规格**
+（[plans/frontend](plans/frontend/README.md)——设计期驻本仓库以便对照 API 契约，
+实现迁移至独立前端仓库 helm-console 后保留双链）。Agent 内部的深度设计（如插件机制）
+另立 plan root。以运维平台能力为主线（参考 C2 控制面：监听器、在线状态、会话、
+服务管理、文件、控制、持久化、安全、API；不做隐蔽性设计）。
