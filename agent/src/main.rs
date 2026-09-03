@@ -4,6 +4,7 @@
 mod cert;
 mod config;
 mod connection;
+mod encoding;
 mod exec;
 mod file;
 mod forward;
@@ -29,7 +30,12 @@ async fn main() -> Result<()> {
     );
 
     if config.conn_mode == "forward" {
-        forward::serve(&config).await
+        let cert = if config.cert_dir.is_empty() {
+            None
+        } else {
+            Some(cert::load_cached(&config.cert_dir)?)
+        };
+        forward::serve(&config, cert).await
     } else {
         connection::run_agent(&config).await
     }

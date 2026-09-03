@@ -58,3 +58,6 @@ portable-pty = "0.9"
 rcgen = { version = "0.14", features = ["crypto", "pem", "x509-parser"] }
 time = "0.3"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# console encoding (Windows OEM codepage decode)
+encoding_rs = "0.8"

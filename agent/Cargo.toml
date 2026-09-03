@@ -30,3 +30,8 @@ hex.workspace = true
 portable-pty.workspace = true
 rcgen.workspace = true
 reqwest.workspace = true
+encoding_rs.workspace = true
+
+# Windows OEM 代码页查询（GetOEMCP）
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Globalization"] }

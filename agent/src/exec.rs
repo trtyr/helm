@@ -36,8 +36,8 @@ async fn run_command(command: &str, args: &[String]) -> Result<(String, String, 
         .args(args)
         .output()
         .await?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let stdout = crate::encoding::decode_console(&output.stdout);
+    let stderr = crate::encoding::decode_console(&output.stderr);
     let exit_code = output.status.code();
     Ok((stdout, stderr, exit_code))
 }
