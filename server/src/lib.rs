@@ -11,6 +11,30 @@ use anyhow::Result;
 /// 服务入口：加载配置、初始化可观测性、连接数据库并执行迁移、启动 HTTP。
 pub async fn run() -> Result<()> {
     let config = config::Config::load()?;
+
+    // 离线签发模式：签发 agent 证书三件套后退出（forward 预置分发用）
+    if config.issue_cert {
+        if config.issue_agent_id.is_empty() || config.issue_out_dir.is_empty() {
+            anyhow::bail!("--issue-cert 需要 --issue-agent-id 与 --issue-out-dir");
+        }
+        let cert = application::cert_service::CertService::load_or_generate(
+            &config.tls_dir,
+            &config.tls_server_name,
+            config.mtls,
+        )?;
+        cert.issue_agent_cert(
+            &config.issue_agent_id,
+            &config.issue_san,
+            &config.issue_out_dir,
+        )?;
+        tracing::info!(
+            agent_id = %config.issue_agent_id,
+            out_dir = %config.issue_out_dir,
+            "issue-cert done"
+        );
+        return Ok(());
+    }
+
     telemetry::init(&config.log_level);
 
     tracing::info!(
@@ -34,6 +58,12 @@ pub async fn run() -> Result<()> {
     let file_list = grpc::file_list_registry::FileListRegistry::new();
     let query = grpc::query_registry::QueryRegistry::new();
     let streams = grpc::stream_registry::StreamRegistry::new();
+    let cert = application::cert_service::CertService::load_or_generate(
+        &config.tls_dir,
+        &config.tls_server_name,
+        config.mtls,
+    )?;
+
     let forward_deps = grpc::forward_manager::ForwardDeps {
         registry: registry.clone(),
         transfers: transfers.clone(),
@@ -43,10 +73,10 @@ pub async fn run() -> Result<()> {
         streams: streams.clone(),
         db: db.clone(),
         server_token: config.server_token.clone(),
+        cert: cert.clone(),
+        tls_server_name: config.tls_server_name.clone(),
     };
     grpc::forward_manager::ForwardManager::new().spawn_reconciler(forward_deps);
-    let cert =
-        application::cert_service::CertService::generate(&config.tls_server_name, config.mtls)?;
 
     // 恢复已落库的定时任务
     let exec = application::exec_service::ExecService::new(db.clone(), registry.clone());

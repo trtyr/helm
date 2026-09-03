@@ -47,6 +47,26 @@ pub struct Config {
     /// 是否启用 mTLS（Agent↔Server 双向认证）
     #[arg(long, env = "HELM_MTLS", action = clap::ArgAction::SetTrue)]
     pub mtls: bool,
+
+    /// TLS 材料目录（CA/server 证书持久化；mTLS 部署强烈建议，保证重启后 CA 稳定）
+    #[arg(long, env = "HELM_TLS_DIR", default_value = "")]
+    pub tls_dir: String,
+
+    /// 离线签发 agent 证书三件套后退出（forward 预置分发用，不启动服务）
+    #[arg(long, env = "HELM_ISSUE_CERT", action = clap::ArgAction::SetTrue)]
+    pub issue_cert: bool,
+
+    /// issue-cert：agent 唯一标识（写入证书 CN）
+    #[arg(long, env = "HELM_ISSUE_AGENT_ID", default_value = "")]
+    pub issue_agent_id: String,
+
+    /// issue-cert：SAN 列表，逗号分隔 DNS/IP（如 localhost,43.163.80.102）
+    #[arg(long, env = "HELM_ISSUE_SAN", default_value = "")]
+    pub issue_san: String,
+
+    /// issue-cert：三件套输出目录（cert.pem/key.pem/ca.pem）
+    #[arg(long, env = "HELM_ISSUE_OUT_DIR", default_value = "")]
+    pub issue_out_dir: String,
 }
 
 impl Config {

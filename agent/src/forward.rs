@@ -23,16 +23,25 @@ use tonic::{Request, Response, Status, Streaming};
 const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// 正向模式：启动 gRPC server 监听。
-pub async fn serve(config: &Config) -> Result<()> {
+///
+/// `cert` 为 Some 时启用 mTLS（要求客户端出示 CA 签发的证书，双向认证）。
+pub async fn serve(config: &Config, cert: Option<crate::cert::AgentCert>) -> Result<()> {
     let addr = config.listen_addr.parse()?;
     let svc = ForwardAgentServiceServer::new(ForwardAgentServiceImpl {
         cfg: config.clone(),
     });
-    tracing::info!(addr = %config.listen_addr, "agent forward mode listening");
-    tonic::transport::Server::builder()
-        .add_service(svc)
-        .serve(addr)
-        .await?;
+    let mut builder = tonic::transport::Server::builder();
+    if let Some(c) = cert {
+        use tonic::transport::{Certificate, Identity, ServerTlsConfig};
+        let tls = ServerTlsConfig::new()
+            .identity(Identity::from_pem(c.cert_pem, c.key_pem))
+            .client_ca_root(Certificate::from_pem(c.ca_pem));
+        builder = builder.tls_config(tls)?;
+        tracing::info!(addr = %config.listen_addr, "agent forward mode listening (mTLS)");
+    } else {
+        tracing::info!(addr = %config.listen_addr, "agent forward mode listening");
+    }
+    builder.add_service(svc).serve(addr).await?;
     Ok(())
 }
 

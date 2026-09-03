@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::application::cert_service::CertService;
 use crate::grpc::connection_registry::ConnectionRegistry;
 use crate::grpc::file_list_registry::FileListRegistry;
 use crate::grpc::inbound::InboundCtx;
@@ -27,6 +28,7 @@ use helm_proto::pb::{
 };
 use tokio::sync::{Mutex, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
+use tonic::transport::{Certificate, ClientTlsConfig, Identity};
 use uuid::Uuid;
 
 /// 拨号失败后的重连间隔。
@@ -48,6 +50,10 @@ pub struct ForwardDeps {
     pub streams: StreamRegistry,
     pub db: Db,
     pub server_token: String,
+    /// mTLS 证书服务（enabled 时拨号走 TLS 双向认证）
+    pub cert: CertService,
+    /// 校验 agent 证书 SAN 用的 server name
+    pub tls_server_name: String,
 }
 
 /// forward 持久连接管理器：host_id → (拨号 addr, 停止信号发送端)。
@@ -151,15 +157,26 @@ async fn connect_once(
     deps: &ForwardDeps,
     stop_rx: &mut mpsc::Receiver<()>,
 ) -> anyhow::Result<()> {
+    // mTLS 启用时走 https（tonic 仅 https scheme 走 TLS），并出示证书双向认证
+    let scheme = if deps.cert.enabled() { "https" } else { "http" };
     let uri = if addr.starts_with("http://") || addr.starts_with("https://") {
         addr.to_string()
     } else {
-        format!("http://{addr}")
+        format!("{scheme}://{addr}")
     };
-    let channel = tonic::transport::Channel::from_shared(uri)
-        .map_err(|e| anyhow::anyhow!("bad addr: {e}"))?
-        .connect()
-        .await?;
+    let mut endpoint = tonic::transport::Channel::from_shared(uri)
+        .map_err(|e| anyhow::anyhow!("bad addr: {e}"))?;
+    if deps.cert.enabled() {
+        let tls = ClientTlsConfig::new()
+            .domain_name(deps.tls_server_name.clone())
+            .ca_certificate(Certificate::from_pem(deps.cert.ca_cert_pem().as_bytes()))
+            .identity(Identity::from_pem(
+                deps.cert.server_cert_pem().as_bytes(),
+                deps.cert.server_key_pem().as_bytes(),
+            ));
+        endpoint = endpoint.tls_config(tls)?;
+    }
+    let channel = endpoint.connect().await?;
     let mut client = ForwardAgentServiceClient::new(channel);
 
     let (tx, rx) = mpsc::channel::<ServerMessage>(64);

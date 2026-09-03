@@ -12,6 +12,27 @@ pub struct AgentCert {
     pub ca_pem: String,
 }
 
+/// 读取本地预置的证书三件套（forward 模式专用；缺任一即报错提示预置）。
+pub fn load_cached(cert_dir: &str) -> Result<AgentCert> {
+    let dir = PathBuf::from(cert_dir);
+    let cert_path = dir.join("cert.pem");
+    let key_path = dir.join("key.pem");
+    let ca_path = dir.join("ca.pem");
+    if !(cert_path.exists() && key_path.exists() && ca_path.exists()) {
+        bail!(
+            "forward 模式 mTLS 需要预置证书：在 Server 上执行 \
+             `helm-server --issue-cert --issue-agent-id <id> --issue-san <san> \
+             --issue-out-dir <dir> --tls-dir <dir>`，把生成的 cert.pem/key.pem/ca.pem \
+             复制到 {cert_dir}"
+        );
+    }
+    Ok(AgentCert {
+        cert_pem: std::fs::read_to_string(&cert_path)?,
+        key_pem: std::fs::read_to_string(&key_path)?,
+        ca_pem: std::fs::read_to_string(&ca_path)?,
+    })
+}
+
 /// 获取或申请证书：优先本地缓存，否则生成 key + CSR，用 token 经 HTTP 换证书。
 pub async fn obtain(
     cert_dir: &str,

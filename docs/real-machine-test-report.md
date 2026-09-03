@@ -61,9 +61,42 @@ agent 不反向回连控制端（tailscale DERP 路径 TCP 不通，且不符合
 
 ## 5. 限制与后续项
 
-1. **forward mTLS 未测**：mTLS 证书自动签发需 agent → Server HTTP（POST /agents/cert），与「agent 不回连」边界冲突；
-   forward 链路的 TLS（agent 侧 ServerTlsConfig + Server 侧 ClientTlsConfig）是独立开发项，列入后续。
+1. ~~**forward mTLS 未测**~~ → **已于 2026-09-03 补齐并真机验证**（见第 6 节）。
 2. **真机上未执行 uninstall**：SelfDestruct 会删除真机二进制（测试环境需保留 agent），该能力由 e2e-phase5 覆盖。
-3. **Windows 观察**（早前探索）：中文 locale 的 GBK 输出经 lossy UTF-8 转换会乱码（`ver` 输出「版本」→ 乱码），
-   跨平台编码处理列为后续改进；Windows 侧已按要求清理（无进程/任务/文件）。
+3. ~~**Windows GBK 乱码**~~ → **已修复并真机验证**（见第 7 节）。
 4. 测试期间 DB 清理：25 行 Phase 4/8 残留 forward host 行已删（reconciler 噪声源）。
+
+## 6. forward mTLS 真机验证（2026-09-03，tencent-beijing）
+
+**架构**：公网被控端只监听、永不回连。证书采用**管理员预置**模式：
+`helm-server --issue-cert --issue-agent-id <id> --issue-san localhost --issue-out-dir <dir> --tls-dir <ca_dir>`
+用持久 CA 签出 agent 证书三件套（cert/key/ca），管理员放到 agent 机器；agent `--cert-dir` 加载后
+以 mTLS 监听（`ServerTlsConfig` identity + client_ca_root），Server 以 `ClientTlsConfig`
+（ca_certificate + identity，domain_name=SAN）主动拨号——双向证书校验，明文连接被拒。
+
+**关键改进（对比 reverse mTLS）**：Server CA 持久化（`--tls-dir`，`load_or_generate`），重启不换 CA，
+agent 缓存证书长期有效；reverse 的 HTTP 换证书模式会导致每轮 Server 重启 CA 变更、agent 证书全部失效。
+
+**真机结果**（VM-0-14-opencloudos，82.157.147.224:50052，agent-id `linux-mtls`）：
+
+- 握手：agent 日志 `listening (mTLS)` + `forward channel: sending register`；Server 日志
+  `forward agent registered addr=82.157.147.224:50052`——TLS 双向校验通过后注册；
+- 全量能力 **15/15 通过**（在线/exec/文件上传下载 checksum/列目录 7 项/进程 559 个/kill/net 真实主机名/
+  服务管理/监听器启停/审计 50 条/指标 33 条含 disk/PTY 回显/job 流/metrics 流 cpu.usage=3.1%）。
+
+**本地预验证**（Mac 回环 127.0.0.1:50061）：同样的 mTLS 握手 + exec/文件/PTY 三项抽测，先于真机确认代码正确。
+
+## 7. Windows GBK 控制台乱码修复（2026-09-03，真机验证）
+
+**根因**：中文 Windows 的控制台程序输出 OEM 代码页（GBK/cp936）字节，agent 原先按 UTF-8 lossy
+转换产生乱码（`cmd /c ver` → `[?????]`）。
+
+**修复**（commit `06871e3`）：新增 `agent/src/encoding.rs`——`GetOEMCP()` 取控制台代码页，
+encoding_rs 按页解码（936/GBK、950/Big5、932/Shift_JIS、949/EUC-KR、1252 等映射）；非 Windows
+平台保持 UTF-8 不变。exec 输出链路接入；4 个单测（GBK 字节解码/ASCII 不变/未知页回退/非法字节替换符）。
+
+**真机证据**（家中 Windows，简中 locale）：`ver` → `Microsoft Windows [版本 10.0.19045.7548]`、
+`chcp` → `活动代码页: 936`——中文完整、零替换符。验证后 Windows 侧已清理（进程/计划任务/exe 全部移除）。
+
+**范围说明**：仅修 exec（命令结束后整段解码，无跨 chunk 边界问题）；PTY 终端链路 ConPTY 本身输出
+UTF-8，不受此问题影响。
