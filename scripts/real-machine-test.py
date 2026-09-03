@@ -147,8 +147,11 @@ def test_audit(token):
 
 
 def test_metrics(token):
-    metrics = http_json("GET", "/metrics", token=token).get("metrics", [])
-    check("监控指标", len(metrics) > 0, f"{len(metrics)} 条指标")
+    agents = http_json("GET", "/agents", token=token)["agents"]
+    host_id = next(a["host_id"] for a in agents if a["id"] == AGENT)
+    metrics = http_json("GET", f"/metrics?host_id={host_id}&limit=100", token=token).get("metrics", [])
+    names = {m["name"] for m in metrics}
+    check("监控指标", len(metrics) > 0, f"{len(metrics)} 条指标，含 {sorted(names)[:4]}")
 
 
 async def test_stream(token):
