@@ -143,6 +143,9 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/exec \
 | `HELM_SESSION_IDLE_TIMEOUT` | `300` | 会话空闲超时（秒） |
 | `HELM_TLS_SERVER_NAME` | `localhost` | mTLS server 证书 SAN 名 |
 | `HELM_MTLS` | 关 | 是否启用 mTLS（`--mtls`） |
+| `HELM_TLS_DIR` | 空 | TLS 材料目录（持久化 CA，重启不换 CA；mTLS 部署强烈建议） |
+| `HELM_ISSUE_CERT` | 关 | 离线签发 agent 证书三件套后退出（`--issue-cert`，forward 预置用） |
+| `HELM_ISSUE_AGENT_ID` / `HELM_ISSUE_SAN` / `HELM_ISSUE_OUT_DIR` | 空 | issue-cert 参数：agent 标识 / SAN 列表 / 输出目录 |
 
 ### Agent
 

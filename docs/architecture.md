@@ -28,10 +28,11 @@ helm/
 │   └── src/
 │       ├── main.rs               # 入口：按 conn_mode 分派
 │       ├── config/               # clap 配置
-│       ├── cert.rs               # mTLS 证书获取与本地缓存
+│       ├── cert.rs               # mTLS 证书：反向 token 换证书 + 缓存；正向预置加载
 │       ├── connection.rs         # 反向：拨号 Server + 双向流 + 心跳 + 重连
-│       ├── forward.rs            # 正向：gRPC server 监听
-│       ├── exec.rs               # 命令执行并回报
+│       ├── forward.rs            # 正向：gRPC server 监听（可选 mTLS）
+│       ├── encoding.rs           # 控制台输出解码（Windows OEM 代码页 → UTF-8）
+│       ├── exec.rs               # 命令执行并回报（输出经 encoding 解码）
 │       ├── file.rs               # 文件传输（upload 会话 + download）
 │       ├── fs.rs                 # 目录浏览（list_dir）
 │       ├── monitor.rs            # 指标采集（sysinfo）
@@ -81,7 +82,7 @@ helm/
 - `listener_service.rs` — 监听器：create/list/start/stop + `resume_or_seed`（空表 seed 默认监听器，重启恢复 running 监听器）。
 - `online_status.rs` — 心跳超时判定纯函数 `is_stale(last_seen, now, timeout)`。
 - `agent_lifecycle_service.rs` — 注销（删 agent + 孤儿主机软删）+ 卸载下发。
-- `cert_service.rs` — rcgen 内置 CA 生成 + 签发 CSR（mTLS）。
+- `cert_service.rs` — mTLS 证书底座：自签 CA + 签发 CSR；`load_or_generate`（`--tls-dir` 持久化 CA/server 证书，重启不换 CA）+ `issue_agent_cert` 离线签发 agent 三件套（forward 预置）。
 - `audit_service.rs` — 审计记录落库 + 查询。
 - `alert_service.rs` — 阈值告警判定（`threshold_for`）+ 落库。
 - `process_service.rs` — 进程 list/kill + 网络信息（经 QueryRegistry 请求-应答）。
@@ -89,9 +90,11 @@ helm/
 
 HTTP 与 gRPC 适配器**都**调用本层，适配层之间禁止互相 import。
 
-### `server/src/grpc/`（gRPC 适配层，Agent 反向连入）
+### `server/src/grpc/`（gRPC 适配层）
 
-- `agent_service.rs` — `AgentServiceImpl`：处理 `OpenChannel` 双向流；首条须为 `Register`，token 严格匹配；后台 task 消费入站流（心跳/指标/执行结果/文件/会话/服务/进程/网络），流结束注销。
+- `agent_service.rs` — `AgentServiceImpl`：处理反向 `OpenChannel` 双向流；首条须为 `Register`，token 严格匹配；落库后把入站流交给 `InboundCtx` 消费。纯函数 `token_matches` / `job_status` / `map_service_status` 也定义在此。
+- `inbound.rs` — `InboundCtx`：reverse 与 forward **共用**的入站消息处理（心跳/指标/执行结果/文件/会话/服务/进程/网络），消除双份维护。
+- `forward_manager.rs` — forward 持久连接管理器：reconciler 每 10s 对照 `hosts` 表（`conn_mode='forward' AND addr<>''`）差分启停拨号循环；拨号失败 5s 重连；mTLS 时走 https 双向认证；注册进 `ConnectionRegistry` 后**全端点对 forward 主机可用**。
 - `connection_registry.rs` — 活跃连接注册表：`agent_id → mpsc::Sender<ServerMessage>`，单点路由。
 - `transfer_registry.rs` — 文件传输等待表：upload 等 `FileStatus`、download 累积 chunk。
 - `session_registry.rs` — 会话输出桥：`session_id → mpsc::Sender<Vec<u8>>`，把 Agent `SessionOutput` 转发给 WebSocket。
@@ -122,7 +125,8 @@ HTTP 与 gRPC 适配器**都**调用本层，适配层之间禁止互相 import�
 - `service.rs` — `ServiceManager`：常驻服务启动/停止 + 重启策略 + 日志增量上报。
 - `process.rs` — 进程列表 / kill + 网络信息采集（sysinfo `Networks`）。
 - `fs.rs` — `list_dir`：目录浏览（排序 + 权限）。
-- `cert.rs` — mTLS：生成 CSR → HTTP 换证书 → 本地缓存。
+- `cert.rs` — mTLS：反向模式生成 CSR → HTTP 换证书 → 本地缓存；forward 模式 `load_cached` 加载管理员预置的三件套（缺任一文件拒绝启动）。
+- `encoding.rs` — 控制台输出解码：Windows 按 OEM 代码页（`GetOEMCP()`，如中文 936/GBK）解码为 UTF-8，其他平台 UTF-8 lossy。
 - `uninstall.rs` — `self_destruct`：移除自启 + 删二进制（Windows 延迟删除）+ 退出。
 
 ## 运行时流程
@@ -142,6 +146,16 @@ Agent 启动 → 拨号 Server gRPC → OpenChannel 双向流 → 首条 Registe
 ```text
 控制台 WS GET /agents/{id}/terminal?token= → AuthService.verify → SessionOpen 下发 Agent
   → Agent PTY 启动 shell → SessionOutput 回传 → SessionRegistry.forward → WS 二进制帧
+```
+
+forward 持久连接链路（2026-09）：
+
+```text
+Server 启动 → ForwardManager.spawn_reconciler（每 10s 与 hosts 表差分）
+  → 对 conn_mode='forward' 且 addr<>'' 的 host 拨号（mTLS 时 https 双向认证）
+  → Agent(ForwardAgentService) 先发 Register → token 校验 → AgentRepo::register_under_host 挂到既定 host
+  → 注册进 ConnectionRegistry → InboundCtx 消费入站流（与 reverse 同构）
+  → 此后全部控制端点（terminal / files / services / processes / net / exec）按 agent_id 路由，HTTP 层零改动
 ```
 
 实时流链路（Phase 8）：

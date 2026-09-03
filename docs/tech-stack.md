@@ -46,16 +46,18 @@
 | sysinfo | 0.39 | Agent 采集指标（CPU/内存/磁盘/网络/进程） |
 | sha2 / hex | 0.11 / 0.4 | 文件校验和 |
 | portable-pty | 0.9 | 交互终端 PTY（Linux/macOS pty + Windows ConPTY） |
-| rcgen | 0.14（crypto, pem, x509-parser） | Server 内置 CA 生成 + 签发 mTLS 证书 |
+| rcgen | 0.14（crypto, pem, x509-parser） | Server 内置 CA 生成 + 签发 mTLS 证书；Agent 生成 key/CSR |
 | time | 0.3 | rcgen 证书时间字段 |
-| reqwest | 0.12（json） | Agent 换证书 HTTP 调用 |
+| reqwest | 0.12（json, rustls-tls） | Agent 换证书 HTTP 调用（rustls，musl 交叉编译友好） |
+| encoding_rs | 0.8 | Agent 控制台输出解码（Windows OEM 代码页 936/GBK 等 → UTF-8） |
+| windows-sys | 0.59（`Win32_Globalization`，仅 `cfg(windows)`） | `GetOEMCP()` 查询系统控制台代码页 |
 
 > 注：`sha2` 同时存在 0.11.0（直接依赖，声明 "0.11"）与 0.10.9（bcrypt/jsonwebtoken 等传递依赖）两个版本。
 
 ## crate 依赖分布
 
 - **helm-server**：helm-proto + tokio/tonic/prost/axum/sqlx/clap/tracing/tracing-appender/serde/serde_json/tokio-stream/uuid/chrono/bcrypt/jsonwebtoken/sha2/hex/rcgen/time。
-- **helm-agent**：helm-proto + tokio/tonic/prost/tracing/tracing-appender/clap/serde/tokio-stream/hostname/sysinfo/sha2/hex/portable-pty/rcgen/reqwest。
+- **helm-agent**：helm-proto + tokio/tonic/prost/tracing/tracing-appender/clap/serde/serde_json/tokio-stream/hostname/sysinfo/sha2/hex/portable-pty/rcgen/reqwest/encoding_rs（+ `cfg(windows)` 下 windows-sys）。
 - **helm-proto**：prost/tonic/tonic-prost/http + build-dep tonic-prost-build。
 
 ## 契约工具

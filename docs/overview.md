@@ -18,11 +18,11 @@
 
 | 能力 | 说明 |
 |------|------|
-| 命令执行 | 控制台下发命令 → Server 建 Job → 经双向流推送 → Agent 执行并流式回报 stdout/stderr + 退出码 |
+| 命令执行 | 控制台下发命令 → Server 建 Job → 经双向流推送 → Agent 执行并流式回报 stdout/stderr + 退出码（Windows 下按 OEM 代码页解码，中文不乱码） |
 | 文件传输 | upload（下发到目标机）/ download（从目标机取回）+ 列目录，分块 + sha256 校验和 |
 | 指标采集 | Agent 每 30s 采集 CPU / 内存 / 磁盘 / 网络 / 进程数，上报落库（时间序列） |
 | 定时任务 | 按间隔周期性下发命令，任务落库，**Server 重启后自动恢复调度** |
-| 正向连接 | 同区域内网时，Agent 监听、Server 主动拨号执行 |
+| 正向连接 | Agent 监听、Server 主动拨号建立**持久连接**（reconciler 差分启停 + 断线重连），注册后全端点可用；另保留按需拨号的 `forward/exec` |
 | 监听器 | gRPC 监听器作为 DB 实体，可动态创建 / 启停 / 多实例 / 重启恢复 |
 | 在线状态 | 心跳超时判定（阈值可配），`hosts` 端点暴露 online / last_seen / stale |
 | Agent 生命周期 | 注销（删 agent + 孤儿主机软删）+ 卸载（SelfDestruct 自杀清二进制 + 自启） |
@@ -30,7 +30,7 @@
 | 服务管理 | 常驻后台任务：启动 / 停止 / 重启 / 日志 / 重启策略（restart_policy） |
 | 进程 / 网络 | 进程列表 / kill + 网络接口信息采集 |
 | 分组标签 | hosts.tags 设置 + 按标签过滤 |
-| 安全 | Agent token 严格匹配 + 控制台 JWT（HS256）+ mTLS（rcgen 内置 CA 自动签发）+ 审计日志 |
+| 安全 | Agent token 严格匹配 + 控制台 JWT（HS256）+ mTLS（反向：token 换证书；正向：管理员预置证书，CA 可持久化）+ 审计日志 |
 | 监控告警 | 磁盘 / 网络指标 + 阈值告警落库 + 时序保留清理（30 天） |
 | API 完整性 | 全实体 CRUD（DELETE/UPDATE）+ 分页/过滤 + agents 详情 |
 | 实时流 | WebSocket：服务日志 tail-f / job 输出流 / metrics 指标流 |
@@ -39,10 +39,12 @@
 ## 连接模式
 
 - **反向（默认）**：Agent 主动连 Server，穿透 NAT/防火墙。
-- **正向**：Agent 监听 gRPC 端口，Server 主动拨号（同区域内网）。
+- **正向**：Agent 监听 gRPC 端口，Server 主动拨号（同区域内网 / 公网被控端只监听不回连）。
 
 两种模式复用**同一套信令协议**（gRPC 双向流 `OpenChannel` / `OpenForwardChannel`），
-见 [architecture.md](architecture.md) 与 [api.md](api.md)。
+见 [architecture.md](architecture.md) 与 [api.md](api.md)。mTLS 取证路径不同：反向用
+token 经 HTTP 换证书并缓存；正向由管理员在 Server 侧离线签发后预置（`--issue-cert`），
+详见 [run-and-deploy.md](run-and-deploy.md)。
 
 ## 技术轮廓
 

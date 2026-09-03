@@ -113,6 +113,11 @@ python3 scripts/e2e-phase5.py      # 监听器启停 + hosts 在线状态 + agen
 python3 scripts/e2e-phase6.py      # 会话终端 + 服务管理 + 文件 + 进程/网络 + 分组标签
 python3 scripts/e2e-phase7.py      # mTLS 握手 + 审计落库 + 告警端点
 python3 scripts/e2e-phase8.py      # CRUD 补全 + 三个实时流（WS）
+
+python3 scripts/real-machine-test.py  # 真机全量 15 项（forward 持久连接；需 HELM_TEST_AGENT/
+                                      # HELM_TEST_PLATFORM/HELM_E2E_HTTP_ADDR 指向真机拓扑，
+                                      # 结果归档见 real-machine-test-report.md）
+python3 scripts/check_docs.py         # docs/ + plantree 现状陈述与代码一致性（迁移数/依赖/端点/旧痕迹）
 ```
 
 共享工具在 `scripts/e2e_helpers.py`；HTTP 地址用 `HELM_E2E_HTTP_ADDR`（默认 `127.0.0.1:18080`）、
@@ -151,7 +156,8 @@ CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc \
 3. `cargo test`
 4. `buf lint`（契约风格）+ `buf breaking --against '.git#ref=HEAD~1'`（契约兼容）
 5. `python3 scripts/check_openapi.py`（HTTP 契约与 server 路由一致）
-6. 无密钥/敏感信息进 diff
+6. `python3 scripts/check_docs.py`（docs/ + plantree 现状陈述与代码一致）
+7. 无密钥/敏感信息进 diff
 
 ## 部署要点
 

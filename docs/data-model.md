@@ -153,7 +153,7 @@ Service 状态映射由 `agent_service::map_service_status`：running→running�
 
 ## 数据流
 
-- **Agent 注册**：`agent_service.rs` 收到 `Register` → `AgentRepo::register`（事务：按 hostname 复用或新建 host + upsert agent）→ 返回 host_id 供后续指标/心跳落库关联。
+- **Agent 注册**：反向由 `agent_service.rs` 收到 `Register` → `AgentRepo::register`（事务：按 hostname 复用或新建 host + upsert agent）→ 返回 host_id 供后续指标/心跳落库关联；正向由 `forward_manager.rs` 拨号后 → `AgentRepo::register_under_host`（挂到既定 forward host 下，不新建 host）。
 - **命令结果**：Agent `ExecResult(finished)` → `JobRepo::finish(id, status, output, exit_code)`。
 - **指标**：Agent `MetricReport` → `MetricRepo::insert(host_id, name, value, ts)`，逐条落库；超阈值同时落 `alerts`。
 - **文件**：`FileService` 建 `FileTransferRepo::create` → 传输完成 `finish(status, bytes, checksum)`。

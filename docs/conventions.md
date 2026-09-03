@@ -17,7 +17,7 @@
 
 - 模块用 snake_case，crate 名 `helm-*`（`helm-server` / `helm-agent` / `helm-proto`）。
 - 仓储按实体拆分：`*_repo.rs`（`HostRepo` / `AgentRepo` / `JobRepo` / `MetricRepo` / `FileTransferRepo` / `TaskRepo` / `UserRepo` / `ListenerRepo` / `ServiceRepo` / `AuditRepo` / `AlertRepo`）。
-- 纯函数抽到模块顶层并配 `#[cfg(test)]` 单测（如 `checksum`、`job_status`、`token_matches`、`parse_schedule_params`、`is_stale`、`map_service_status`、`threshold_for`）。
+- 纯函数抽到模块顶层并配 `#[cfg(test)]` 单测（如 `checksum`、`job_status`、`token_matches`、`parse_schedule_params`、`is_stale`、`map_service_status`、`threshold_for`、`diff_hosts`、`decode_with_codepage`）。
 - 文件头用 `//!` 模块级文档说明职责。
 
 ## 注册表 / 桥接模式（gRPC ↔ HTTP）

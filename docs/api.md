@@ -85,8 +85,12 @@ Server 注册 `oneshot` → 下发 `FileList`/`ProcessList`/`ProcessKill`/`NetIn
 - Agent 注册 token 由 `Register.token` 携带，Server 用 `HELM_SERVER_TOKEN` **严格匹配**，
   且 server_token 为空时拒绝所有（`token_matches` 纯函数）。
 - 首条消息必须是 `Register`，否则 `Status::invalid_argument`；token 不匹配返回 `Status::unauthenticated`。
-- 可选 mTLS：Server 内置 CA（rcgen），Agent 经 `POST /api/v1/agents/cert` 提交 CSR 换证书后，
-  双向 gRPC 走 TLS 双向认证（`--mtls` 开关）。
+- 可选 mTLS，取证路径按连接模式分两条：
+  - **反向**：Agent 经 `POST /api/v1/agents/cert` 提交 CSR（token 认证）换证书后缓存本地，
+    双向 gRPC 走 TLS 双向认证（Server `--mtls` 开关）。
+  - **正向**：Agent 不回连，证书由管理员在 Server 侧 `helm-server --issue-cert` 用持久 CA
+    （`--tls-dir`）离线签发三件套后带外预置到 Agent `--cert-dir`；Agent 以 mTLS 监听、
+    Server 以 `ClientTlsConfig` 主动拨号（详见 [run-and-deploy.md](run-and-deploy.md) 3.1 节）。
 
 ## 2. HTTP API（`server/src/http/`）
 
@@ -150,7 +154,7 @@ Server 注册 `oneshot` → 下发 `FileList`/`ProcessList`/`ProcessKill`/`NetIn
 |------|------|------|
 | POST | `/api/v1/tasks/script` | 脚本执行（复用 exec） `{agent_id, command, args}` → `{job_id}` |
 | POST | `/api/v1/tasks/schedule` | 定时任务 `{agent_id, command, args, interval_secs}` → `{task_id}` |
-| POST | `/api/v1/forward/exec` | 正向连接执行 `{hostname?|agent_addr?, command, args}` → `{output, exit_code}` |
+| POST | `/api/v1/forward/exec` | 正向按需拨号执行 `{hostname?\|agent_addr?, command, args}` → `{output, exit_code}`（临时连接的旧路径；forward host 持久连接后，其余端点按 agent_id 直接可用） |
 
 ### 监听器
 
@@ -235,6 +239,11 @@ WebSocket 握手无法携带 `Authorization` header，故鉴权走 query-param `
 | `HELM_SESSION_IDLE_TIMEOUT` | `300` | 会话空闲超时（秒） |
 | `HELM_TLS_SERVER_NAME` | `localhost` | mTLS server 证书 SAN 名 |
 | `HELM_MTLS` | 关 | 是否启用 mTLS（`--mtls` 开关） |
+| `HELM_TLS_DIR` | 空 | TLS 材料目录（持久化 CA/server 证书，重启不换 CA；mTLS 部署强烈建议） |
+| `HELM_ISSUE_CERT` | 关 | 离线签发 agent 证书三件套后退出（forward 预置分发用，不启动服务） |
+| `HELM_ISSUE_AGENT_ID` | 空 | issue-cert：agent 唯一标识（写入证书 CN） |
+| `HELM_ISSUE_SAN` | 空 | issue-cert：SAN 列表，逗号分隔 DNS/IP |
+| `HELM_ISSUE_OUT_DIR` | 空 | issue-cert：三件套输出目录（cert.pem/key.pem/ca.pem） |
 
 **Agent**（`agent/src/config/mod.rs`）：
 
