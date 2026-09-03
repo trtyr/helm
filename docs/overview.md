@@ -33,7 +33,8 @@
 | 安全 | Agent token 严格匹配 + 控制台 JWT（HS256）+ mTLS（反向：token 换证书；正向：管理员预置证书，CA 可持久化）+ 审计日志 |
 | 监控告警 | 磁盘 / 网络指标 + 阈值告警落库 + 时序保留清理（30 天） |
 | API 完整性 | 全实体 CRUD（DELETE/UPDATE）+ 分页/过滤 + agents 详情 |
-| 实时流 | WebSocket：服务日志 tail-f / job 输出流 / metrics 指标流 |
+| 实时流 | WebSocket：服务日志 tail-f / job 输出流 / metrics 指标流 / 通知流 |
+| 通知 | 系统内小卡片（决策 009）：上线/下线/预警 + 已读未读 + WS 实时推送 + 5 分钟冷却合并，不做外发 |
 | 契约 | `docs/openapi.yaml`（OpenAPI 3.0.3）覆盖全部 HTTP 端点，可机器校验 |
 
 ## 连接模式
@@ -50,7 +51,7 @@ token 经 HTTP 换证书并缓存；正向由管理员在 Server 侧离线签发
 
 - **语言/框架**：Rust（edition 2024），tokio 异步；axum（HTTP + WebSocket）+ tonic（gRPC，tls-ring）+ sqlx（Postgres）。
 - **仓库形态**：Cargo workspace，三个成员 crate：`proto` / `server` / `agent`。
-- **持久化**：PostgreSQL，sqlx 编译期嵌入迁移（7 个版本）。
+- **持久化**：PostgreSQL，sqlx 编译期嵌入迁移（8 个版本）。
 - **安全**：rcgen 内置 CA + mTLS；bcrypt 密码哈希 + JWT。
 - **无前端**：控制台是独立工程，不在此仓库内；本仓库只暴露 HTTP API + OpenAPI 契约供其消费。
 

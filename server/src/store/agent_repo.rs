@@ -14,6 +14,15 @@ pub struct AgentRow {
     pub last_heartbeat_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+/// 兜底下线扫描用的行：agent + host 定位。
+#[derive(Debug, Clone, FromRow)]
+pub struct StaleAgentRow {
+    pub id: String,
+    pub host_id: Uuid,
+    pub hostname: String,
+    pub last_heartbeat_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
 /// Agent 注册仓储。
 #[derive(Clone)]
 pub struct AgentRepo {
@@ -23,6 +32,25 @@ pub struct AgentRepo {
 impl AgentRepo {
     pub fn new(db: Db) -> Self {
         Self { db }
+    }
+
+    /// 心跳落在 `[since, until)` 区间的 agent（含 hostname，兜底下线扫描用）。
+    pub async fn list_stale_since(
+        &self,
+        since: chrono::DateTime<chrono::Utc>,
+        until: chrono::DateTime<chrono::Utc>,
+    ) -> sqlx::Result<Vec<StaleAgentRow>> {
+        sqlx::query_as::<_, StaleAgentRow>(
+            "SELECT a.id, a.host_id, h.hostname, a.last_heartbeat_at
+             FROM agents a JOIN hosts h ON h.id = a.host_id
+             WHERE a.last_heartbeat_at IS NOT NULL
+               AND a.last_heartbeat_at >= $1
+               AND a.last_heartbeat_at < $2",
+        )
+        .bind(since)
+        .bind(until)
+        .fetch_all(self.db.pool())
+        .await
     }
 
     /// 注册（或更新）Agent，并关联（复用或新建）host。返回 host_id。

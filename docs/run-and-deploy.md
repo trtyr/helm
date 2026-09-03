@@ -27,7 +27,7 @@ cargo run -p helm-server
 ```
 
 - 默认 HTTP `:8080`、gRPC `:50051`。
-- 首次启动自动执行迁移（7 个版本），并 seed 管理员 `admin / admin123`（仅当 users 表为空）。
+- 首次启动自动执行迁移（8 个版本），并 seed 管理员 `admin / admin123`（仅当 users 表为空）。
 - 首次启动自动 seed 默认监听器（`listeners` 表为空时），后续启动恢复 running 的监听器。
 - 启用 mTLS：`cargo run -p helm-server -- --mtls --tls-dir /var/lib/helm-tls`。
   `--tls-dir` 持久化 CA 与 Server 证书（`ca.pem`/`ca-key.pem`/`server.pem`/`server-key.pem`），
@@ -113,6 +113,7 @@ python3 scripts/e2e-phase5.py      # 监听器启停 + hosts 在线状态 + agen
 python3 scripts/e2e-phase6.py      # 会话终端 + 服务管理 + 文件 + 进程/网络 + 分组标签
 python3 scripts/e2e-phase7.py      # mTLS 握手 + 审计落库 + 告警端点
 python3 scripts/e2e-phase8.py      # CRUD 补全 + 三个实时流（WS）
+python3 scripts/e2e-phase9.py      # 通知中心：上线/下线/冷却合并/已读未读/WS 推送/预警联动
 
 python3 scripts/real-machine-test.py  # 真机全量 15 项（forward 持久连接；需 HELM_TEST_AGENT/
                                       # HELM_TEST_PLATFORM/HELM_E2E_HTTP_ADDR 指向真机拓扑，

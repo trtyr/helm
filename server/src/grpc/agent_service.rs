@@ -136,6 +136,24 @@ impl AgentService for AgentServiceImpl {
         };
         let _ = tx.send(ack).await;
 
+        // 上线通知（决策 009：系统内小卡片；落库失败无 host_id 则跳过）
+        if let Some(hid) = host_id {
+            let svc = crate::application::notification_service::NotificationService::new(
+                self.db.clone(),
+                self.streams.clone(),
+            );
+            if let Err(e) = svc
+                .notify(
+                    hid,
+                    crate::application::notification_service::KIND_ONLINE,
+                    &format!("主机 {hostname} 已上线"),
+                )
+                .await
+            {
+                tracing::warn!(agent_id = %agent_id, error = ?e, "online notify failed");
+            }
+        }
+
         // 后台任务：消费入站流；流结束时注销。
         let registry = self.registry.clone();
         let transfers = self.transfers.clone();
@@ -145,10 +163,12 @@ impl AgentService for AgentServiceImpl {
         let streams = self.streams.clone();
         let db = self.db.clone();
         let agent_id_inner = agent_id.clone();
+        let hostname_inner = hostname.to_string();
         tokio::spawn(async move {
             let mut ctx = InboundCtx::new(
                 agent_id_inner.clone(),
                 host_id,
+                hostname_inner,
                 registry,
                 transfers,
                 sessions,

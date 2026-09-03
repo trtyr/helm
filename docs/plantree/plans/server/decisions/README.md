@@ -13,6 +13,7 @@ Status: active
 | [006](006-online-status-detection.md) | 在线判定：实时注册表 + 心跳超时 | active | online-status |
 | [007](007-security-posture.md) | 安全水位：mTLS + RBAC 强制 + 审计 | active | security-hardening |
 | [008](008-agent-persistence.md) | Agent 持久化：服务化 + 去黑窗口 | active | agent-persistence |
+| [009](009-in-app-notifications.md) | 通知为系统内部能力（小卡片），不做外发 | active | notifications |
 
 ## 主题索引
 
@@ -23,3 +24,4 @@ Status: active
 - online-status → [006](006-online-status-detection.md)
 - security-hardening → [007](007-security-posture.md)
 - agent-persistence → [008](008-agent-persistence.md)
+- notifications → [009](009-in-app-notifications.md)

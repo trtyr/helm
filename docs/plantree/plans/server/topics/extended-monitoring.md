@@ -7,8 +7,11 @@ Related: [roadmap](../roadmap.md)
 
 ## One-Screen Summary
 
-在现有 cpu/mem/proc 指标之上，扩展磁盘/网络/进程列表采集，加指标告警与时序保留策略。
+在现有 cpu/mem/proc 指标之上，扩展磁盘/网络/进程列表采集，加阈值预警与时序保留策略。
 对应 Phase 7。
+
+预警的「通知」形态不在本 topic：通知 = 系统内部小卡片（上线/下线/预警），见
+[notifications](notifications.md)（[决策 009](../decisions/009-in-app-notifications.md)）。
 
 ## Current Position
 
@@ -19,7 +22,8 @@ Related: [roadmap](../roadmap.md)
 
 - 复用现有 `MetricReport` 信令与 `metrics` 表，扩展指标名与 labels。
 - 时序保留：`metrics` 表加分区/滚动清理，避免无限增长（现有 risk-hotspots 已标）。
-- 告警在 Server 侧做（阈值 + 通知），不把告警逻辑塞进 Agent。
+- 预警在 Server 侧做（阈值判定），不把预警逻辑塞进 Agent；预警联动通知中心见
+  [notifications](notifications.md)（决策 009）。
 
 ## Open Risks Or Questions
 

@@ -78,3 +78,13 @@ pub async fn metrics_stream(
     verify_token(&state, &q.token)?;
     Ok(ws.on_upgrade(move |socket| handle_stream(socket, state, "metrics".to_string())))
 }
+
+/// 通知实时流：GET /api/v1/notifications/stream?token=（决策 009：系统内小卡片推送）
+pub async fn notifications_stream(
+    State(state): State<AppState>,
+    Query(q): Query<StreamQuery>,
+    ws: WebSocketUpgrade,
+) -> Result<impl IntoResponse, Error> {
+    verify_token(&state, &q.token)?;
+    Ok(ws.on_upgrade(move |socket| handle_stream(socket, state, "notifications".to_string())))
+}

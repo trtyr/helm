@@ -15,7 +15,8 @@ Status: active
 | [control-capabilities](control-capabilities.md) | topic-capsule | 控制能力（shell/进程/网络/文件系统/分组） |
 | [agent-persistence](agent-persistence.md) | topic-capsule | Agent 服务化/去黑窗口/自启 |
 | [security-hardening](security-hardening.md) | topic-capsule | mTLS / RBAC / 审计 / 白名单 |
-| [extended-monitoring](extended-monitoring.md) | topic-capsule | 磁盘/网络/进程指标 + 告警 + 保留 |
+| [extended-monitoring](extended-monitoring.md) | topic-capsule | 磁盘/网络/进程指标 + 阈值预警 + 保留 |
+| [notifications](notifications.md) | topic-capsule | 系统内通知中心（上线/下线/预警小卡片） |
 | [api-completeness](api-completeness.md) | topic-capsule | API 全量化（CRUD/实时流/分页） |
 | [session-terminal](session-terminal.md) | topic-capsule | 会话 / 交互终端（SSH 终端那类） |
 | [service-management](service-management.md) | topic-capsule | 服务管理（持久化后台任务 + 监听） |

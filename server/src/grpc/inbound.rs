@@ -19,6 +19,8 @@ use uuid::Uuid;
 pub struct InboundCtx {
     pub agent_id: String,
     pub host_id: Option<Uuid>,
+    /// 主机名（通知文案用，注册时上报）。
+    pub hostname: String,
     pub registry: ConnectionRegistry,
     pub transfers: TransferRegistry,
     pub sessions: SessionRegistry,
@@ -35,6 +37,7 @@ impl InboundCtx {
     pub fn new(
         agent_id: String,
         host_id: Option<Uuid>,
+        hostname: String,
         registry: ConnectionRegistry,
         transfers: TransferRegistry,
         sessions: SessionRegistry,
@@ -46,6 +49,7 @@ impl InboundCtx {
         Self {
             agent_id,
             host_id,
+            hostname,
             registry,
             transfers,
             sessions,
@@ -90,6 +94,22 @@ impl InboundCtx {
                         {
                             let _ = alert_repo
                                 .insert(host_id, &m.name, threshold, m.value)
+                                .await;
+                            // 预警联动通知中心（决策 009：系统内小卡片）
+                            let svc =
+                                crate::application::notification_service::NotificationService::new(
+                                    self.db.clone(),
+                                    self.streams.clone(),
+                                );
+                            let _ = svc
+                                .notify(
+                                    host_id,
+                                    crate::application::notification_service::KIND_ALERT,
+                                    &format!(
+                                        "预警：{} = {:.1}（阈值 {}）",
+                                        m.name, m.value, threshold
+                                    ),
+                                )
                                 .await;
                         }
                         // 实时流：推送指标
@@ -208,9 +228,25 @@ impl InboundCtx {
         }
     }
 
-    /// 连接结束：从注册表注销。
+    /// 连接结束：从注册表注销 + 下线通知（断连即发，决策 009）。
     pub async fn on_disconnect(&self) {
         self.registry.unregister(&self.agent_id).await;
         tracing::info!(agent_id = %self.agent_id, "agent disconnected");
+        if let Some(host_id) = self.host_id {
+            let svc = crate::application::notification_service::NotificationService::new(
+                self.db.clone(),
+                self.streams.clone(),
+            );
+            if let Err(e) = svc
+                .notify(
+                    host_id,
+                    crate::application::notification_service::KIND_OFFLINE,
+                    &format!("主机 {} 已下线", self.hostname),
+                )
+                .await
+            {
+                tracing::warn!(agent_id = %self.agent_id, error = ?e, "offline notify failed");
+            }
+        }
     }
 }

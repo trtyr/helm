@@ -133,12 +133,19 @@ Server 注册 `oneshot` → 下发 `FileList`/`ProcessList`/`ProcessKill`/`NetIn
 | GET | `/api/v1/jobs?page=&limit=` | 分页列出 Job |
 | GET | `/api/v1/jobs/{id}` | 查询任务结果 `{job}` |
 
-### 指标与告警
+### 指标、告警与通知
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/v1/metrics?host_id=&limit=` | 查询主机指标（时序） |
 | GET | `/api/v1/alerts?page=&limit=` | 分页列出告警 |
+| GET | `/api/v1/notifications?page=&limit=&unread=` | 分页列出系统内通知（`unread=true` 只看未读） |
+| GET | `/api/v1/notifications/unread-count` | 未读通知数（小卡片红点） |
+| POST | `/api/v1/notifications/{id}/read` | 标记单条已读（404 = 不存在） |
+| POST | `/api/v1/notifications/read-all` | 全部标记已读 `{updated}` |
+
+> 通知（决策 009）= 系统内小卡片：上线（online）/ 下线（offline）/ 预警（alert），
+> 带 read 状态，同 host 同类型 5 分钟冷却合并；**不做外发**。预警仍同时落 `alerts` 表保留时序历史。
 
 ### 文件
 
@@ -202,6 +209,7 @@ Server 注册 `oneshot` → 下发 `FileList`/`ProcessList`/`ProcessKill`/`NetIn
 | GET | `/api/v1/services/{id}/logs/stream?token=` | 服务日志实时流（二进制帧 = 日志增量） |
 | GET | `/api/v1/jobs/{id}/stream?token=` | job 输出实时流（二进制帧 = 输出增量） |
 | GET | `/api/v1/metrics/stream?token=` | 指标实时流（二进制帧 = JSON 指标点） |
+| GET | `/api/v1/notifications/stream?token=` | 通知实时流（二进制帧 = JSON 通知，上线/下线/预警） |
 
 WebSocket 握手无法携带 `Authorization` header，故鉴权走 query-param `token`（JWT），
 由 `AuthService::verify` 直接校验，绕开 JWT 中间件（挂顶层路由）。

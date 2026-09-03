@@ -219,6 +219,25 @@ async fn connect_once(
         "forward agent registered"
     );
 
+    // 上线通知（决策 009：forward 与 reverse 同构）
+    {
+        let hostname = host_info.hostname.clone();
+        let svc = crate::application::notification_service::NotificationService::new(
+            deps.db.clone(),
+            deps.streams.clone(),
+        );
+        if let Err(e) = svc
+            .notify(
+                host_id,
+                crate::application::notification_service::KIND_ONLINE,
+                &format!("主机 {hostname} 已上线"),
+            )
+            .await
+        {
+            tracing::warn!(agent_id = %agent_id, error = ?e, "online notify failed");
+        }
+    }
+
     // 回 RegisterAck
     let _ = tx
         .send(ServerMessage {
@@ -231,9 +250,11 @@ async fn connect_once(
         .await;
 
     // 入站循环（与 reverse 同构），stop 信号立即断开
+    let register_hostname = host_info.hostname.clone();
     let mut ctx = InboundCtx::new(
         agent_id.clone(),
         Some(host_id),
+        register_hostname,
         deps.registry.clone(),
         deps.transfers.clone(),
         deps.sessions.clone(),

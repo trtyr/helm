@@ -16,7 +16,7 @@
 | [conventions.md](conventions.md) | 分层、错误处理、命名、测试、契约演进、git 约定 | 要写代码、保持一致时 |
 | [current-state.md](current-state.md) | 已验证的构建/测试结果、git 状态、开放项/已知问题 | 接手时看现状与坑 |
 | [real-machine-test-report.md](real-machine-test-report.md) | Linux 真机测试报告：forward 持久连接 + mTLS 15/15、Windows GBK 修复验证 | 要看真机实证 / 评估 forward 模式时 |
-| [openapi.yaml](openapi.yaml) | HTTP API 契约（OpenAPI 3.0.3，39 端点） | 前端对接 / 接口校验时 |
+| [openapi.yaml](openapi.yaml) | HTTP API 契约（OpenAPI 3.0.3，44 端点） | 前端对接 / 接口校验时 |
 
 ## 规划树（另行维护）
 

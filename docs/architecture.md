@@ -22,7 +22,7 @@ helm/
 │   │   ├── http/                 # HTTP API 适配层（控制台）
 │   │   ├── store/                # 持久化适配层（sqlx + 各实体仓储）
 │   │   └── telemetry/            # tracing 初始化
-│   ├── migrations/               # sqlx 迁移（7 个版本）
+│   ├── migrations/               # sqlx 迁移（8 个版本）
 │   └── tests/                    # 集成测试（连真实 Postgres）
 ├── agent/                # Agent 被控端（单二进制、跨平台）
 │   └── src/
@@ -85,6 +85,7 @@ helm/
 - `cert_service.rs` — mTLS 证书底座：自签 CA + 签发 CSR；`load_or_generate`（`--tls-dir` 持久化 CA/server 证书，重启不换 CA）+ `issue_agent_cert` 离线签发 agent 三件套（forward 预置）。
 - `audit_service.rs` — 审计记录落库 + 查询。
 - `alert_service.rs` — 阈值告警判定（`threshold_for`）+ 落库。
+- `notification_service.rs` — 通知中心（决策 009）：`notify`（同 host 同类型 5 分钟冷却合并 + 落库 + StreamRegistry 广播）、查询/已读用例、`spawn_offline_sweeper` 心跳超时兜底扫描（含半开死连接注销）。
 - `process_service.rs` — 进程 list/kill + 网络信息（经 QueryRegistry 请求-应答）。
 - `service_service.rs` — 常驻服务 CRUD + 启停/重启/日志。
 
@@ -93,7 +94,7 @@ HTTP 与 gRPC 适配器**都**调用本层，适配层之间禁止互相 import�
 ### `server/src/grpc/`（gRPC 适配层）
 
 - `agent_service.rs` — `AgentServiceImpl`：处理反向 `OpenChannel` 双向流；首条须为 `Register`，token 严格匹配；落库后把入站流交给 `InboundCtx` 消费。纯函数 `token_matches` / `job_status` / `map_service_status` 也定义在此。
-- `inbound.rs` — `InboundCtx`：reverse 与 forward **共用**的入站消息处理（心跳/指标/执行结果/文件/会话/服务/进程/网络），消除双份维护。
+- `inbound.rs` — `InboundCtx`：reverse 与 forward **共用**的入站消息处理（心跳/指标/执行结果/文件/会话/服务/进程/网络），消除双份维护；指标超阈值联动通知（alert）；`on_disconnect` 断连即发下线通知。
 - `forward_manager.rs` — forward 持久连接管理器：reconciler 每 10s 对照 `hosts` 表（`conn_mode='forward' AND addr<>''`）差分启停拨号循环；拨号失败 5s 重连；mTLS 时走 https 双向认证；注册进 `ConnectionRegistry` 后**全端点对 forward 主机可用**。
 - `connection_registry.rs` — 活跃连接注册表：`agent_id → mpsc::Sender<ServerMessage>`，单点路由。
 - `transfer_registry.rs` — 文件传输等待表：upload 等 `FileStatus`、download 累积 chunk。
@@ -107,12 +108,12 @@ HTTP 与 gRPC 适配器**都**调用本层，适配层之间禁止互相 import�
 - `mod.rs` — `AppState`、路由装配（`/healthz` 免认证、`/api/v1/*` 挂 JWT 中间件、WS 端点挂顶层）。
 - `auth.rs` — 登录端点 + `require_auth` 中间件（claims 塞 request extension）。
 - `error.rs` — 领域错误 → HTTP 响应的**单点错误边界**（内部细节只进日志）。
-- 各端点模块：`hosts` / `agents` / `exec` / `jobs` / `metrics` / `files` / `tasks` / `forward` / `listeners` / `services` / `process` / `audit` / `alerts` / `cert` / `health` / `terminal`（WS）/ `stream`（WS 实时流）。
+- 各端点模块：`hosts` / `agents` / `exec` / `jobs` / `metrics` / `files` / `tasks` / `forward` / `listeners` / `services` / `process` / `audit` / `alerts` / `notifications`（通知中心）/ `cert` / `health` / `terminal`（WS）/ `stream`（WS 实时流，含通知流）。
 
 ### `server/src/store/`（持久化适配层）
 
 - `mod.rs` — `Db` 聚合根：连接池（max 10）+ `migrate()`（`sqlx::migrate!("./migrations")`）。
-- 各 `*_repo.rs` — 按实体拆分仓储：host / agent / job / metric / file_transfer / task / user / listener / service / audit / alert。
+- 各 `*_repo.rs` — 按实体拆分仓储：host / agent / job / metric / file_transfer / task / user / listener / service / audit / alert / notification。
 
 ### `agent/src/`（被控端）
 
@@ -163,6 +164,16 @@ Server 启动 → ForwardManager.spawn_reconciler（每 10s 与 hosts 表差分�
 ```text
 Agent 增量（ExecResult chunk / ServiceStatus log / MetricReport）
   → Server StreamRegistry.broadcast(key) → 订阅该 key 的 WS 端点推给前端
+```
+
+通知链路（Phase 9，决策 009）：
+
+```text
+事件源：注册（reverse/forward）= online；断连 on_disconnect = offline；指标超阈值 = alert；
+  心跳超时兜底扫描（spawn_offline_sweeper，刚进入 stale 才补发 + 半开死连接注销）
+  → NotificationService.notify（同 host 同类型 5 分钟冷却合并：refresh 或 insert）
+  → notifications 表 + StreamRegistry.broadcast("notifications")
+  → GET /api/v1/notifications*（列表/未读数/已读）+ WS /notifications/stream 推给前端小卡片
 ```
 
 详见 [docs/plantree/baseline/runtime-flows.md](plantree/baseline/runtime-flows.md)。

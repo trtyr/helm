@@ -36,7 +36,7 @@ server/               # Server 控制端（axum + tonic + sqlx）
   src/grpc            #   gRPC 适配层（Agent 连入）
   src/http            #   HTTP API 适配层（控制台）
   src/store           #   持久化层（sqlx + Postgres）
-  migrations/         #   数据库迁移（7 个版本）
+  migrations/         #   数据库迁移（8 个版本）
 agent/                # Agent 被控端（tokio，跨平台）
 deploy/               # 部署模板（systemd unit + Windows nssm 脚本）
 scripts/              # e2e 脚本（Python）+ OpenAPI 校验
@@ -102,6 +102,10 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/exec \
 | GET | `/api/v1/jobs/{id}` | 查询任务结果 |
 | GET | `/api/v1/metrics?host_id=` | 查询主机指标 |
 | GET | `/api/v1/alerts` | 分页列出告警 |
+| GET | `/api/v1/notifications` | 系统内通知列表（上线/下线/预警，`unread=` 过滤） |
+| GET | `/api/v1/notifications/unread-count` | 未读通知数 |
+| POST | `/api/v1/notifications/{id}/read` | 标记通知已读 |
+| POST | `/api/v1/notifications/read-all` | 全部通知已读 |
 | POST | `/api/v1/files/upload` | 下发文件 |
 | POST | `/api/v1/files/download` | 取回文件 |
 | POST | `/api/v1/files/list` | 列目录 |
@@ -126,6 +130,7 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/exec \
 | WS | `/api/v1/services/{id}/logs/stream?token=` | 服务日志实时流 |
 | WS | `/api/v1/jobs/{id}/stream?token=` | job 输出实时流 |
 | WS | `/api/v1/metrics/stream?token=` | 指标实时流 |
+| WS | `/api/v1/notifications/stream?token=` | 通知实时流（上线/下线/预警） |
 
 ## 配置（环境变量）
 
@@ -169,6 +174,7 @@ just check       # fmt + clippy + test 全部门禁
 just buf-lint    # protobuf 契约 lint
 python3 scripts/e2e-smoke.py      # 一键端到端 smoke
 python3 scripts/e2e-phase8.py     # CRUD + 实时流（Phase 8）
+python3 scripts/e2e-phase9.py     # 通知中心（Phase 9）
 python3 scripts/check_openapi.py  # OpenAPI 契约与路由一致性校验
 ```
 

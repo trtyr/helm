@@ -18,7 +18,7 @@ Status: active
 
 | Plan | 状态 | 阶段 | 最后落地 | 下一步 |
 |------|------|------|----------|--------|
-| [server](plans/server/README.md) | Active | Phase 0–8 已落地 | Phase 8 API 完整性（`a3e0300`） | — |
+| [server](plans/server/README.md) | Active | Phase 0–8 已落地 | 文档归档刷新到 HEAD（`53201c0`） | Phase 9 通知中心（规划中，[决策 009](plans/server/decisions/009-in-app-notifications.md)） |
 
 ## 如何阅读
 

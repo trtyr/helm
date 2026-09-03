@@ -435,6 +435,19 @@ paths:
         "101":
           description: WebSocket 升级成功
 
+  /api/v1/notifications/stream:
+    get:
+      tags: [stream]
+      summary: 通知实时流（WebSocket，二进制帧为 JSON 通知；决策 009 系统内通知）
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "101":
+          description: WebSocket 升级成功
+
   /api/v1/files/upload:
     post:
       tags: [files]
@@ -944,6 +957,79 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/Alert" }
 
+  /api/v1/notifications:
+    get:
+      tags: [notifications]
+      summary: 分页列出系统内通知（上线/下线/预警小卡片，决策 009）
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+        - name: unread
+          in: query
+          description: 只看未读（"true" / "1"）
+          schema: { type: string }
+      responses:
+        "200":
+          description: 通知列表（按时间倒序）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  notifications:
+                    type: array
+                    items: { $ref: "#/components/schemas/Notification" }
+
+  /api/v1/notifications/unread-count:
+    get:
+      tags: [notifications]
+      summary: 未读通知数（小卡片红点）
+      responses:
+        "200":
+          description: 未读数
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+
+  /api/v1/notifications/{id}/read:
+    post:
+      tags: [notifications]
+      summary: 标记单条通知已读
+      parameters:
+        - $ref: "#/components/parameters/HostId"
+      responses:
+        "200":
+          description: 已标记
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        "404":
+          description: 通知不存在
+
+  /api/v1/notifications/read-all:
+    post:
+      tags: [notifications]
+      summary: 全部通知标记已读
+      responses:
+        "200":
+          description: 已标记
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated: { type: integer }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1187,6 +1273,16 @@ components:
         threshold: { type: number }
         value: { type: number }
         level: { type: string }
+        created_at: { type: string, format: date-time }
+
+    Notification:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        host_id: { type: string, format: uuid }
+        kind: { type: string, enum: [online, offline, alert] }
+        message: { type: string }
+        read: { type: boolean }
         created_at: { type: string, format: date-time }
 
 security:

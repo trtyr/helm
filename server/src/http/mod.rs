@@ -12,6 +12,7 @@ pub mod hosts;
 pub mod jobs;
 pub mod listeners;
 pub mod metrics;
+pub mod notifications;
 pub mod process;
 pub mod services;
 pub mod stream;
@@ -132,6 +133,16 @@ pub async fn serve(
         .route("/net/info", post(process::net_info))
         .route("/audit", get(audit::list_audit))
         .route("/alerts", get(alerts::list_alerts))
+        .route("/notifications", get(notifications::list_notifications))
+        .route(
+            "/notifications/unread-count",
+            get(notifications::unread_count),
+        )
+        .route("/notifications/{id}/read", post(notifications::mark_read))
+        .route(
+            "/notifications/read-all",
+            post(notifications::mark_all_read),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_auth,
@@ -147,6 +158,10 @@ pub async fn serve(
         )
         .route("/api/v1/jobs/{id}/stream", get(stream::job_stream))
         .route("/api/v1/metrics/stream", get(stream::metrics_stream))
+        .route(
+            "/api/v1/notifications/stream",
+            get(stream::notifications_stream),
+        )
         .route("/api/v1/agents/cert", post(cert::issue_cert))
         .nest("/api/v1", protected)
         .with_state(state);

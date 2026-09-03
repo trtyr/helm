@@ -14,6 +14,7 @@ ORM/查询层：**sqlx**（异步、编译期 SQL 检查）。迁移用 `sqlx::m
 | 5 | `0005_add_services.up.sql` | `services` 表（常驻服务） |
 | 6 | `0006_add_audit_logs.up.sql` | `audit_logs` 表（审计日志） |
 | 7 | `0007_add_alerts.up.sql` | `alerts` 表（阈值告警） |
+| 8 | `0008_add_notifications.up.sql` | `notifications` 表（系统内通知中心，决策 009） |
 
 > 每个迁移都有对应 `.down.sql` 回滚文件。约定：所有表含 `created_at`/`updated_at`，外键 + 索引，
 > 软删除标记 `deleted_at`（hosts/users/tasks/jobs/file_transfers/metrics；`agents`/`listeners`/`services`/`audit_logs`/`alerts` 无软删除）。
@@ -138,6 +139,21 @@ ORM/查询层：**sqlx**（异步、编译期 SQL 检查）。迁移用 `sqlx::m
 
 索引：`idx_alerts_created(created_at DESC)`。
 
+### `notifications` — 系统内通知中心（迁移 8，决策 009）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | UUID PK | `gen_random_uuid()` |
+| host_id | UUID FK → hosts | `ON DELETE CASCADE` |
+| type | TEXT | `online` / `offline` / `alert`（CHECK） |
+| message | TEXT | 通知文案（如「主机 xxx 已上线」） |
+| read | BOOLEAN | 已读状态（默认 FALSE；冷却合并刷新时重置为未读） |
+| created_at | TIMESTAMPTZ | 时间 |
+
+索引：`idx_notifications_created(created_at DESC)`、`idx_notifications_unread`（`WHERE NOT read` 部分索引）。
+冷却窗口：同 host 同 type 5 分钟内合并为一条（刷新 message/created_at、重置 read），
+Service 层 `within_cooldown` 纯函数判定。30 天保留清理（与 metrics/alerts 同循环）。
+
 ## 状态机
 
 | 实体 | 状态流转 | 终态判断 |
@@ -156,6 +172,9 @@ Service 状态映射由 `agent_service::map_service_status`：running→running�
 - **Agent 注册**：反向由 `agent_service.rs` 收到 `Register` → `AgentRepo::register`（事务：按 hostname 复用或新建 host + upsert agent）→ 返回 host_id 供后续指标/心跳落库关联；正向由 `forward_manager.rs` 拨号后 → `AgentRepo::register_under_host`（挂到既定 forward host 下，不新建 host）。
 - **命令结果**：Agent `ExecResult(finished)` → `JobRepo::finish(id, status, output, exit_code)`。
 - **指标**：Agent `MetricReport` → `MetricRepo::insert(host_id, name, value, ts)`，逐条落库；超阈值同时落 `alerts`。
+- **通知**（决策 009）：注册（reverse/forward）→ online 通知；断连（`on_disconnect`）→ offline；
+  指标超阈值 → alert 联动；心跳超时兜底扫描（`spawn_offline_sweeper`，只对刚进入 stale 的补发，
+  半开死连接注销）。全部经 `NotificationService::notify`（冷却合并 + StreamRegistry 广播）。
 - **文件**：`FileService` 建 `FileTransferRepo::create` → 传输完成 `finish(status, bytes, checksum)`。
 - **服务日志**：Agent `ServiceStatus(log)` → `ServiceRepo::append_log` 追加。
 - **审计**：关键端点（login/exec/文件/主机/监听器）→ `AuditRepo::insert(actor, action, resource, detail)`。

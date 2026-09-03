@@ -78,6 +78,14 @@ pub async fn run() -> Result<()> {
     };
     grpc::forward_manager::ForwardManager::new().spawn_reconciler(forward_deps);
 
+    // 兜底下线扫描：心跳超时的漏网场景（半开连接）补发下线通知（决策 009）
+    application::notification_service::spawn_offline_sweeper(
+        db.clone(),
+        streams.clone(),
+        registry.clone(),
+        config.heartbeat_timeout_secs,
+    );
+
     // 恢复已落库的定时任务
     let exec = application::exec_service::ExecService::new(db.clone(), registry.clone());
     application::scheduler::resume_scheduled(db.clone(), exec).await?;
@@ -98,7 +106,7 @@ pub async fn run() -> Result<()> {
     .resume_or_seed(&config.grpc_addr)
     .await?;
 
-    // 时序保留清理：后台每 24h 删除 30 天前的 metrics + alerts
+    // 时序保留清理：后台每 24h 删除 30 天前的 metrics + alerts + notifications
     let cleanup_db = db.clone();
     tokio::spawn(async move {
         loop {
@@ -110,7 +118,10 @@ pub async fn run() -> Result<()> {
             let a = store::alert_repo::AlertRepo::new(cleanup_db.clone())
                 .delete_before(cutoff)
                 .await;
-            tracing::info!(metrics_deleted = ?m, alerts_deleted = ?a, "retention cleanup");
+            let n = store::notification_repo::NotificationRepo::new(cleanup_db.clone())
+                .delete_before(cutoff)
+                .await;
+            tracing::info!(metrics_deleted = ?m, alerts_deleted = ?a, notifications_deleted = ?n, "retention cleanup");
         }
     });
 

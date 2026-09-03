@@ -55,6 +55,23 @@ Status: active
   - API 全量：DELETE / UPDATE、分页 / 过滤、WebSocket 实时流（服务日志 / job 输出 / metrics）、agents 详情
   - 前端控制台接口契约：openapi.yaml（OpenAPI 3.0.3）+ check_openapi.py 机器校验
   - 落地证据：commit `a3e0300`；e2e-phase8.py；47 测试
+- **Phase 9 — 通知中心（系统内通知）** ✅
+  - 定义（[决策 009](decisions/009-in-app-notifications.md)）：通知 = 系统内部小卡片消息——
+    主机上线 / 下线 / 预警；**不做外发**（webhook / 邮件 / 钉钉）。
+  - `notifications` 表（迁移 0008：type=online/offline/alert + 已读/未读）；`alerts` 保留预警时序历史，
+    预警落库时联动生成通知。
+  - 上/下线事件埋点：注册即发 online（reverse/forward 两路）、`on_disconnect` 断连即发 offline、
+    心跳超时兜底扫描（`spawn_offline_sweeper`，含半开连接清理）。
+  - 冷却窗口：同 host 同类型 5 分钟内合并为一条（刷新消息与时间、重置未读）。
+  - API：`GET /notifications`（分页 + unread 过滤）/ `unread-count` / `{id}/read` / `read-all`
+    + WS `/notifications/stream`（复用 StreamRegistry）。
+  - 落地证据：e2e-phase9.py 五段全过（上线/冷却合并/已读未读/WS 推送/预警联动 gate）；
+    63 测试（含 `within_cooldown`/`should_notify_stale` 纯函数 + 4 个通知集成测试）；
+    openapi 44 端点校验通过。
+
+## Next（已规划，未开工）
+
+（暂无——Phase 9 已落地，见 Done。）
 
 ## Deferred
 
