@@ -8,7 +8,11 @@ pub fn list_dir(request_id: &str, path: &str) -> AgentMessage {
         let mut entries = Vec::new();
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
-            let meta = e.metadata().ok();
+            // follow symlink 判定（/tmp 等系统链接指向目录时按目录呈现）；
+            // 断链 symlink 回退到链接自身的元数据。
+            let meta = std::fs::metadata(e.path())
+                .ok()
+                .or_else(|| e.metadata().ok());
             let is_dir = meta.as_ref().is_some_and(|m| m.is_dir());
             let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
             let modified = meta
@@ -92,6 +96,22 @@ mod tests {
         let a = r.entries.iter().find(|e| e.name == "a.txt").unwrap();
         assert!(!a.is_dir);
         assert_eq!(a.size, 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn list_dir_symlink_to_dir_is_dir() {
+        // 回归：/tmp 等指向目录的 symlink 应按目录呈现（follow 语义）
+        let dir = std::env::temp_dir().join(format!("helm-fs-symlink-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("real")).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(dir.join("real"), dir.join("link")).unwrap();
+
+        let r = entries_of("r3", dir.to_str().unwrap());
+        let link = r.entries.iter().find(|e| e.name == "link").unwrap();
+        assert!(link.is_dir, "symlink → 目录应 is_dir=true");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

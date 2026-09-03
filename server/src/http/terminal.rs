@@ -6,7 +6,9 @@ use crate::http::AppState;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
-use helm_proto::pb::{ServerMessage, SessionClose, SessionInput, SessionOpen, server_message};
+use helm_proto::pb::{
+    ServerMessage, SessionClose, SessionInput, SessionOpen, SessionResize, server_message,
+};
 use serde::Deserialize;
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -14,7 +16,15 @@ use uuid::Uuid;
 #[derive(Debug, Deserialize)]
 pub struct TerminalQuery {
     pub token: String,
+    /// 初始列数（默认 80）。
+    pub cols: Option<u32>,
+    /// 初始行数（默认 24）。
+    pub rows: Option<u32>,
 }
+
+/// 二进制帧首字节标记（浏览器 → Server）。
+const FRAME_INPUT: u8 = 0x01;
+const FRAME_RESIZE: u8 = 0x02;
 
 /// WebSocket 终端端点（认证走 query param，因 WS 握手无法带 Authorization header）。
 pub async fn terminal(
@@ -31,18 +41,24 @@ pub async fn terminal(
         return Err(Error::NotConnected(agent_id));
     }
 
-    Ok(ws.on_upgrade(move |socket| handle_socket(socket, state, agent_id)))
+    Ok(ws.on_upgrade(move |socket| {
+        handle_socket(socket, state, agent_id, query.cols.unwrap_or(80), query.rows.unwrap_or(24))
+    }))
 }
 
 /// WS 桥接：输入 → Agent，输出 → WS。
-async fn handle_socket(mut socket: WebSocket, state: AppState, agent_id: String) {
+///
+/// 浏览器 → Server 二进制帧协议：首字节 `0x01` = PTY 输入（其余字节直通）；
+/// `0x02` = resize（后续 UTF-8 JSON `{"cols":u16,"rows":u16}` → SessionResize）。
+/// Text 帧按输入直通（向后兼容）。
+async fn handle_socket(mut socket: WebSocket, state: AppState, agent_id: String, cols: u32, rows: u32) {
     let session_id = Uuid::new_v4().to_string();
 
     let open = ServerMessage {
         kind: Some(server_message::Kind::SessionOpen(SessionOpen {
             session_id: session_id.clone(),
-            cols: 80,
-            rows: 24,
+            cols,
+            rows,
             command: String::new(),
         })),
     };
@@ -65,16 +81,37 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, agent_id: String)
                     Some(Ok(Message::Close(_))) | None => break,
                     _ => None,
                 };
-                if let Some(data) = data {
-                    let input = ServerMessage {
+                let Some(data) = data else { continue };
+                // 首字节分流：输入 / resize
+                let msg = match data.split_first() {
+                    Some((&FRAME_RESIZE, rest)) => {
+                        match serde_json::from_slice::<(u32, u32)>(rest) {
+                            Ok((c, r)) => ServerMessage {
+                                kind: Some(server_message::Kind::SessionResize(SessionResize {
+                                    session_id: session_id.clone(),
+                                    cols: c,
+                                    rows: r,
+                                })),
+                            },
+                            Err(_) => continue, // 非法 resize 帧丢弃
+                        }
+                    }
+                    Some((&FRAME_INPUT, rest)) => ServerMessage {
+                        kind: Some(server_message::Kind::SessionInput(SessionInput {
+                            session_id: session_id.clone(),
+                            data: rest.to_vec(),
+                        })),
+                    },
+                    // 无标记（Text 帧或老客户端）：整帧按输入
+                    _ => ServerMessage {
                         kind: Some(server_message::Kind::SessionInput(SessionInput {
                             session_id: session_id.clone(),
                             data,
                         })),
-                    };
-                    if state.registry.send(&agent_id, input).await.is_err() {
-                        break;
-                    }
+                    },
+                };
+                if state.registry.send(&agent_id, msg).await.is_err() {
+                    break;
                 }
             }
             data = out_rx.recv() => {
@@ -89,6 +126,13 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, agent_id: String)
             }
             _ = tokio::time::sleep(idle) => {
                 tracing::info!(session_id = %session_id, "session idle timeout, closing");
+                // 告知前端关闭原因（前端区分空闲超时与异常断开）
+                let _ = socket
+                    .send(Message::Close(Some(axum::extract::ws::CloseFrame {
+                        code: axum::extract::ws::close_code::NORMAL,
+                        reason: "idle_timeout".into(),
+                    })))
+                    .await;
                 break;
             }
         }
