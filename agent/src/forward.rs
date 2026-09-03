@@ -1,11 +1,15 @@
 //! 正向模式：Agent 作为 gRPC server，处理 Server 主动连入的通道。
+//!
+//! 流上协议与 reverse 同构（决策 002）：连接建立后 Agent 先发 `Register`
+//! 完成身份上报，随后持续发送心跳与指标；Server 侧据将其注册进
+//! ConnectionRegistry，全部控制端点对 forward 主机可用。
 
 use std::pin::Pin;
 
 use crate::config::Config;
 use anyhow::Result;
 use helm_proto::pb::{
-    AgentMessage, ServerMessage, SessionOpened, agent_message,
+    AgentMessage, Heartbeat, ServerMessage, SessionOpened, agent_message,
     forward_agent_service_server::{ForwardAgentService, ForwardAgentServiceServer},
     server_message,
 };
@@ -15,10 +19,15 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::codegen::async_trait;
 use tonic::{Request, Response, Status, Streaming};
 
+/// 心跳间隔（与 reverse 保持一致）。
+const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// 正向模式：启动 gRPC server 监听。
 pub async fn serve(config: &Config) -> Result<()> {
     let addr = config.listen_addr.parse()?;
-    let svc = ForwardAgentServiceServer::new(ForwardAgentServiceImpl);
+    let svc = ForwardAgentServiceServer::new(ForwardAgentServiceImpl {
+        cfg: config.clone(),
+    });
     tracing::info!(addr = %config.listen_addr, "agent forward mode listening");
     tonic::transport::Server::builder()
         .add_service(svc)
@@ -27,7 +36,9 @@ pub async fn serve(config: &Config) -> Result<()> {
     Ok(())
 }
 
-struct ForwardAgentServiceImpl;
+struct ForwardAgentServiceImpl {
+    cfg: Config,
+}
 
 #[async_trait]
 impl ForwardAgentService for ForwardAgentServiceImpl {
@@ -39,10 +50,47 @@ impl ForwardAgentService for ForwardAgentServiceImpl {
         request: Request<Streaming<ServerMessage>>,
     ) -> Result<Response<Self::OpenForwardChannelStream>, Status> {
         tracing::info!("forward channel request received");
+        let cfg = self.cfg.clone();
         let mut inbound = request.into_inner();
         let (tx, rx) = mpsc::channel::<AgentMessage>(64);
 
         tokio::spawn(async move {
+            // 1. 先发 Register（协议与 reverse 同构，Server 据此注册）
+            let register = crate::connection::build_register(&cfg);
+            tracing::info!(agent_id = %cfg.agent_id, "forward channel: sending register");
+            if tx
+                .send(AgentMessage {
+                    kind: Some(agent_message::Kind::Register(register)),
+                })
+                .await
+                .is_err()
+            {
+                return;
+            }
+
+            // 2. 心跳 task（连接断开随 tx drop 退出）
+            let tx_hb = tx.clone();
+            let heartbeat = tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(HEARTBEAT_INTERVAL).await;
+                    let msg = AgentMessage {
+                        kind: Some(agent_message::Kind::Heartbeat(Heartbeat {
+                            timestamp_unix_ms: crate::connection::now_ms(),
+                        })),
+                    };
+                    if tx_hb.send(msg).await.is_err() {
+                        break;
+                    }
+                }
+            });
+
+            // 3. 监控 task（指标上报）
+            let tx_mon = tx.clone();
+            let monitor = tokio::spawn(async move {
+                crate::monitor::run_monitor(tx_mon).await;
+            });
+
+            // 4. 入站处理循环
             let mut file_handler = crate::file::FileHandler::new();
             let sessions = crate::pty::SessionManager::new();
             let services = crate::service::ServiceManager::new();
@@ -137,6 +185,10 @@ impl ForwardAgentService for ForwardAgentServiceImpl {
                     _ => {}
                 }
             }
+
+            // 流结束：停心跳与监控
+            heartbeat.abort();
+            monitor.abort();
         });
 
         let outbound = ReceiverStream::new(rx).map(Ok);

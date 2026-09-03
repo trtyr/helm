@@ -1,17 +1,15 @@
 //! AgentService 实现：处理 Agent 反向连入的双向流。
 
-use std::collections::HashMap;
 use std::pin::Pin;
 
 use crate::grpc::connection_registry::ConnectionRegistry;
 use crate::grpc::file_list_registry::FileListRegistry;
-use crate::grpc::query_registry::{QueryRegistry, QueryResponse};
+use crate::grpc::inbound::InboundCtx;
+use crate::grpc::query_registry::QueryRegistry;
 use crate::grpc::session_registry::SessionRegistry;
 use crate::grpc::stream_registry::StreamRegistry;
 use crate::grpc::transfer_registry::TransferRegistry;
-use crate::store::alert_repo::AlertRepo;
-use crate::store::service_repo::ServiceRepo;
-use crate::store::{Db, agent_repo::AgentRepo, job_repo::JobRepo, metric_repo::MetricRepo};
+use crate::store::{Db, agent_repo::AgentRepo};
 use helm_proto::pb::{
     AgentMessage, RegisterAck, ServerMessage, agent_message, agent_service_server::AgentService,
     server_message,
@@ -21,7 +19,6 @@ use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::codegen::async_trait;
 use tonic::{Request, Response, Status, Streaming};
-use uuid::Uuid;
 
 /// AgentService 实现：持有连接注册表、数据库与认证 token。
 pub struct AgentServiceImpl {
@@ -149,176 +146,20 @@ impl AgentService for AgentServiceImpl {
         let db = self.db.clone();
         let agent_id_inner = agent_id.clone();
         tokio::spawn(async move {
-            let job_repo = JobRepo::new(db.clone());
-            let metric_repo = MetricRepo::new(db.clone());
-            let agent_repo = AgentRepo::new(db.clone());
-            let alert_repo = AlertRepo::new(db.clone());
-            let mut outputs: HashMap<String, String> = HashMap::new();
-
+            let mut ctx = InboundCtx::new(
+                agent_id_inner.clone(),
+                host_id,
+                registry,
+                transfers,
+                sessions,
+                file_list,
+                query,
+                streams,
+                db,
+            );
             loop {
                 match inbound.message().await {
-                    Ok(Some(msg)) => match msg.kind {
-                        Some(agent_message::Kind::Heartbeat(h)) => {
-                            if let Err(e) = agent_repo
-                                .update_heartbeat(&agent_id_inner, h.timestamp_unix_ms)
-                                .await
-                            {
-                                tracing::warn!(
-                                    agent_id = %agent_id_inner,
-                                    error = %e,
-                                    "failed to update heartbeat"
-                                );
-                            }
-                            tracing::debug!(
-                                agent_id = %agent_id_inner,
-                                ts_ms = h.timestamp_unix_ms,
-                                "heartbeat"
-                            );
-                        }
-                        Some(agent_message::Kind::MetricReport(report)) => {
-                            let count = report.metrics.len();
-                            if let Some(host_id) = host_id {
-                                for m in report.metrics {
-                                    let ts =
-                                        chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
-                                            m.timestamp_unix_ms as i64,
-                                        )
-                                        .unwrap_or_else(chrono::Utc::now);
-                                    if let Err(e) =
-                                        metric_repo.insert(host_id, &m.name, m.value, ts).await
-                                    {
-                                        tracing::warn!(error = %e, "failed to persist metric");
-                                    }
-                                    // 告警评估：超阈值落 alerts 表
-                                    if let Some(threshold) =
-                                        crate::application::alert_service::AlertService::threshold_for(&m.name)
-                                            .filter(|t| m.value > *t)
-                                    {
-                                        let _ = alert_repo
-                                            .insert(host_id, &m.name, threshold, m.value)
-                                            .await;
-                                    }
-                                    // 实时流：推送指标
-                                    let payload = serde_json::json!({
-                                        "host_id": host_id,
-                                        "name": m.name,
-                                        "value": m.value,
-                                        "ts": m.timestamp_unix_ms,
-                                    });
-                                    streams
-                                        .broadcast("metrics", payload.to_string().into_bytes())
-                                        .await;
-                                }
-                            }
-                            tracing::debug!(agent_id = %agent_id_inner, count, "metrics received");
-                        }
-                        Some(agent_message::Kind::ExecResult(er)) => {
-                            let job_id = er.job_id.clone();
-                            let entry = outputs.entry(job_id.clone()).or_default();
-                            if let Some(chunk) = er.chunk {
-                                entry.push_str(&String::from_utf8_lossy(&chunk.data));
-                                // 实时流：推送 job 输出增量
-                                streams
-                                    .broadcast(&format!("job:{job_id}"), chunk.data)
-                                    .await;
-                            }
-                            if er.finished {
-                                let output = outputs.remove(&job_id).unwrap_or_default();
-                                let status = job_status(er.error.as_deref(), er.exit_code);
-                                match Uuid::parse_str(&job_id) {
-                                    Ok(id) => {
-                                        if let Err(e) =
-                                            job_repo.finish(id, status, &output, er.exit_code).await
-                                        {
-                                            tracing::warn!(
-                                                job_id = %job_id,
-                                                error = %e,
-                                                "failed to persist job result"
-                                            );
-                                        } else {
-                                            tracing::info!(job_id = %job_id, status, "job finished");
-                                        }
-                                    }
-                                    Err(_) => tracing::warn!(job_id = %job_id, "invalid job_id"),
-                                }
-                            }
-                        }
-                        Some(agent_message::Kind::FileChunk(chunk)) => {
-                            transfers
-                                .accumulate_chunk(&chunk.transfer_id, &chunk.data)
-                                .await;
-                        }
-                        Some(agent_message::Kind::FileStatus(status)) => {
-                            let tid = status.transfer_id.clone();
-                            transfers.complete(&tid, status).await;
-                        }
-                        Some(agent_message::Kind::SessionOpened(opened)) => {
-                            tracing::info!(session_id = %opened.session_id, "session opened");
-                        }
-                        Some(agent_message::Kind::SessionOutput(out)) => {
-                            let _ = sessions.forward(&out.session_id, out.data).await;
-                        }
-                        Some(agent_message::Kind::SessionClosed(closed)) => {
-                            sessions.unregister(&closed.session_id).await;
-                            tracing::info!(session_id = %closed.session_id, "session closed");
-                        }
-                        Some(agent_message::Kind::ServiceStatus(st)) => {
-                            if let Ok(id) = Uuid::parse_str(&st.service_id) {
-                                let repo = ServiceRepo::new(db.clone());
-                                if !st.log.is_empty() {
-                                    let _ = repo.append_log(id, &st.log).await;
-                                    // 实时流：推送服务日志增量
-                                    streams
-                                        .broadcast(&format!("service:{id}"), st.log.clone())
-                                        .await;
-                                }
-                                match map_service_status(&st.status) {
-                                    Some("running") => {
-                                        let _ = repo.set_status(id, "running", st.pid, None).await;
-                                    }
-                                    Some("failed") => {
-                                        let _ =
-                                            repo.set_status(id, "failed", None, st.exit_code).await;
-                                    }
-                                    Some("stopped") => {
-                                        let _ = repo
-                                            .set_status(id, "stopped", None, st.exit_code)
-                                            .await;
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                        Some(agent_message::Kind::FileListResult(result)) => {
-                            file_list.complete(result).await;
-                        }
-                        Some(agent_message::Kind::ProcessListResult(result)) => {
-                            let rid = result.request_id.clone();
-                            query
-                                .complete(&rid, QueryResponse::ProcessList(result))
-                                .await;
-                        }
-                        Some(agent_message::Kind::ProcessKillResult(result)) => {
-                            let rid = result.request_id.clone();
-                            query
-                                .complete(&rid, QueryResponse::ProcessKill(result))
-                                .await;
-                        }
-                        Some(agent_message::Kind::NetInfoResult(result)) => {
-                            let rid = result.request_id.clone();
-                            query.complete(&rid, QueryResponse::NetInfo(result)).await;
-                        }
-                        Some(agent_message::Kind::Register(_)) => {
-                            tracing::warn!(agent_id = %agent_id_inner, "duplicate register ignored");
-                        }
-                        other => {
-                            tracing::debug!(
-                                agent_id = %agent_id_inner,
-                                ?other,
-                                "unhandled message"
-                            );
-                        }
-                    },
+                    Ok(Some(msg)) => ctx.handle(msg).await,
                     Ok(None) => break,
                     Err(e) => {
                         tracing::warn!(agent_id = %agent_id_inner, error = %e, "inbound stream error");
@@ -326,8 +167,7 @@ impl AgentService for AgentServiceImpl {
                     }
                 }
             }
-            registry.unregister(&agent_id_inner).await;
-            tracing::info!(agent_id = %agent_id_inner, "agent disconnected");
+            ctx.on_disconnect().await;
         });
 
         let outbound = ReceiverStream::new(rx).map(Ok);

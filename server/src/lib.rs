@@ -34,6 +34,17 @@ pub async fn run() -> Result<()> {
     let file_list = grpc::file_list_registry::FileListRegistry::new();
     let query = grpc::query_registry::QueryRegistry::new();
     let streams = grpc::stream_registry::StreamRegistry::new();
+    let forward_deps = grpc::forward_manager::ForwardDeps {
+        registry: registry.clone(),
+        transfers: transfers.clone(),
+        sessions: sessions.clone(),
+        file_list: file_list.clone(),
+        query: query.clone(),
+        streams: streams.clone(),
+        db: db.clone(),
+        server_token: config.server_token.clone(),
+    };
+    grpc::forward_manager::ForwardManager::new().spawn_reconciler(forward_deps);
     let cert =
         application::cert_service::CertService::generate(&config.tls_server_name, config.mtls)?;
 

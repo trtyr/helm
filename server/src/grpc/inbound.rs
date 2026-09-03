@@ -1,0 +1,216 @@
+//! 公共入站消息处理：reverse（Agent 连入）与 forward（Server 拨号）共用的
+//! AgentMessage 消费逻辑。两个方向协议同构（决策 002），处理逻辑收敛到此处。
+
+use std::collections::HashMap;
+
+use crate::grpc::connection_registry::ConnectionRegistry;
+use crate::grpc::file_list_registry::FileListRegistry;
+use crate::grpc::query_registry::{QueryRegistry, QueryResponse};
+use crate::grpc::session_registry::SessionRegistry;
+use crate::grpc::stream_registry::StreamRegistry;
+use crate::grpc::transfer_registry::TransferRegistry;
+use crate::store::alert_repo::AlertRepo;
+use crate::store::service_repo::ServiceRepo;
+use crate::store::{Db, agent_repo::AgentRepo, job_repo::JobRepo, metric_repo::MetricRepo};
+use helm_proto::pb::{AgentMessage, agent_message};
+use uuid::Uuid;
+
+/// 一条 agent 连接的入站处理上下文（每连接一个）。
+pub struct InboundCtx {
+    pub agent_id: String,
+    pub host_id: Option<Uuid>,
+    pub registry: ConnectionRegistry,
+    pub transfers: TransferRegistry,
+    pub sessions: SessionRegistry,
+    pub file_list: FileListRegistry,
+    pub query: QueryRegistry,
+    pub streams: StreamRegistry,
+    pub db: Db,
+    /// job_id → 累积输出（ExecResult 分块重组）。
+    outputs: HashMap<String, String>,
+}
+
+impl InboundCtx {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        agent_id: String,
+        host_id: Option<Uuid>,
+        registry: ConnectionRegistry,
+        transfers: TransferRegistry,
+        sessions: SessionRegistry,
+        file_list: FileListRegistry,
+        query: QueryRegistry,
+        streams: StreamRegistry,
+        db: Db,
+    ) -> Self {
+        Self {
+            agent_id,
+            host_id,
+            registry,
+            transfers,
+            sessions,
+            file_list,
+            query,
+            streams,
+            db,
+            outputs: HashMap::new(),
+        }
+    }
+
+    /// 消费一条入站消息。
+    pub async fn handle(&mut self, msg: AgentMessage) {
+        let agent_id = self.agent_id.clone();
+        match msg.kind {
+            Some(agent_message::Kind::Heartbeat(h)) => {
+                if let Err(e) = AgentRepo::new(self.db.clone())
+                    .update_heartbeat(&agent_id, h.timestamp_unix_ms)
+                    .await
+                {
+                    tracing::warn!(agent_id = %agent_id, error = %e, "failed to update heartbeat");
+                }
+                tracing::debug!(agent_id = %agent_id, ts_ms = h.timestamp_unix_ms, "heartbeat");
+            }
+            Some(agent_message::Kind::MetricReport(report)) => {
+                let count = report.metrics.len();
+                if let Some(host_id) = self.host_id {
+                    let metric_repo = MetricRepo::new(self.db.clone());
+                    let alert_repo = AlertRepo::new(self.db.clone());
+                    for m in report.metrics {
+                        let ts = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
+                            m.timestamp_unix_ms as i64,
+                        )
+                        .unwrap_or_else(chrono::Utc::now);
+                        if let Err(e) = metric_repo.insert(host_id, &m.name, m.value, ts).await {
+                            tracing::warn!(error = %e, "failed to persist metric");
+                        }
+                        // 告警评估：超阈值落 alerts 表
+                        if let Some(threshold) =
+                            crate::application::alert_service::AlertService::threshold_for(&m.name)
+                                .filter(|t| m.value > *t)
+                        {
+                            let _ = alert_repo
+                                .insert(host_id, &m.name, threshold, m.value)
+                                .await;
+                        }
+                        // 实时流：推送指标
+                        let payload = serde_json::json!({
+                            "host_id": host_id,
+                            "name": m.name,
+                            "value": m.value,
+                            "ts": m.timestamp_unix_ms,
+                        });
+                        self.streams
+                            .broadcast("metrics", payload.to_string().into_bytes())
+                            .await;
+                    }
+                }
+                tracing::debug!(agent_id = %agent_id, count, "metrics received");
+            }
+            Some(agent_message::Kind::ExecResult(er)) => {
+                let job_id = er.job_id.clone();
+                let entry = self.outputs.entry(job_id.clone()).or_default();
+                if let Some(chunk) = er.chunk {
+                    entry.push_str(&String::from_utf8_lossy(&chunk.data));
+                    // 实时流：推送 job 输出增量
+                    self.streams
+                        .broadcast(&format!("job:{job_id}"), chunk.data)
+                        .await;
+                }
+                if er.finished {
+                    let output = self.outputs.remove(&job_id).unwrap_or_default();
+                    let status =
+                        crate::grpc::agent_service::job_status(er.error.as_deref(), er.exit_code);
+                    match Uuid::parse_str(&job_id) {
+                        Ok(id) => {
+                            if let Err(e) = JobRepo::new(self.db.clone())
+                                .finish(id, status, &output, er.exit_code)
+                                .await
+                            {
+                                tracing::warn!(job_id = %job_id, error = %e, "failed to persist job result");
+                            } else {
+                                tracing::info!(job_id = %job_id, status, "job finished");
+                            }
+                        }
+                        Err(_) => tracing::warn!(job_id = %job_id, "invalid job_id"),
+                    }
+                }
+            }
+            Some(agent_message::Kind::FileChunk(chunk)) => {
+                self.transfers
+                    .accumulate_chunk(&chunk.transfer_id, &chunk.data)
+                    .await;
+            }
+            Some(agent_message::Kind::FileStatus(status)) => {
+                let tid = status.transfer_id.clone();
+                self.transfers.complete(&tid, status).await;
+            }
+            Some(agent_message::Kind::SessionOpened(opened)) => {
+                tracing::info!(session_id = %opened.session_id, "session opened");
+            }
+            Some(agent_message::Kind::SessionOutput(out)) => {
+                let _ = self.sessions.forward(&out.session_id, out.data).await;
+            }
+            Some(agent_message::Kind::SessionClosed(closed)) => {
+                self.sessions.unregister(&closed.session_id).await;
+                tracing::info!(session_id = %closed.session_id, "session closed");
+            }
+            Some(agent_message::Kind::ServiceStatus(st)) => {
+                if let Ok(id) = Uuid::parse_str(&st.service_id) {
+                    let repo = ServiceRepo::new(self.db.clone());
+                    if !st.log.is_empty() {
+                        let _ = repo.append_log(id, &st.log).await;
+                        // 实时流：推送服务日志增量
+                        self.streams
+                            .broadcast(&format!("service:{id}"), st.log.clone())
+                            .await;
+                    }
+                    match crate::grpc::agent_service::map_service_status(&st.status) {
+                        Some("running") => {
+                            let _ = repo.set_status(id, "running", st.pid, None).await;
+                        }
+                        Some("failed") => {
+                            let _ = repo.set_status(id, "failed", None, st.exit_code).await;
+                        }
+                        Some("stopped") => {
+                            let _ = repo.set_status(id, "stopped", None, st.exit_code).await;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Some(agent_message::Kind::FileListResult(result)) => {
+                self.file_list.complete(result).await;
+            }
+            Some(agent_message::Kind::ProcessListResult(result)) => {
+                let rid = result.request_id.clone();
+                self.query
+                    .complete(&rid, QueryResponse::ProcessList(result))
+                    .await;
+            }
+            Some(agent_message::Kind::ProcessKillResult(result)) => {
+                let rid = result.request_id.clone();
+                self.query
+                    .complete(&rid, QueryResponse::ProcessKill(result))
+                    .await;
+            }
+            Some(agent_message::Kind::NetInfoResult(result)) => {
+                let rid = result.request_id.clone();
+                self.query
+                    .complete(&rid, QueryResponse::NetInfo(result))
+                    .await;
+            }
+            Some(agent_message::Kind::Register(_)) => {
+                tracing::warn!(agent_id = %agent_id, "duplicate register ignored");
+            }
+            other => {
+                tracing::debug!(agent_id = %agent_id, ?other, "unhandled message");
+            }
+        }
+    }
+
+    /// 连接结束：从注册表注销。
+    pub async fn on_disconnect(&self) {
+        self.registry.unregister(&self.agent_id).await;
+        tracing::info!(agent_id = %self.agent_id, "agent disconnected");
+    }
+}

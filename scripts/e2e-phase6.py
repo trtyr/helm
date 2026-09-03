@@ -186,7 +186,7 @@ def test_process_net(token: str) -> None:
 
 
 def test_group_tags(token: str) -> None:
-    hosts = http_json("GET", "/hosts", token=token)["hosts"]
+    hosts = http_json("GET", "/hosts?limit=1000", token=token)["hosts"]
     assert hosts, "无主机"
     hid = hosts[0]["id"]
 

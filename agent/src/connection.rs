@@ -178,7 +178,7 @@ async fn connect_once(config: &Config) -> Result<()> {
 }
 
 /// 构造 Register 消息，附带目标主机信息。
-fn build_register(config: &Config) -> Register {
+pub(crate) fn build_register(config: &Config) -> Register {
     let hostname = hostname::get()
         .ok()
         .and_then(|h| h.into_string().ok())
@@ -200,7 +200,7 @@ fn build_register(config: &Config) -> Register {
     }
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

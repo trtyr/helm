@@ -53,7 +53,7 @@ def test_crud(token: str) -> None:
     paged = http_json("GET", "/hosts?page=1&limit=5", token=token)
     assert "hosts" in paged, "hosts 分页失败"
     http_json("DELETE", f"/hosts/{hid}", token=token)
-    hosts = http_json("GET", "/hosts", token=token)["hosts"]
+    hosts = http_json("GET", "/hosts?limit=1000", token=token)["hosts"]
     assert all(h["id"] != hid for h in hosts), "hosts DELETE 后仍存在"
 
     # services：创建 → PUT 改 → 分页 → DELETE

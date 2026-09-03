@@ -57,4 +57,4 @@ portable-pty = "0.9"
 # tls / certificate (mTLS)
 rcgen = { version = "0.14", features = ["crypto", "pem", "x509-parser"] }
 time = "0.3"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }

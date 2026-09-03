@@ -45,7 +45,7 @@ def agent_online(token: str, agent_id: str) -> bool:
 
 
 def host_online(token: str, host_id: str) -> bool:
-    hosts = http_json("GET", "/hosts", token=token)["hosts"]
+    hosts = http_json("GET", "/hosts?limit=1000", token=token)["hosts"]
     h = next((x for x in hosts if x["id"] == host_id), None)
     return bool(h and h.get("online"))
 

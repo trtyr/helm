@@ -90,6 +90,46 @@ impl AgentRepo {
         Ok(host_id)
     }
 
+    /// forward 模式注册：agent 挂到既定 host 下（不按 hostname 查找/新建 host）。
+    pub async fn register_under_host(
+        &self,
+        host_id: Uuid,
+        agent_id: &str,
+        version: &str,
+        os: &str,
+        arch: &str,
+        platform: &str,
+    ) -> sqlx::Result<()> {
+        let mut tx = self.db.pool().begin().await?;
+
+        // 更新 host 系统信息（保留 hostname/conn_mode/addr/tags 等声明字段）
+        sqlx::query(
+            "UPDATE hosts SET os = $2, arch = $3, platform = $4, updated_at = now() WHERE id = $1",
+        )
+        .bind(host_id)
+        .bind(os)
+        .bind(arch)
+        .bind(platform)
+        .execute(&mut *tx)
+        .await?;
+
+        // upsert agent
+        sqlx::query(
+            "INSERT INTO agents (id, host_id, version, registered_at, last_heartbeat_at)
+             VALUES ($1, $2, $3, now(), now())
+             ON CONFLICT (id) DO UPDATE SET host_id = $2, version = $3,
+                 registered_at = now(), last_heartbeat_at = now()",
+        )
+        .bind(agent_id)
+        .bind(host_id)
+        .bind(version)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
     /// 按 agent_id 查 host_id。
     pub async fn get_host_id(&self, agent_id: &str) -> sqlx::Result<Option<Uuid>> {
         sqlx::query_scalar("SELECT host_id FROM agents WHERE id = $1")
