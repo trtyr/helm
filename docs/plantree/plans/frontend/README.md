@@ -28,7 +28,8 @@ helm 前端控制台的完整设计规格。后端接口契约见
 | 功能清单（70）+ API 映射 | ✅ | feature-inventory.md（44 HTTP + 5 WS 无孤儿） |
 | 路由规格（20） | ✅ | routes/（每路由四要素齐备） |
 | 技术决策（7）+ 开放问题（8） | ✅ | decisions/ + open-questions.md |
-| 前端实现 | 未开工 | 仓库 helm-console 尚未创建 |
+| **M1 骨架**（tokens/布局/登录/主机列表） | ✅ 已落地 | github.com/trtyr/helm-console `f17dfbc`：playwright 登录流 + 主机 CRUD 全流程联调通过；vitest 8 测试；build/lint 零错误 |
+| M2+（详情 tabs/终端/文件…） | 未开工 | 按 routes/ 规格逐里程碑推进 |
 
 ## 边界
 
