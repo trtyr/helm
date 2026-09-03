@@ -53,7 +53,7 @@ Server 侧在 gRPC 入站流与 HTTP 处理器之间，用 `Arc<Mutex<HashMap<..
 
 ## Git 工作流
 
-- 当前仓库：分支 `master`，**无 remote 配置**（本地仓库）。
+- 当前仓库：分支 `master`，remote `origin` → github.com/trtyr/helm（私有）。
 - 提交信息用 conventional commits（`feat:` / `fix:` / `docs:` / `test:` / `refactor:` / `chore:`）。
 - 无 CI 配置文件；门禁为本地 `just check` + `buf`。
 

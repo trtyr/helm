@@ -37,11 +37,11 @@
 
 ## Git 状态
 
-- 分支：`master`；**无 remote**。
+- 分支：`master`，跟踪 `origin/master`（github.com/trtyr/helm，私有）。
 - 最近落地（Phase 8 `a3e0300` 之后）：`66aa763` forward 持久连接、`06871e3` Windows GBK 解码、
   `b9eef82` forward mTLS（CA 持久化 + issue-cert 预置）、`c50a1b1` 真机测试报告、
-  `53201c0` 文档归档刷新、**Phase 9 通知中心**（决策 009：notifications 表 + 上下线/预警事件
-  埋点 + 冷却合并 + 已读未读 + WS 推送，e2e-phase9.py 验证）。
+  `53201c0` 文档归档刷新、`15005d8` **Phase 9 通知中心**（决策 009：notifications 表 +
+  上下线/预警事件埋点 + 冷却合并 + 已读未读 + WS 推送，e2e-phase9.py 验证）。
 
 ## 开放项 / 已知问题
 
