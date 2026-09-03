@@ -31,3 +31,8 @@ Status: active
 8. **仪表盘统计的告警计数口径**。F07「今日告警」需要按日过滤，但 GET /alerts
    无日期过滤参数（仅分页）——前端取第一页近似 or 后端加参数。倾向后端加
    `?since=` 参数。→ 后端 backlog 候选。
+
+9. **主机单查端点缺失**（M2 发现）。`GET /api/v1/hosts/{id}` 不存在（仅 PUT/DELETE），
+   详情页只能复用 `GET /hosts` 列表缓存 + 前端 find(id) 兜底，30s refetchInterval
+   自然刷新。深分页下目标主机可能不在第一页 → 前端需按需翻页查找。倾向后端补
+   单查端点。→ 后端 backlog 候选。

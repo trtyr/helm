@@ -1,7 +1,7 @@
 # Frontend Plan — helm 控制台（Vite + React，Geist 设计语言）
 
 Role: plan-root
-Status: active（设计规格已完成，实现未开工）
+Status: active（设计规格已完成；实现 M1/M2 已落地，按里程碑推进）
 
 helm 前端控制台的完整设计规格。后端接口契约见
 [docs/openapi.yaml](../../../openapi.yaml)（44 HTTP + 5 WS，Phase 9 后）；
@@ -29,7 +29,8 @@ helm 前端控制台的完整设计规格。后端接口契约见
 | 路由规格（20） | ✅ | routes/（每路由四要素齐备） |
 | 技术决策（7）+ 开放问题（8） | ✅ | decisions/ + open-questions.md |
 | **M1 骨架**（tokens/布局/登录/主机列表） | ✅ 已落地 | github.com/trtyr/helm-console `762800f`：playwright 登录流（含已登录重定向）+ 主机 CRUD 全流程联调通过；TS strict 落配置层；vitest 8 测试；build/lint 零错误 |
-| M2+（详情 tabs/终端/文件…） | 未开工 | 按 routes/ 规格逐里程碑推进 |
+| **M2 详情**（详情框架/概览/终端/文件） | ✅ 已落地 | helm-console `1860274`：verify-m2.mjs 14 项联调全过（终端回显 + resize 双向同步实证 tput cols、文件上传/下载 checksum 逐字节往返、离线守卫 GUARDED 区分）；后端配套 `a4b3848`（terminal WS resize 透传 + fs.rs is_dir follow symlink 修复）；vitest 14 测试 |
+| M3+（服务/进程/网络/指标/任务 tabs…） | 未开工 | 按 routes/ 规格逐里程碑推进 |
 
 ## 边界
 
