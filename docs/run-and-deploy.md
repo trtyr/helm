@@ -29,7 +29,9 @@ cargo run -p helm-server
 - 默认 HTTP `:8080`、gRPC `:50051`。
 - 首次启动自动执行迁移（7 个版本），并 seed 管理员 `admin / admin123`（仅当 users 表为空）。
 - 首次启动自动 seed 默认监听器（`listeners` 表为空时），后续启动恢复 running 的监听器。
-- 启用 mTLS：`cargo run -p helm-server -- --mtls`。
+- 启用 mTLS：`cargo run -p helm-server -- --mtls --tls-dir /var/lib/helm-tls`。
+  `--tls-dir` 持久化 CA 与 Server 证书（`ca.pem`/`ca-key.pem`/`server.pem`/`server-key.pem`），
+  首次自动生成、重启复用——**不换 CA，Agent 缓存证书长期有效**；省略则每次启动随机生成 CA（仅测试用）。
 
 ### 3. 启动 Agent
 
@@ -37,12 +39,45 @@ cargo run -p helm-server
 # 反向模式（默认）
 cargo run -p helm-agent -- --agent-id my-host --server-addr http://127.0.0.1:50051 --token dev-token-change-me
 
-# 正向模式
+# 正向模式（明文）
 cargo run -p helm-agent -- --agent-id my-host --conn-mode forward --listen-addr 0.0.0.0:50052
 
-# mTLS（--cert-dir 非空则启用，首次用 token 换证书并缓存）
-cargo run -p helm-agent -- --agent-id my-host --server-addr http://127.0.0.1:50051 --token dev-token-change-me --cert-dir /tmp/agent-cert
+# 反向模式 + mTLS（--cert-dir 非空则启用，首次用 token 经 HTTP 换证书并缓存）
+cargo run -p helm-agent -- --agent-id my-host --server-addr https://127.0.0.1:50051 --token dev-token-change-me --cert-dir /tmp/agent-cert
+
+# 正向模式 + mTLS（证书须预先签发好放到 --cert-dir，见下一节；agent 不回连、无 HTTP 换证书路径）
+cargo run -p helm-agent -- --agent-id my-host --conn-mode forward --listen-addr 0.0.0.0:50052 \
+  --token dev-token-change-me --cert-dir /var/lib/helm-agent-cert
 ```
+
+### 3.1 forward mTLS 证书预置（管理员分发）
+
+forward 模式的 Agent 只监听、不回连 Server，无法走「token 换证书」的 HTTP 路径，因此证书由
+**管理员在 Server 侧离线签发后手工放置**：
+
+```bash
+# 1. 在 Server 机器上用持久 CA（--tls-dir）签出 Agent 证书三件套到 out-dir，然后退出（不启动服务）
+helm-server --issue-cert \
+  --issue-agent-id my-fwd-host \
+  --issue-san localhost `# Agent 证书 SAN，须与 Server 拨号时的 --tls-server-name 一致` \
+  --issue-out-dir /tmp/fwd-cert \
+  --tls-dir /var/lib/helm-tls --mtls
+# 产出：/tmp/fwd-cert/{cert.pem, key.pem, ca.pem}
+
+# 2. 将三件套分发到 Agent 机器（scp/U盘等任意带外方式）
+scp /tmp/fwd-cert/*.pem admin@agent-host:/var/lib/helm-agent-cert/
+
+# 3. Agent 以 --cert-dir 指向该目录启动（缺任一文件将拒绝启动并提示补齐）
+helm-agent --agent-id my-fwd-host --conn-mode forward --listen-addr 0.0.0.0:50052 \
+  --cert-dir /var/lib/helm-agent-cert
+
+# 4. Server 侧 --mtls --tls-dir 后，为该主机建 forward host（addr=agent 的 ip:50052），
+#    reconciler 自动以 mTLS 拨号（domain_name=--tls-server-name，默认 localhost）
+```
+
+要点：SAN 与拨号域名的对应关系——Server `--tls-server-name`（默认 `localhost`）必须命中 Agent
+证书的 SAN，否则 TLS 校验失败；公网 IP 直连场景用默认 `localhost` SAN 即可（拨号侧显式指定域名，
+不依赖实际 IP）。CA 持久化（`--tls-dir`）是前提：CA 变更则所有已分发证书作废。
 
 ### 4. 下发命令（完整示例）
 
@@ -123,4 +158,6 @@ CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc \
 - **生产必改**：`HELM_SERVER_TOKEN`、`HELM_JWT_SECRET` 两个默认值均为 `dev-*-change-me`。
 - 无 CI 配置文件（无 `.github/workflows`）；门禁当前为本地 `just check` + 手动 `buf` 检查。
 - 反向模式 Agent 穿透 NAT；正向模式需 Server 能直达 Agent 的 `HELM_LISTEN_ADDR`。
-- mTLS 需 Server 侧 `--mtls` + Agent 侧 `--cert-dir`（首次换证书后缓存，重启复用）。
+- mTLS 两条路径不同：**reverse** = Server `--mtls` + Agent `--cert-dir`（首次用 token 经 HTTP 换证书并缓存）；
+  **forward** = Server `--mtls --tls-dir` + Agent 证书**管理员预置**（`helm-server --issue-cert` 签发后
+  手工放置，Agent 仅读盘、无 HTTP 回退），见上文 3.1 节。
