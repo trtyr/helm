@@ -1,0 +1,28 @@
+import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
+import { defineConfig } from 'vite'
+
+// 后端本地地址（8080 被本机其他服务占用，联调固定 18081）
+const BACKEND = 'http://127.0.0.1:18081'
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  server: {
+    // 0.0.0.0：局域网设备可访问（Vite 默认仅 loopback）
+    host: '0.0.0.0',
+    proxy: {
+      // HTTP API（含 /healthz 之外的 /api/v1/*）
+      '/api': {
+        target: BACKEND,
+        changeOrigin: true,
+        // WebSocket 端点（/api/v1/*/stream、terminal）——同路径升级，ws: true 一并转发
+        ws: true,
+      },
+      '/healthz': {
+        target: BACKEND,
+        changeOrigin: true,
+      },
+    },
+  },
+})
