@@ -1,10 +1,14 @@
-# helm-console
+# helm-console — 前端控制台（主仓 console/ 子目录）
 
-helm 集中式运维平台的前端控制台（Vite + React 19 + TS + Tailwind v4，Vercel/Geist 设计语言）。
+helm 集中式运维平台的前端控制台（Vite + React 19 + TS + Tailwind v4，Vercel/Geist 设计语言），
+与 Rust 后端（Cargo workspace：proto/server/agent）同仓。
 
-- 设计规格：后端仓 `docs/plantree/plans/frontend/`（20 路由 × 四要素 + 70 功能清单）
-- 后端契约：后端仓 `docs/openapi.yaml`（44 HTTP + 5 WS）
+- 设计规格：`../../docs/plantree/plans/frontend/`（20 路由 × 四要素 + 70 功能清单）
+- 后端契约：`../../docs/openapi.yaml`（44 HTTP + 5 WS）
 - 当前进度：**M4 全局视图里程碑**（20 路由全部就绪：仪表盘/通知中心+铃铛/告警/审计/监听器/设置/forward）
+
+> 工作流：进入本目录后 `pnpm` 独立运行（非根 workspace）。设计源头在
+> `../../docs/plantree/plans/frontend/`（各规格已注记落地里程碑）。
 
 ## 开发
 

@@ -2,7 +2,7 @@
 
 Role: route-spec
 Status: active
-Implemented: M4 落地（helm-console 3d1d70a，验收见对应里程碑 verify-m*.mjs）
+Implemented: M4 落地（console/（并入前 3d1d70a），验收见对应里程碑 verify-m*.mjs）
 Related: [路由地图](README.md)、[功能 F57–F61](../topics/feature-inventory.md)、GET /notifications*、WS /notifications/stream（决策 009）
 Related: 全局层（Topbar 铃铛与下拉）在本文下方「全局元素」节一并定义
 

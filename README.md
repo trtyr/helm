@@ -38,6 +38,7 @@ server/               # Server 控制端（axum + tonic + sqlx）
   src/store           #   持久化层（sqlx + Postgres）
   migrations/         #   数据库迁移（8 个版本）
 agent/                # Agent 被控端（tokio，跨平台）
+console/              # 前端控制台（Vite + React；pnpm 独立工作流）
 deploy/               # 部署模板（systemd unit + Windows nssm 脚本）
 scripts/              # e2e 脚本（Python）+ OpenAPI 校验
 docs/                 # 文档归档 + openapi.yaml + plantree 规划树

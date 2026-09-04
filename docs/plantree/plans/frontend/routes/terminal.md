@@ -2,7 +2,7 @@
 
 Role: route-spec
 Status: active
-Implemented: M2 落地（helm-console 1860274，验收见对应里程碑 verify-m*.mjs）
+Implemented: M2 落地（console/（并入前 1860274），验收见对应里程碑 verify-m*.mjs）
 Related: [主机详情框架](host-detail.md)、[功能 F32–F34](../topics/feature-inventory.md)、WS /agents/{id}/terminal
 
 ## 功能清单

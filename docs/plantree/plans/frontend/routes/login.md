@@ -2,7 +2,7 @@
 
 Role: route-spec
 Status: active
-Implemented: M1 落地（helm-console 762800f，验收见对应里程碑 verify-m*.mjs）
+Implemented: M1 落地（console/（并入前 762800f），验收见对应里程碑 verify-m*.mjs）
 Related: [路由地图](README.md)、[功能 F01](../topics/feature-inventory.md)
 
 ## 功能清单
