@@ -19,7 +19,7 @@ Status: active
 | Plan | 状态 | 阶段 | 最后落地 | 下一步 |
 |------|------|------|----------|--------|
 | [server](plans/server/README.md) | Active | Phase 0–9 已落地 | Phase 9 通知中心（`15005d8`） | open-questions 1–5 前端回投的 API 缺口评估 |
-| [frontend](plans/frontend/README.md) | Active | M1/M2/M3 已落地 | helm-console `6f22974`（监控与任务 17 项联调全过：服务/进程/网络/指标/任务域） | M4：通知/告警/审计/监听器/设置/仪表盘 |
+| [frontend](plans/frontend/README.md) | Active | M1/M2/M3 已落地 | helm-console `68083c1`（监控与任务 18 项联调全过，audit 整改后） | M4：通知/告警/审计/监听器/设置/仪表盘 |
 
 ## 如何阅读
 
