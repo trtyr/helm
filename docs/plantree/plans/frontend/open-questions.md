@@ -36,3 +36,12 @@ Status: active
    详情页只能复用 `GET /hosts` 列表缓存 + 前端 find(id) 兜底，30s refetchInterval
    自然刷新。深分页下目标主机可能不在第一页 → 前端需按需翻页查找。倾向后端补
    单查端点。→ 后端 backlog 候选。
+
+10. **服务状态推送流缺失**（M3 发现）。F43 规格要求「本 tab 打开时订阅服务状态
+    （ServiceStatus 推送翻转徽标）」，但后端 5 条 WS 流中没有服务状态流——
+    M3 降级为操作成功后 invalidate + 30s 轮询。倾向后端在服务启停时向
+    StreamRegistry broadcast("services", …)。→ 后端 backlog 候选。
+
+11. **GET /jobs 无过滤参数**（M3 发现）。仅 page/limit，无 status/host_id 服务端
+    过滤——/jobs 页与主机 tasks tab 均为前端页内过滤（当前页 20/100 条内），
+    深分页下过滤语义不完整。倾向后端补 `?status=&host_id=`。→ 后端 backlog 候选。
