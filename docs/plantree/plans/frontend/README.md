@@ -31,7 +31,8 @@ helm 前端控制台的完整设计规格。后端接口契约见
 | **M1 骨架**（tokens/布局/登录/主机列表） | ✅ 已落地 | github.com/trtyr/helm-console `762800f`：playwright 登录流（含已登录重定向）+ 主机 CRUD 全流程联调通过；TS strict 落配置层；vitest 8 测试；build/lint 零错误 |
 | **M2 详情**（详情框架/概览/终端/文件） | ✅ 已落地 | helm-console `1860274`：verify-m2.mjs 14 项联调全过（终端回显 + resize 双向同步实证 tput cols、文件上传/下载 checksum 逐字节往返、离线守卫 GUARDED 区分）；后端配套 `a4b3848`（terminal WS resize 透传 + fs.rs is_dir follow symlink 修复）；vitest 14 测试 |
 | **M3 监控与任务**（服务/进程/网络/指标/任务 + uPlot） | ✅ 已落地 | helm-console `68083c1`（初 6f22974 经 audit 整改：导航就绪翻转 + JobDetail 重连降级/运行计时补全）：verify-m3.mjs 18 项真 agent 联调全过（服务启停 + 日志快照/WS tail、进程 kill toast、网卡卡、指标历史 1h + 实时 WS 推点、任务创建直达详情 + 输出回放、终端 F34 主题/全屏）；uPlot 按决策 006 集成；全局 toast + useWsStream/useBinaryStream（修 StreamRegistry binary 帧解码）；vitest 35 测试 |
-| M4+（通知/告警/审计/监听器/设置/仪表盘…） | 未开工 | 按 routes/ 规格逐里程碑推进 |
+| **M4 全局视图**（仪表盘/通知中心+铃铛/告警/审计/监听器/设置/forward） | ✅ 已落地 | helm-console `3d1d70a`：verify-m4.mjs 18 项真后端联调全过（默认 / → dashboard、铃铛角标 WS 通知流 kill+重启 agent 实证 + read-all 归零、告警/审计/监听器/设置 JWT 解码、forward exec 真执行 uname→Darwin、404）；**20 路由全部就绪、侧栏无「后续」**；vitest 48 测试 |
+| 收尾 | — | 按需修补 |
 
 ## 边界
 
