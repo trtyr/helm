@@ -45,3 +45,8 @@ Status: active
 11. **GET /jobs 无过滤参数**（M3 发现）。仅 page/limit，无 status/host_id 服务端
     过滤——/jobs 页与主机 tasks tab 均为前端页内过滤（当前页 20/100 条内），
     深分页下过滤语义不完整。倾向后端补 `?status=&host_id=`。→ 后端 backlog 候选。
+
+12. **GET /hosts 分页/过滤响应缺口**（M1 发现，本条目 2026-09-04 补录编号）。
+    a) 仅支持单 `?tag=`（F13 规格为多选 AND → 前端单选下拉）；b) 响应无 total
+    字段（下一页按钮靠 hosts.length 启发式）；c) GET /agents 无 online 字段
+    （前端用 last_heartbeat 30s 窗推导绿点）。→ 后端 backlog 候选。

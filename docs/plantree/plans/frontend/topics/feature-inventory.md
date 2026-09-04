@@ -227,7 +227,7 @@ Related: [路由地图](../routes/README.md)、[API 契约](../../../../api.md)�
 - **M 轮次含义**：M1=骨架/登录/主机列表，M2=详情/终端/文件，M3=服务/进程/网络/指标/任务，
   M4=仪表盘/通知/告警/审计/监听器/设置/forward。20 路由全部就绪，侧栏无「后续」灰化项。
 - **降级实现（落地但有口径差异）**：
-  - F13 标签过滤：规格为多选 AND，后端 GET /hosts 仅单 tag → M1 落地为单选下拉（open-questions #1）。
+  - F13 标签过滤：规格为多选 AND，后端 GET /hosts 仅单 tag → M1 落地为单选下拉（open-questions #12）。
   - F43 状态实时化：规格要 ServiceStatus WS 推送，后端无此流 → M3 落地为操作后 invalidate + 30s 轮询
     （open-questions #10）。
   - F07 概览「今日告警」：后端 GET /alerts 无日期过滤 → M4 落地为「最近 5 条」计数（open-questions #8）。
