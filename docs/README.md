@@ -27,5 +27,7 @@
 
 ## 未收录
 
-- **frontend-backend.md** — 跳过：本仓库**没有前端**。控制台是独立工程，不在本树内；
-  其要消费的接口即 [api.md](api.md) 的 HTTP API 章节。
+- **frontend-backend.md** — 跳过：前端是独立仓库（github.com/trtyr/helm-console，
+  M1–M4 全落地、20 路由就绪），不在本树内；其要消费的接口即 [api.md](api.md) 的
+  HTTP API 章节。前端对接对照请用 [plantree 前端规划](plantree/plans/frontend/README.md)
+  （feature-inventory 70 功能标注落地轮次）。

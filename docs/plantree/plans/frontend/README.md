@@ -1,12 +1,13 @@
 # Frontend Plan — helm 控制台（Vite + React，Geist 设计语言）
 
 Role: plan-root
-Status: active（设计规格已完成；实现 M1/M2 已落地，按里程碑推进）
+Status: active（设计规格已完成；实现 M1–M4 全落地——20 路由全部就绪）
 
 helm 前端控制台的完整设计规格。后端接口契约见
 [docs/openapi.yaml](../../../openapi.yaml)（44 HTTP + 5 WS，Phase 9 后）；
-后端规划见 [../server](../server/README.md)。前端实现仓库（helm-console）建立后，
-本 plan root 迁移或双链。
+后端规划见 [../server](../server/README.md)。实现仓库 github.com/trtyr/helm-console
+（M1–M4 全落地，20 路由就绪）；本 plan 保留为设计源头并双链实现证据（各规格已注记
+落地里程碑与 commit，功能清单标落地轮次）。
 
 ## 文件地图与阅读路径
 
@@ -36,6 +37,7 @@ helm 前端控制台的完整设计规格。后端接口契约见
 
 ## 边界
 
-- 本 plan 覆盖**设计规格**（本仓库）；前端代码在新仓 helm-console。
-- 后端因本规划发现的 API 缺口（open-questions 1–5）回投后端 backlog 评估，
+- 本 plan 为**设计源头**（本仓库）；实现代码在 github.com/trtyr/helm-console，
+  各规格与功能清单已注记落地里程碑与 commit（双链）。
+- 后端因本规划发现的 API 缺口（open-questions 1–5、9–11）回投后端 backlog 评估，
   不阻塞前端按现契约开发（各规格已注明降级处理）。

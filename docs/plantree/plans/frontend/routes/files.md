@@ -2,6 +2,7 @@
 
 Role: route-spec
 Status: active
+Implemented: M2 落地（helm-console 1860274，验收见对应里程碑 verify-m*.mjs）
 Related: [主机详情框架](host-detail.md)、[功能 F35–F39](../topics/feature-inventory.md)、POST /files/list|upload|download
 
 ## 功能清单

@@ -2,6 +2,7 @@
 
 Role: route-spec
 Status: active
+Implemented: M3 落地（helm-console 68083c1，验收见对应里程碑 verify-m*.mjs）
 Related: [路由地图](README.md)、[功能 F26](../topics/feature-inventory.md)、GET /jobs
 
 ## 功能清单

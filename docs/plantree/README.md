@@ -18,7 +18,7 @@ Status: active
 
 | Plan | 状态 | 阶段 | 最后落地 | 下一步 |
 |------|------|------|----------|--------|
-| [server](plans/server/README.md) | Active | Phase 0–9 已落地 | Phase 9 通知中心（`15005d8`） | open-questions 1–5 前端回投的 API 缺口评估 |
+| [server](plans/server/README.md) | Active | Phase 0–9 已落地 | Phase 9 通知中心（`15005d8`） | 前端回投的 API 缺口评估（open-questions 1–5、9–11：单查端点/过滤参数/服务状态流等） |
 | [frontend](plans/frontend/README.md) | Active | M1–M4 全落地（20 路由全就绪） | helm-console `3d1d70a`（M4 全局视图 18 项联调全过） | 收尾：Audit 后按需修补 |
 
 ## 如何阅读

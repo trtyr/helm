@@ -5,7 +5,7 @@ Status: active
 
 | # | 决策 | 状态 | 主题 |
 |---|------|------|------|
-| [001](001-vite-react-ts-foundation.md) | 底座：Vite 7 + React 19 + TS strict | active | foundation |
+| [001](001-vite-react-ts-foundation.md) | 底座：Vite 8（rolldown）+ React 19 + TS strict | active | foundation |
 | [002](002-design-language-vercel-geist.md) | 设计语言：Vercel/Geist，暗色优先 | active | design |
 | [003](003-routing-react-router.md) | 路由：React Router v7 声明式（嵌套布局 + query state） | active | routing |
 | [004](004-data-layer-tanstack-query.md) | 数据层：TanStack Query + openapi 生成类型 + 自建 WS hooks | active | data |

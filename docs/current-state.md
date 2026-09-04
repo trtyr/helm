@@ -45,7 +45,12 @@
 
 ## 开放项 / 已知问题
 
-1. **无前端**：控制台是独立工程，本仓库只有后端 + HTTP API + OpenAPI 契约（见 [api.md](api.md) / [openapi.yaml](openapi.yaml)）。
+1. **前端为独立仓库**：控制台在 github.com/trtyr/helm-console（Vite + React + TS strict），
+   M1–M4 里程碑全落地——20 路由全部就绪（主机/详情五 tab/终端/文件/任务/通知/告警/审计/
+   监听器/设置/仪表盘/forward），侧栏无「后续」灰化项；各里程碑以 verify-m1~m4.mjs
+   真后端联调验收（详见 plantree frontend 落地口径）。设计规格双链
+   docs/plantree/plans/frontend/（feature-inventory 70 功能已逐条标注落地轮次）。
+   本仓库只暴露后端 + HTTP API + OpenAPI 契约（见 [api.md](api.md) / [openapi.yaml](openapi.yaml)）。
 2. **无 CI 配置**：没有 `.github/workflows`，门禁全靠本地 `just check` + `buf` + `check_openapi.py` + `check_docs.py`。
 3. **无 Agent 交叉编译自动化脚本**：交叉编译命令已文档化（见 [run-and-deploy.md](run-and-deploy.md)），但无一键脚本或 CI 产物（本地仅 macOS 目标；真机测试用 musl 手动交叉编译）。
 4. **开发默认凭据**：`admin/admin123`、`dev-token-change-me`、`dev-secret-change-me` 均为明文默认值，生产必须覆盖（代码注释已标注）。

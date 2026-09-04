@@ -53,6 +53,8 @@ token 经 HTTP 换证书并缓存；正向由管理员在 Server 侧离线签发
 - **仓库形态**：Cargo workspace，三个成员 crate：`proto` / `server` / `agent`。
 - **持久化**：PostgreSQL，sqlx 编译期嵌入迁移（8 个版本）。
 - **安全**：rcgen 内置 CA + mTLS；bcrypt 密码哈希 + JWT。
-- **无前端**：控制台是独立工程，不在此仓库内；本仓库只暴露 HTTP API + OpenAPI 契约供其消费。
+- **前端独立**：控制台是独立仓库（github.com/trtyr/helm-console，Vite + React），
+  M1–M4 已全落地（20 路由：主机/终端/文件/服务/进程/指标/任务/通知/告警/审计/监听器/仪表盘等）；
+  本仓库只暴露 HTTP API + OpenAPI 契约供其消费（设计规格见 docs/plantree/plans/frontend/）。
 
 详见 [tech-stack.md](tech-stack.md)。

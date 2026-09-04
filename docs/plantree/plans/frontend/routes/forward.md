@@ -2,6 +2,7 @@
 
 Role: route-spec
 Status: active
+Implemented: M4 落地（helm-console 3d1d70a，验收见对应里程碑 verify-m*.mjs）
 Related: [路由地图](README.md)、[功能 F70](../topics/feature-inventory.md)、POST /forward/exec
 
 ## 功能清单

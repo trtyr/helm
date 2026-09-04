@@ -2,6 +2,7 @@
 
 Role: route-spec
 Status: active
+Implemented: M3 落地（helm-console 68083c1，验收见对应里程碑 verify-m*.mjs）
 Related: [主机详情框架](host-detail.md)、[功能 F50–F53](../topics/feature-inventory.md)、GET /metrics、WS /metrics/stream
 
 ## 功能清单
