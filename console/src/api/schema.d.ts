@@ -481,6 +481,119 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/proxies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 列出活跃的 SOCKS5 代理 */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 代理列表 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            proxies?: components["schemas"]["ProxyView"][];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** 为 agent 开启 SOCKS5 代理（Server 本地监听，流量经 agent 出站） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        agent_id: string;
+                        /**
+                         * @description SOCKS5 监听地址
+                         * @default 127.0.0.1:1080
+                         */
+                        listen_addr?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 代理已开启 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProxyView"];
+                    };
+                };
+                400: components["responses"]["InvalidArgument"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/proxies/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** 停止并移除 SOCKS5 代理 */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 已停止 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok?: boolean;
+                        };
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agent-gen": {
         parameters: {
             query?: never;
@@ -2896,6 +3009,14 @@ export interface components {
             state?: string;
             pid?: number;
             process_name?: string;
+        };
+        ProxyView: {
+            /** Format: uuid */
+            id?: string;
+            agent_id?: string;
+            listen_addr?: string;
+            /** @enum {string} */
+            status?: "running";
         };
         SysService: {
             name?: string;

@@ -102,6 +102,7 @@ impl ForwardAgentService for ForwardAgentServiceImpl {
             // 4. 入站处理循环
             let mut file_handler = crate::file::FileHandler::new();
             let sessions = crate::pty::SessionManager::new();
+            let proxies = crate::proxy::ProxyManager::new();
             let services = crate::service::ServiceManager::new();
             while let Ok(Some(msg)) = inbound.message().await {
                 tracing::debug!(kind = ?msg.kind, "forward inbound message");
@@ -190,6 +191,15 @@ impl ForwardAgentService for ForwardAgentServiceImpl {
                     Some(server_message::Kind::NetInfo(req)) => {
                         let msg = crate::process::net_info(&req.request_id);
                         let _ = tx.send(msg).await;
+                    }
+                    Some(server_message::Kind::ProxyConnect(req)) => {
+                        proxies.connect(&req.conn_id, &req.target, &tx).await;
+                    }
+                    Some(server_message::Kind::ProxyData(req)) => {
+                        proxies.data(&req.conn_id, &req.data).await;
+                    }
+                    Some(server_message::Kind::ProxyClose(req)) => {
+                        proxies.close(&req.conn_id).await;
                     }
                     Some(server_message::Kind::SysServiceList(req)) => {
                         let msg = crate::sys_service::list_services(&req.request_id);

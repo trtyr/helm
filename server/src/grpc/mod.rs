@@ -6,6 +6,7 @@ pub mod file_list_registry;
 pub mod forward_manager;
 pub mod inbound;
 pub mod listener_registry;
+pub mod proxy_registry;
 pub mod query_registry;
 pub mod session_registry;
 pub mod stream_registry;

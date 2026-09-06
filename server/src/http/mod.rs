@@ -16,6 +16,7 @@ pub mod listeners;
 pub mod metrics;
 pub mod notifications;
 pub mod process;
+pub mod proxies;
 pub mod services;
 pub mod skill;
 pub mod stream;
@@ -34,7 +35,7 @@ use crate::grpc::transfer_registry::TransferRegistry;
 use crate::store::Db;
 use axum::Router;
 use axum::middleware;
-use axum::routing::{get, post, put};
+use axum::routing::{delete, get, post, put};
 
 /// HTTP 层共享状态。
 #[derive(Clone)]
@@ -53,6 +54,8 @@ pub struct AppState {
     pub session_idle_timeout_secs: u64,
     pub cert: CertService,
     pub agent_gen: crate::application::agent_generator::AgentGenService,
+    pub proxy_service: crate::application::proxy_service::ProxyService,
+    pub conn_registry: ConnectionRegistry,
 }
 
 /// 启动 HTTP 服务（控制台 API + health）。
@@ -70,8 +73,8 @@ pub async fn serve(
     cert: CertService,
 ) -> anyhow::Result<()> {
     let state = AppState {
-        db,
-        registry,
+        db: db.clone(),
+        registry: registry.clone(),
         transfers,
         listeners,
         sessions,
@@ -86,6 +89,8 @@ pub async fn serve(
         agent_gen: crate::application::agent_generator::AgentGenService::new(
             config.agent_source_dir.clone(),
         ),
+        proxy_service: crate::application::proxy_service::ProxyService::new(),
+        conn_registry: registry,
     };
 
     // 受保护路由（需 JWT）
@@ -146,6 +151,11 @@ pub async fn serve(
         .route("/net/info", post(process::net_info))
         .route("/sys-services/list", post(process::list_sys_services))
         .route("/sys-services/action", post(process::sys_service_action))
+        .route(
+            "/proxies",
+            get(proxies::list_proxies).post(proxies::create_proxy),
+        )
+        .route("/proxies/{id}", delete(proxies::stop_proxy))
         .route("/audit", get(audit::list_audit))
         .route("/alerts", get(alerts::list_alerts))
         .route("/notifications", get(notifications::list_notifications))

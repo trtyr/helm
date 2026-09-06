@@ -12,6 +12,7 @@ mod forward;
 mod fs;
 mod monitor;
 mod process;
+mod proxy;
 mod pty;
 mod service;
 mod sys_service;

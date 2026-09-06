@@ -82,15 +82,22 @@ export const router = createBrowserRouter([
                   return { Component: Processes };
                 },
               },
-          {
-            path: "network",
-            lazy: async () => {
-              const { default: Network } = await import("./routes/host-detail/Network");
-              return { Component: Network };
-            },
-          },
-          {
-            path: "tasks",
+              {
+                path: "network",
+                lazy: async () => {
+                  const { default: Network } = await import("./routes/host-detail/Network");
+                  return { Component: Network };
+                },
+              },
+              {
+                path: "proxy",
+                lazy: async () => {
+                  const { default: Proxy } = await import("./routes/host-detail/Proxy");
+                  return { Component: Proxy };
+                },
+              },
+              {
+                path: "tasks",
                 lazy: async () => {
                   const { default: Tasks } = await import("./routes/host-detail/Tasks");
                   return { Component: Tasks };

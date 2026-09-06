@@ -18,11 +18,12 @@ const TABS = [
   { seg: "services", label: "服务", ready: true },
   { seg: "processes", label: "进程", ready: true },
   { seg: "network", label: "网络", ready: true },
+  { seg: "proxy", label: "代理", ready: true },
   { seg: "tasks", label: "任务", ready: true },
 ] as const;
 
 /** 受操作守卫的 tab（离线时显示通栏并禁用操作；概览/指标/任务不受限，规格 host-detail.md）。 */
-const GUARDED = new Set(["terminal", "files", "services", "processes", "network"]);
+const GUARDED = new Set(["terminal", "files", "services", "processes", "network", "proxy"]);
 
 /** /hosts/:id 布局框架：主机头 + 8 页签 + tab 内容（子路由 Outlet）。 */
 export default function HostDetailLayout() {

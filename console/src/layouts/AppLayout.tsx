@@ -9,6 +9,7 @@ import {
   RadioTower,
   Settings,
   SunMoon,
+  Waypoints,
 } from "lucide-react";
 import { useTheme } from "../hooks/useTheme";
 import { ToastHost } from "../components/ToastHost";
@@ -27,6 +28,7 @@ const NAV = [
   { to: "/notifications", label: "通知", icon: Bell, match: ["/notifications", "/alerts"] },
   { to: "/jobs", label: "任务", icon: ListChecks, match: ["/jobs", "/audit"] },
   { to: "/listeners", label: "监听器", icon: RadioTower, match: ["/listeners"] },
+  { to: "/proxies", label: "代理", icon: Waypoints, match: ["/proxies"] },
 ] as const;
 
 const SIDEBAR_KEY = "helm-console.sidebar";

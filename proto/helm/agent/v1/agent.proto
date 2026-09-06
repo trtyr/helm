@@ -36,6 +36,9 @@ message AgentMessage {
     NetInfoResult net_info_result = 14;
     SysServiceListResult sys_service_list_result = 15;
     SysServiceActionResult sys_service_action_result = 16;
+    ProxyConnected proxy_connected = 17;
+    ProxyData proxy_data = 18;
+    ProxyClose proxy_close = 19;
   }
 }
 
@@ -60,6 +63,9 @@ message ServerMessage {
     NetInfo net_info = 16;
     SysServiceList sys_service_list = 17;
     SysServiceAction sys_service_action = 18;
+    ProxyConnect proxy_connect = 19;
+    ProxyClose proxy_close = 20;
+    ProxyData proxy_data = 21;
   }
 }
 
@@ -355,6 +361,36 @@ message SysServiceAction {
 // Agent → Server：操作结果。
 message SysServiceActionResult {
   string request_id = 1;
+  bool ok = 2;
+  optional string error = 3;
+}
+
+// ---------------------------------------------------------------------------
+// 代理隧道（SOCKS5 数据面）：Server 把本地 SOCKS5 端口的流量封装为 Proxy*
+// 消息经 gRPC 通道转发给 Agent，Agent 从自身网络拨号目标并双向搬运数据。
+// conn_id 关联一条虚拟连接；数据分块上限受 gRPC 消息大小约束（4MB）。
+// ---------------------------------------------------------------------------
+
+// Server → Agent：建立一条出站代理连接。
+message ProxyConnect {
+  string conn_id = 1;
+  string target = 2;  // host:port
+}
+
+// Server → Agent：关闭一条代理连接。
+message ProxyClose {
+  string conn_id = 1;
+}
+
+// Agent → Server：代理连接数据块。
+message ProxyData {
+  string conn_id = 1;
+  bytes data = 2;
+}
+
+// Agent → Server：代理连接建立结果（拨号成功/失败）。
+message ProxyConnected {
+  string conn_id = 1;
   bool ok = 2;
   optional string error = 3;
 }

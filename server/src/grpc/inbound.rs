@@ -231,6 +231,21 @@ impl InboundCtx {
                     .complete(&rid, QueryResponse::SysServiceAction(result))
                     .await;
             }
+            Some(agent_message::Kind::ProxyConnected(result)) => {
+                crate::grpc::proxy_registry::registry()
+                    .connected(&result.conn_id, result.ok, result.error)
+                    .await;
+            }
+            Some(agent_message::Kind::ProxyData(result)) => {
+                crate::grpc::proxy_registry::registry()
+                    .data(&result.conn_id, result.data)
+                    .await;
+            }
+            Some(agent_message::Kind::ProxyClose(result)) => {
+                crate::grpc::proxy_registry::registry()
+                    .closed(&result.conn_id)
+                    .await;
+            }
             Some(agent_message::Kind::Register(_)) => {
                 tracing::warn!(agent_id = %agent_id, "duplicate register ignored");
             }

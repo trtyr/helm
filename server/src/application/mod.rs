@@ -14,6 +14,7 @@ pub mod listener_service;
 pub mod notification_service;
 pub mod online_status;
 pub mod process_service;
+pub mod proxy_service;
 pub mod scheduler;
 pub mod service_service;
 pub mod skill_package;

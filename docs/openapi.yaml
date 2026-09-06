@@ -287,6 +287,67 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/Agent" }
 
+  /api/v1/proxies:
+    get:
+      tags: [proxy]
+      summary: 列出活跃的 SOCKS5 代理
+      responses:
+        "200":
+          description: 代理列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  proxies:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProxyView" }
+    post:
+      tags: [proxy]
+      summary: 为 agent 开启 SOCKS5 代理（Server 本地监听，流量经 agent 出站）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id]
+              properties:
+                agent_id: { type: string }
+                listen_addr:
+                  type: string
+                  default: 127.0.0.1:1080
+                  description: SOCKS5 监听地址
+      responses:
+        "200":
+          description: 代理已开启
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProxyView" }
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+
+  /api/v1/proxies/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [proxy]
+      summary: 停止并移除 SOCKS5 代理
+      responses:
+        "200":
+          description: 已停止
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/agent-gen:
     get:
       tags: [agents]
@@ -1631,6 +1692,14 @@ components:
         state: { type: string }
         pid: { type: integer }
         process_name: { type: string }
+    ProxyView:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        agent_id: { type: string }
+        listen_addr: { type: string }
+        status: { type: string, enum: [running] }
+
     SysService:
       type: object
       properties:
