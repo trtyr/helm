@@ -10,14 +10,15 @@ use tokio::sync::mpsc;
 /// 单个 PTY 会话。
 struct Session {
     master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn portable_pty::Child + Send + Sync>,
 }
 
 impl Session {
     fn write(&mut self, data: &[u8]) -> std::io::Result<()> {
-        self.writer.write_all(data)?;
-        self.writer.flush()
+        let mut w = self.writer.lock().unwrap();
+        w.write_all(data)?;
+        w.flush()
     }
 
     fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<()> {
@@ -60,12 +61,13 @@ impl SessionManager {
         })?;
         let child = pair.slave.spawn_command(shell_command(command))?;
         let mut reader = pair.master.try_clone_reader()?;
-        let writer = pair.master.take_writer()?;
+        let writer = Arc::new(Mutex::new(pair.master.take_writer()?));
         let master = pair.master;
 
         let sid = session_id.to_string();
         let inner = self.inner.clone();
         let sid_for_close = session_id.to_string();
+        let writer_for_reader = writer.clone();
         // 读线程：阻塞读 master，输出转 SessionOutput 回传。
         std::thread::spawn(move || {
             let mut buf = [0u8; 8192];
@@ -73,6 +75,13 @@ impl SessionManager {
                 match reader.read(&mut buf) {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
+                        // 终端职责：应答 DSR-CPR（ESC[6n 光标位置查询）。
+                        // 不应答时 ConPTY 的首屏初始化会永远等待，表现为终端黑屏无回显。
+                        if buf[..n].windows(4).any(|w| w == b"\x1b[6n") {
+                            let mut w = writer_for_reader.lock().unwrap();
+                            let _ = w.write_all(b"\x1b[1;1R");
+                            let _ = w.flush();
+                        }
                         let msg = AgentMessage {
                             kind: Some(agent_message::Kind::SessionOutput(SessionOutput {
                                 session_id: sid.clone(),
@@ -167,5 +176,55 @@ mod tests {
         m.input("no-such-session", b"ls\r");
         m.resize("no-such-session", 80, 24);
         m.close("no-such-session"); // 不应 panic
+    }
+}
+
+#[cfg(all(test, windows))]
+mod conpty_tests {
+    use super::*;
+
+    /// conpty 回环：open → 写 echo → 输出应包含命令回显与结果。
+    /// ConPTY 回环：open → 等 DSR-CPR 应答 → 写 echo → 输出应含结果。
+    #[test]
+    fn conpty_input_output_roundtrip() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentMessage>(1024);
+
+        let mgr = SessionManager::new();
+        mgr.open("s1", 80, 24, "", tx).unwrap();
+
+        // 等 conpty 初始化输出（prompt / 光标查询）
+        let mut seen = String::new();
+        for _ in 0..20 {
+            if let Ok(msg) = rx.try_recv()
+                && let Some(agent_message::Kind::SessionOutput(o)) = msg.kind
+            {
+                seen.push_str(&String::from_utf8_lossy(&o.data));
+                if seen.contains('>') {
+                    break;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        eprintln!("初始化输出: {seen:?}");
+
+        mgr.input("s1", b"echo CONPTY-OK-12345\r");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            if let Ok(msg) = rx.try_recv()
+                && let Some(agent_message::Kind::SessionOutput(o)) = msg.kind
+            {
+                seen.push_str(&String::from_utf8_lossy(&o.data));
+                if seen.contains("CONPTY-OK-12345") {
+                    break;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        eprintln!(
+            "最终输出尾部: {:?}",
+            &seen[seen.len().saturating_sub(200)..]
+        );
+        mgr.close("s1");
+        assert!(seen.contains("CONPTY-OK-12345"), "conpty 未回显 echo 输出");
     }
 }

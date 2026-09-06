@@ -32,6 +32,15 @@ rcgen.workspace = true
 reqwest.workspace = true
 encoding_rs.workspace = true
 
-# Windows OEM 代码页查询（GetOEMCP）
+# Windows 原生能力：服务管理（SCM）+ 网络/磁盘/进程 API，免外部命令、无编码问题
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Globalization"] }
+windows-sys = { version = "0.59", features = [
+    "Win32_Globalization",
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Services",
+    "Win32_System_Threading",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
+] }

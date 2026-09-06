@@ -1,10 +1,11 @@
 import { Fragment, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronRight as ChevronExpand } from "lucide-react";
 import type { components } from "../api/schema";
 import { api } from "../api/client";
 import { auditResource } from "../lib/audit";
+import { SkeletonRows } from "../components/ui";
 
 type Audit = components["schemas"]["Audit"];
 
@@ -32,33 +33,27 @@ export default function Audit() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-heading-24">审计</h1>
-        <p className="mt-1 text-copy-13 text-gray-900">关键操作的历史记录（登录 / 执行 / 文件 / 主机 / 监听器）</p>
-      </div>
+    <div className="flex flex-col gap-5">
+      <p className="-mt-1 text-copy-13 text-gray-900">关键操作的历史记录（登录 / 执行 / 文件 / 主机 / 监听器）</p>
 
-      <div className="overflow-hidden rounded-lg border border-gray-400">
+      {/* 列表卡 */}
+      <div className="overflow-hidden rounded-lg border border-gray-400 bg-background-100">
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-400 text-label-13 text-gray-900">
-              <th className="w-6 px-2 py-2" />
-              <th className="px-4 py-2 font-normal">时间</th>
-              <th className="px-4 py-2 font-normal">操作者</th>
-              <th className="px-4 py-2 font-normal">动作</th>
-              <th className="px-4 py-2 font-normal">资源</th>
+              <th className="w-10 px-3 py-2.5" />
+              <th className="px-4 py-2.5 font-normal">时间</th>
+              <th className="px-4 py-2.5 font-normal">操作者</th>
+              <th className="px-4 py-2.5 font-normal">动作</th>
+              <th className="px-4 py-2.5 font-normal">资源</th>
             </tr>
           </thead>
           <tbody>
             {auditQuery.isPending ? (
-              <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-label-13 text-gray-900">
-                  加载审计…
-                </td>
-              </tr>
+              <SkeletonRows rows={8} cols={5} />
             ) : auditQuery.isError ? (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center">
+                <td colSpan={5} className="px-4 py-12 text-center">
                   <span className="text-label-13 text-red-1000">
                     查询失败：{(auditQuery.error as Error).message}
                   </span>
@@ -90,28 +85,28 @@ export default function Audit() {
                         open ? "bg-gray-100" : ""
                       }`}
                     >
-                      <td className="px-2 py-2.5 text-center text-gray-900">
+                      <td className="px-3 py-3 text-center text-gray-900">
                         {hasDetail && (
-                          <ChevronRight
+                          <ChevronExpand
                             size={12}
                             strokeWidth={1.5}
-                            className={`transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+                            className={`mx-auto transition-transform duration-150 ${open ? "rotate-90" : ""}`}
                           />
                         )}
                       </td>
                       <td
-                        className="px-4 py-2.5 font-mono text-label-13 text-gray-900"
+                        className="px-4 py-3 font-mono text-label-13 text-gray-900"
                         title={row.created_at ?? ""}
                       >
                         {row.created_at ? row.created_at.replace("T", " ").slice(0, 19) : "—"}
                       </td>
-                      <td className="px-4 py-2.5 text-label-13">{row.actor}</td>
-                      <td className="px-4 py-2.5">
+                      <td className="px-4 py-3 text-label-13">{row.actor}</td>
+                      <td className="px-4 py-3">
                         <span className="rounded bg-gray-200 px-1.5 py-0.5 font-mono text-label-12 text-gray-1000">
                           {row.action}
                         </span>
                       </td>
-                      <td className="px-4 py-2.5 font-mono text-label-13 text-gray-900">
+                      <td className="px-4 py-3 font-mono text-label-13 text-gray-900">
                         {auditResource(detail)}
                       </td>
                     </tr>
@@ -132,24 +127,29 @@ export default function Audit() {
             )}
           </tbody>
         </table>
-        <div className="flex h-9 items-center justify-between border-t border-gray-400 px-4 font-mono text-label-13 text-gray-900">
-          <span>{rows.length > 0 ? `第 ${page} 页` : ""}</span>
-          <span className="flex items-center gap-3">
+
+        {/* 底栏分页 */}
+        <div className="flex h-12 items-center justify-between border-t border-gray-400 px-4 text-label-13 text-gray-900">
+          <span>{rows.length > 0 ? `第 ${page} 页 · 本页 ${rows.length} 条` : "无记录"}</span>
+          <span className="flex items-center gap-1">
             <button
               type="button"
               disabled={page <= 1}
               onClick={() => goPage(page - 1)}
-              className="transition-colors duration-150 hover:text-gray-1000 disabled:opacity-30"
+              aria-label="上一页"
+              className="flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 hover:bg-gray-200 disabled:opacity-30"
             >
-              ‹ 上一页
+              <ChevronLeft size={14} strokeWidth={1.5} />
             </button>
+            <span className="font-mono">{page}</span>
             <button
               type="button"
               disabled={rows.length < limit}
               onClick={() => goPage(page + 1)}
-              className="transition-colors duration-150 hover:text-gray-1000 disabled:opacity-30"
+              aria-label="下一页"
+              className="flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 hover:bg-gray-200 disabled:opacity-30"
             >
-              下一页 ›
+              <ChevronRight size={14} strokeWidth={1.5} />
             </button>
           </span>
         </div>

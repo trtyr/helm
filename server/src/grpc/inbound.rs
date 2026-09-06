@@ -219,6 +219,18 @@ impl InboundCtx {
                     .complete(&rid, QueryResponse::NetInfo(result))
                     .await;
             }
+            Some(agent_message::Kind::SysServiceListResult(result)) => {
+                let rid = result.request_id.clone();
+                self.query
+                    .complete(&rid, QueryResponse::SysServiceList(result))
+                    .await;
+            }
+            Some(agent_message::Kind::SysServiceActionResult(result)) => {
+                let rid = result.request_id.clone();
+                self.query
+                    .complete(&rid, QueryResponse::SysServiceAction(result))
+                    .await;
+            }
             Some(agent_message::Kind::Register(_)) => {
                 tracing::warn!(agent_id = %agent_id, "duplicate register ignored");
             }

@@ -11,6 +11,9 @@ pub enum Error {
     #[error("unauthorized: {0}")]
     Unauthorized(String),
 
+    #[error("forbidden: {0}")]
+    Forbidden(String),
+
     #[error("invalid argument: {0}")]
     InvalidArgument(String),
 
@@ -33,6 +36,7 @@ impl Error {
         match self {
             Error::NotFound(_) => "not_found",
             Error::Unauthorized(_) => "unauthorized",
+            Error::Forbidden(_) => "forbidden",
             Error::InvalidArgument(_) => "invalid_argument",
             Error::NotConnected(_) => "not_connected",
             Error::Storage(_) => "storage",
@@ -51,6 +55,7 @@ impl Error {
         match self {
             Error::NotFound(_) => "resource not found",
             Error::Unauthorized(_) => "unauthorized",
+            Error::Forbidden(_) => "forbidden",
             Error::InvalidArgument(_) => "invalid request",
             Error::NotConnected(_) => "target agent not connected",
             Error::Storage(_) | Error::Io(_) | Error::Internal(_) => "internal server error",

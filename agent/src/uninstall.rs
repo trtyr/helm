@@ -26,13 +26,13 @@ fn remove_autostart() {
     #[cfg(target_os = "windows")]
     {
         // 删除计划任务（与部署时使用的任务名一致）。
-        let _ = std::process::Command::new("schtasks")
+        let _ = crate::child::quiet("schtasks")
             .args(["/delete", "/f", "/tn", "helmagent"])
             .output();
     }
     #[cfg(target_os = "linux")]
     {
-        let _ = std::process::Command::new("systemctl")
+        let _ = crate::child::quiet("systemctl")
             .args(["disable", "--now", "helm-agent"])
             .output();
     }
@@ -59,10 +59,7 @@ fn remove_binary_file() {
     {
         // ping 作为 sleep，等待进程退出后再删除。
         let script = format!("ping -n 3 127.0.0.1 >nul & del /f /q \"{}\"", exe.display());
-        match std::process::Command::new("cmd")
-            .args(["/c", &script])
-            .spawn()
-        {
+        match crate::child::quiet("cmd").args(["/c", &script]).spawn() {
             Ok(_) => tracing::info!(path = %exe.display(), "scheduled delayed delete"),
             Err(e) => tracing::warn!(error = %e, "failed to schedule delayed delete"),
         }

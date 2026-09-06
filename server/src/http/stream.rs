@@ -1,8 +1,8 @@
 //! 实时流 WebSocket 端点：服务日志 tail-f / job 输出流 / 指标流。
 
-use crate::application::auth_service::AuthService;
 use crate::domain::Error;
 use crate::http::AppState;
+use crate::http::auth::verify_bearer_token;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
@@ -14,12 +14,9 @@ pub struct StreamQuery {
     pub token: String,
 }
 
-/// 校验 WS token（握手无法带 Authorization header，走 query param）。
-fn verify_token(state: &AppState, token: &str) -> Result<(), Error> {
-    AuthService::new(state.db.clone(), state.jwt_secret.clone())
-        .verify(token)
-        .map_err(|_| Error::Unauthorized("invalid token".into()))?;
-    Ok(())
+/// 校验 WS token（握手无法带 Authorization header，走 query param；JWT 或 API key 均可）。
+async fn verify_token(state: &AppState, token: &str) -> Result<(), Error> {
+    verify_bearer_token(state, token).await.map(|_| ())
 }
 
 /// 桥接：订阅 key 的增量 → 推送 WS；WS 关闭即退出。
@@ -54,7 +51,7 @@ pub async fn service_logs_stream(
     Query(q): Query<StreamQuery>,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, Error> {
-    verify_token(&state, &q.token)?;
+    verify_token(&state, &q.token).await?;
     Ok(ws.on_upgrade(move |socket| handle_stream(socket, state, format!("service:{id}"))))
 }
 
@@ -65,7 +62,7 @@ pub async fn job_stream(
     Query(q): Query<StreamQuery>,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, Error> {
-    verify_token(&state, &q.token)?;
+    verify_token(&state, &q.token).await?;
     Ok(ws.on_upgrade(move |socket| handle_stream(socket, state, format!("job:{id}"))))
 }
 
@@ -75,7 +72,7 @@ pub async fn metrics_stream(
     Query(q): Query<StreamQuery>,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, Error> {
-    verify_token(&state, &q.token)?;
+    verify_token(&state, &q.token).await?;
     Ok(ws.on_upgrade(move |socket| handle_stream(socket, state, "metrics".to_string())))
 }
 
@@ -85,6 +82,6 @@ pub async fn notifications_stream(
     Query(q): Query<StreamQuery>,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, Error> {
-    verify_token(&state, &q.token)?;
+    verify_token(&state, &q.token).await?;
     Ok(ws.on_upgrade(move |socket| handle_stream(socket, state, "notifications".to_string())))
 }

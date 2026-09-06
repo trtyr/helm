@@ -15,6 +15,9 @@
   对外 HTTP API（含 WebSocket 实时流）。
 - **Agent**（`agent/`）：装在目标机，执行命令、采集指标、文件传输、交互终端、
   常驻服务、进程/网络信息。单二进制，跨平台。
+  Windows 侧为内置原生能力：服务走 SCM、网络适配器/连接表走 IpHelper API、
+  磁盘走 GetLogicalDrives、进程路径走 QueryFullProcessImageName——
+  不依赖外部命令，无编码问题（监控数据）。
 - **proto**（`proto/`）：gRPC 契约（protobuf），Server 与 Agent 的单一事实来源。
 
 ### 连接模式
@@ -39,6 +42,7 @@ server/               # Server 控制端（axum + tonic + sqlx）
   migrations/         #   数据库迁移（8 个版本）
 agent/                # Agent 被控端（tokio，跨平台）
 console/              # 前端控制台（Vite + React；pnpm 独立工作流）
+skill/                # 运维 skill 包源（Server 内嵌分发：SKILL.md + Python 脚本 + references）
 deploy/               # 部署模板（systemd unit + Windows nssm 脚本）
 scripts/              # e2e 脚本（Python）+ OpenAPI 校验
 docs/                 # 文档归档 + openapi.yaml + plantree 规划树
@@ -62,11 +66,15 @@ cargo run -p helm-server
 默认监听 HTTP `:8080`、gRPC `:50051`，首次启动自动迁移并 seed 管理员
 `admin / admin123`。
 
-### 3. 启动 Agent
+### 3. 接入主机（生成 Agent → 运行上线）
 
-```bash
-cargo run -p helm-agent -- --agent-id my-host --server-addr http://127.0.0.1:50051 --token dev-token-change-me
-```
+主机不需要手工创建——**Agent 上线即注册**。两种接入方式：
+
+- **生成 Agent（推荐）**：控制台「主机 → 生成 Agent」选择监听器与目标平台
+  （Windows / Linux / macOS），Server 现场交叉编译并把连入地址与注册 token 烙入二进制
+  （`agent_id` 不烙入，目标机首跑按主机名自动生成，一份二进制通吃同平台主机）。
+  下载后拷到目标机直接运行（Linux/macOS 需 `chmod +x`），无需任何参数即可上线。
+- **本地开发**：`cargo run -p helm-agent -- --agent-id my-host --server-addr http://127.0.0.1:50051 --token dev-token-change-me`
 
 正向模式：`--conn-mode forward --listen-addr 0.0.0.0:50052`。
 mTLS：Server 加 `--mtls`，Agent 加 `--cert-dir /tmp/agent-cert`。
@@ -83,13 +91,17 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/exec \
   -d '{"agent_id":"my-host","command":"uname","args":["-a"]}'
 ```
 
-## HTTP API（均需 `Authorization: Bearer <JWT>`）
+## HTTP API（均需 `Authorization: Bearer <JWT 或 API key>`；api-keys 管理端点仅 JWT）
 
+Bearer 值为 JWT 或 `helm_` 前缀 API key（决策 010）均可认证；WebSocket `?token=` 同理。
 完整契约见 [docs/openapi.yaml](docs/openapi.yaml)（OpenAPI 3.0.3）。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/api/v1/auth/login` | 登录，换取 JWT（免认证） |
+| GET | `/api/v1/auth/me` | 当前账号（仅 JWT；单用户） |
+| POST | `/api/v1/auth/change-password` | 修改密码（校验当前密码，新密码 ≥ 6 字符） |
+| POST | `/api/v1/auth/change-username` | 修改用户名（校验当前密码，旧 token 随即失效） |
 | POST | `/api/v1/agents/cert` | Agent 提交 CSR 换 mTLS 证书（免 JWT） |
 | GET/POST | `/api/v1/hosts` | 列出（分页/标签过滤/在线状态）/ 创建主机 |
 | PUT/DELETE | `/api/v1/hosts/{id}` | 更新 / 删除主机 |
@@ -98,6 +110,9 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/exec \
 | GET/DELETE | `/api/v1/agents/{id}` | Agent 详情 / 注销 |
 | PUT | `/api/v1/agents/{id}/tags` | 更新 Agent 关联主机标签 |
 | POST | `/api/v1/agents/{id}/uninstall` | 下发卸载指令 |
+| GET/POST | `/api/v1/agent-gen` | 列出 / 创建 Agent 现场编译任务（选监听器 + 目标平台，异步 cargo 交叉编译） |
+| GET | `/api/v1/agent-gen/{id}` | 生成任务进度（含编译日志尾部） |
+| GET | `/api/v1/agent-gen/{id}/download` | 下载编译完成的 Agent 二进制 |
 | POST | `/api/v1/exec` | 下发命令 |
 | GET | `/api/v1/jobs` | 分页列出 Job |
 | GET | `/api/v1/jobs/{id}` | 查询任务结果 |
@@ -107,6 +122,10 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/exec \
 | GET | `/api/v1/notifications/unread-count` | 未读通知数 |
 | POST | `/api/v1/notifications/{id}/read` | 标记通知已读 |
 | POST | `/api/v1/notifications/read-all` | 全部通知已读 |
+| GET/POST | `/api/v1/api-keys` | 分页列出 / 创建 API key（**明文 key 仅创建响应返回一次**） |
+| GET/DELETE | `/api/v1/api-keys/{id}` | API key 详情 / 吊销（仅 JWT，key 不可自管） |
+| GET | `/api/v1/skill` | 下载运维 skill 完整包（zip，内嵌随 Server 分发） |
+| GET | `/api/v1/skill/manifest` | Skill 包清单（版本 + 文件 sha256） |
 | POST | `/api/v1/files/upload` | 下发文件 |
 | POST | `/api/v1/files/download` | 取回文件 |
 | POST | `/api/v1/files/list` | 列目录 |
@@ -123,9 +142,11 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/exec \
 | POST | `/api/v1/services/{id}/stop` | 停止服务 |
 | POST | `/api/v1/services/{id}/restart` | 重启服务 |
 | GET | `/api/v1/services/{id}/logs` | 查询服务日志 |
-| POST | `/api/v1/processes/list` | 列出进程 |
+| POST | `/api/v1/processes/list` | 列出进程（CPU/内存/属主/父进程/命令行） |
 | POST | `/api/v1/processes/kill` | 杀进程 |
-| POST | `/api/v1/net/info` | 网络信息 |
+| POST | `/api/v1/net/info` | 网络信息（接口 + TCP/UDP 连接表，含归属进程） |
+| POST | `/api/v1/sys-services/list` | 枚举目标机系统服务（Windows Service / systemd / launchctl） |
+| POST | `/api/v1/sys-services/action` | 系统服务操作（start / stop / restart） |
 | GET | `/api/v1/audit` | 分页列出审计日志 |
 | WS | `/api/v1/agents/{id}/terminal?token=` | 交互终端（PTY） |
 | WS | `/api/v1/services/{id}/logs/stream?token=` | 服务日志实时流 |
@@ -152,13 +173,14 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/exec \
 | `HELM_TLS_DIR` | 空 | TLS 材料目录（持久化 CA，重启不换 CA；mTLS 部署强烈建议） |
 | `HELM_ISSUE_CERT` | 关 | 离线签发 agent 证书三件套后退出（`--issue-cert`，forward 预置用） |
 | `HELM_ISSUE_AGENT_ID` / `HELM_ISSUE_SAN` / `HELM_ISSUE_OUT_DIR` | 空 | issue-cert 参数：agent 标识 / SAN 列表 / 输出目录 |
+| `HELM_AGENT_SOURCE_DIR` | `.` | Agent 源码工作区目录（「生成 Agent」现场编译用；须能在此目录执行 cargo） |
 
 ### Agent
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
-| `HELM_AGENT_ID` | 无（必填） | Agent 唯一标识 |
-| `HELM_SERVER_ADDR` | `http://127.0.0.1:50051` | Server gRPC 地址 |
+| `HELM_AGENT_ID` | 空 | Agent 唯一标识（缺省取编译期烙入值，再退回主机名） |
+| `HELM_SERVER_ADDR` | `http://127.0.0.1:50051` | Server gRPC 地址（可编译期烙入） |
 | `HELM_AGENT_TOKEN` | 空 | 注册 token |
 | `HELM_LOG` | `info` | 日志级别 |
 | `HELM_CONN_MODE` | `reverse` | 连接模式：reverse（主动连）/ forward（监听） |

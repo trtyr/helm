@@ -15,6 +15,7 @@ ORM/查询层：**sqlx**（异步、编译期 SQL 检查）。迁移用 `sqlx::m
 | 6 | `0006_add_audit_logs.up.sql` | `audit_logs` 表（审计日志） |
 | 7 | `0007_add_alerts.up.sql` | `alerts` 表（阈值告警） |
 | 8 | `0008_add_notifications.up.sql` | `notifications` 表（系统内通知中心，决策 009） |
+| 9 | `0009_add_api_keys.up.sql` | `api_keys` 表（机器对机器认证，决策 010） |
 
 > 每个迁移都有对应 `.down.sql` 回滚文件。约定：所有表含 `created_at`/`updated_at`，外键 + 索引，
 > 软删除标记 `deleted_at`（hosts/users/tasks/jobs/file_transfers/metrics；`agents`/`listeners`/`services`/`audit_logs`/`alerts` 无软删除）。
@@ -153,6 +154,22 @@ ORM/查询层：**sqlx**（异步、编译期 SQL 检查）。迁移用 `sqlx::m
 索引：`idx_notifications_created(created_at DESC)`、`idx_notifications_unread`（`WHERE NOT read` 部分索引）。
 冷却窗口：同 host 同 type 5 分钟内合并为一条（刷新 message/created_at、重置 read），
 Service 层 `within_cooldown` 纯函数判定。30 天保留清理（与 metrics/alerts 同循环）。
+
+### `api_keys` — API key 管理（迁移 9，决策 010）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | UUID PK | `gen_random_uuid()` |
+| name | TEXT | 展示名（如 `ci-bot`） |
+| key_hash | TEXT UNIQUE | 明文 key 的 sha256 hex（**不存明文**，创建时仅返回一次） |
+| prefix | TEXT | 展示前缀（明文前 12 字符，列表中可识别） |
+| created_at | TIMESTAMPTZ | 时间 |
+| last_used_at | TIMESTAMPTZ? | 最近认证命中时间（尽力刷新） |
+| expires_at | TIMESTAMPTZ? | 过期时间（空 = 永不过期；SQL 与 Service 双重校验） |
+| revoked_at | TIMESTAMPTZ? | 吊销时间（空 = 有效；吊销幂等） |
+
+明文 key 形态：`helm_` + 40 位 hex（20 随机字节）。认证时按 `key_hash` 精确比对，
+仅未吊销且未过期命中。已吊销 key 30 天后随保留清理循环删除。
 
 ## 状态机
 

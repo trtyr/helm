@@ -1,17 +1,17 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { MoreHorizontal, Play, Square } from "lucide-react";
+import { Pencil, Play, Square, Trash2 } from "lucide-react";
 import type { components } from "../api/schema";
 import { api } from "../api/client";
 import { toast } from "../lib/toast";
 import { relativeTime } from "../lib/format";
+import { SkeletonRows, StatusDot } from "../components/ui";
 
 type Listener = components["schemas"]["Listener"];
 
-/** /listeners 监听器管理（规格 listeners.md F64–F68：卡片网格 + 启停 + CRUD）。 */
+/** /listeners 监听器管理（规格 listeners.md F64–F68：列表形式 + 启停 + CRUD）。 */
 export default function Listeners() {
   const queryClient = useQueryClient();
-  const [menuFor, setMenuFor] = useState<string | null>(null);
   const [formNonce, setFormNonce] = useState(0);
   const [editTarget, setEditTarget] = useState<Listener | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Listener | null>(null);
@@ -55,7 +55,7 @@ export default function Listeners() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-heading-24">监听器</h1>
@@ -70,144 +70,120 @@ export default function Listeners() {
         </button>
       </div>
 
-      {listQuery.isPending ? (
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-40 animate-pulse rounded-lg border border-gray-400 bg-gray-100" />
-          ))}
-        </div>
-      ) : listQuery.isError ? (
-        <div className="rounded-lg border border-gray-400 p-8 text-center">
-          <p className="text-label-13 text-red-1000">查询失败：{(listQuery.error as Error).message}</p>
-          <button
-            type="button"
-            onClick={() => listQuery.refetch()}
-            className="mt-3 h-8 rounded-md border border-gray-500 px-4 text-label-13 transition-colors duration-150 hover:bg-gray-200"
-          >
-            重试
-          </button>
-        </div>
-      ) : listeners.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-gray-500 p-12 text-center">
-          <p className="text-label-13 text-gray-900">没有监听器——Server 启动时默认 seed 一个，或手动创建</p>
-          <button
-            type="button"
-            onClick={openCreate}
-            className="mt-4 h-8 rounded-md border border-gray-500 px-4 text-label-13 transition-colors duration-150 hover:bg-gray-200"
-          >
-            创建监听器
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-          {listeners.map((l) => {
-            const running = l.status === "running";
-            return (
-              <div key={l.id} className="relative rounded-lg border border-gray-400 p-6">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`h-2 w-2 rounded-full ${running ? "bg-green-1000 animate-breath" : "border border-gray-600"}`}
-                  />
-                  <span className={`text-label-13 ${running ? "text-green-1000" : "text-gray-900"}`}>
-                    {running ? "running" : "stopped"}
+      <div className="overflow-hidden rounded-lg border border-gray-400 bg-background-100">
+        <table className="w-full text-left">
+          <thead>
+            <tr className="border-b border-gray-400 text-label-13 text-gray-900">
+              <th className="w-14 whitespace-nowrap px-3 py-2.5 font-normal">状态</th>
+              <th className="w-px whitespace-nowrap px-3 py-2.5 font-normal">名称</th>
+              <th className="w-full max-w-0 px-4 py-2.5 font-normal">地址</th>
+              <th className="w-px whitespace-nowrap px-3 py-2.5 font-normal">协议</th>
+              <th className="w-px whitespace-nowrap px-3 py-2.5 font-normal">创建时间</th>
+              <th className="w-px whitespace-nowrap px-3 py-2.5 text-right font-normal">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {listQuery.isPending ? (
+              <SkeletonRows rows={3} cols={6} />
+            ) : listQuery.isError ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-10 text-center">
+                  <span className="text-label-13 text-red-1000">
+                    查询失败：{(listQuery.error as Error).message}
                   </span>
-                  <span className="ml-auto font-mono text-label-12 text-gray-900">{l.proto}</span>
                   <button
                     type="button"
-                    aria-label={`更多 ${l.name}`}
-                    onClick={() => setMenuFor(menuFor === l.id ? null : l.id!)}
-                    className="flex h-7 w-7 items-center justify-center rounded-md text-gray-900 transition-colors duration-150 hover:bg-gray-200 hover:text-gray-1000"
+                    onClick={() => listQuery.refetch()}
+                    className="ml-3 text-label-13 text-blue-1000 hover:underline"
                   >
-                    <MoreHorizontal size={14} strokeWidth={1.5} />
+                    重试
                   </button>
-                  {menuFor === l.id && (
-                    <>
+                </td>
+              </tr>
+            ) : listeners.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-12 text-center text-label-13 text-gray-900">
+                  没有监听器——Server 启动时默认 seed 一个，或手动创建
+                </td>
+              </tr>
+            ) : (
+              listeners.map((l) => {
+                const running = l.status === "running";
+                return (
+                  <tr
+                    key={l.id}
+                    className="group border-b border-gray-400/60 transition-colors duration-150 last:border-0 hover:bg-gray-100"
+                  >
+                    <td className="px-3 py-2.5">
+                      <StatusDot online={running} />
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2.5 text-label-14">
+                      {l.name}
+                      {running && (
+                        <span className="ml-2 text-label-12 text-green-1000">运行中</span>
+                      )}
+                    </td>
+                    <td className="max-w-0 px-4 py-2.5">
                       <button
                         type="button"
-                        aria-label="关闭菜单"
-                        onClick={() => setMenuFor(null)}
-                        className="fixed inset-0 z-30 cursor-default"
-                      />
-                      <div className="absolute right-6 top-12 z-40 w-28 rounded-xl border border-gray-400 bg-background-100 py-1 shadow-lg">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setMenuFor(null);
-                            openEdit(l);
-                          }}
-                          className="block w-full px-3 py-2 text-left text-label-13 transition-colors duration-150 hover:bg-gray-200"
-                        >
-                          编辑
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setMenuFor(null);
-                            setDeleteTarget(l);
-                          }}
-                          className="block w-full px-3 py-2 text-left text-label-13 text-red-1000 transition-colors duration-150 hover:bg-gray-200"
-                        >
-                          删除
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-                <h3 className="mt-3 text-heading-16">{l.name}</h3>
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(l.addr ?? "");
-                    toast("已复制地址");
-                  }}
-                  title={`${(l.addr ?? "").split(":")[0]}\n端口 ${(l.addr ?? "").split(":")[1] ?? ""}（点击复制）`}
-                  className="mt-1 block font-mono text-label-13 text-blue-1000 hover:underline"
-                >
-                  grpc://{l.addr}
-                </button>
-                <p className="mt-3 text-label-12 text-gray-900">
-                  专用 token：留空则使用全局 token（出于安全不回显）
-                </p>
-                <p className="mt-2 font-mono text-label-12 text-gray-900">
-                  创建 {relativeTime(l.created_at, listQuery.data?.at)}
-                  {running && ` · 运行中`}
-                </p>
-                <div className="mt-4">
-                  {running ? (
-                    <button
-                      type="button"
-                      onClick={() => opMutation.mutate({ id: l.id!, op: "stop" })}
-                      disabled={opMutation.isPending}
-                      className="flex h-8 w-24 items-center justify-center gap-1.5 rounded-md border border-gray-500 text-label-13 transition-colors duration-150 hover:bg-gray-200 disabled:opacity-40"
-                    >
-                      {opMutation.isPending ? (
-                        <span className="h-3.5 w-3.5 animate-spin rounded-full border border-gray-900 border-t-gray-1000" />
-                      ) : (
-                        <Square size={13} strokeWidth={1.5} />
-                      )}
-                      停止
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => opMutation.mutate({ id: l.id!, op: "start" })}
-                      disabled={opMutation.isPending}
-                      className="flex h-8 w-24 items-center justify-center gap-1.5 rounded-md border border-gray-500 text-label-13 transition-colors duration-150 hover:bg-gray-200 disabled:opacity-40"
-                    >
-                      {opMutation.isPending ? (
-                        <span className="h-3.5 w-3.5 animate-spin rounded-full border border-gray-900 border-t-gray-1000" />
-                      ) : (
-                        <Play size={13} strokeWidth={1.5} />
-                      )}
-                      启动
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+                        onClick={() => {
+                          navigator.clipboard.writeText(l.addr ?? "");
+                          toast("已复制地址");
+                        }}
+                        title={`${l.addr}（点击复制）`}
+                        className="block w-full truncate text-left font-mono text-label-13 text-blue-1000 hover:underline"
+                      >
+                        grpc://{l.addr}
+                      </button>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2.5 font-mono text-label-13 text-gray-900">
+                      {l.proto}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2.5 font-mono text-label-13 text-gray-900">
+                      {relativeTime(l.created_at, listQuery.data?.at)}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2.5 text-right">
+                      <span className="inline-flex items-center gap-1">
+                        {running ? (
+                          <OpBtn
+                            label={`停止 ${l.name}`}
+                            disabled={opMutation.isPending}
+                            onClick={() => opMutation.mutate({ id: l.id!, op: "stop" })}
+                          >
+                            <Square size={13} strokeWidth={1.5} />
+                          </OpBtn>
+                        ) : (
+                          <OpBtn
+                            label={`启动 ${l.name}`}
+                            disabled={opMutation.isPending}
+                            onClick={() => opMutation.mutate({ id: l.id!, op: "start" })}
+                          >
+                            <Play size={13} strokeWidth={1.5} />
+                          </OpBtn>
+                        )}
+                        <OpBtn label={`编辑 ${l.name}`} onClick={() => openEdit(l)}>
+                          <Pencil size={13} strokeWidth={1.5} />
+                        </OpBtn>
+                        <OpBtn label={`删除 ${l.name}`} onClick={() => setDeleteTarget(l)}>
+                          <Trash2 size={13} strokeWidth={1.5} />
+                        </OpBtn>
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+        <div className="flex h-9 items-center justify-between border-t border-gray-400 px-4 font-mono text-label-13 text-gray-900">
+          <span>
+            {listeners.length > 0
+              ? `共 ${listeners.length} 个 · ${listeners.filter((l) => l.status === "running").length} 运行中`
+              : "无监听器"}
+          </span>
+          <span className="text-label-12">专用 token 出于安全不回显；留空则使用全局 token</span>
         </div>
-      )}
+      </div>
 
       {formNonce > 0 && (
         <ListenerFormModal
@@ -261,6 +237,31 @@ export default function Listeners() {
         </div>
       )}
     </div>
+  );
+}
+
+function OpBtn({
+  label,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string;
+  disabled?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      className="flex h-7 w-7 items-center justify-center rounded-md text-gray-900 transition-colors duration-150 hover:bg-gray-200 hover:text-gray-1000 disabled:opacity-30"
+    >
+      {children}
+    </button>
   );
 }
 

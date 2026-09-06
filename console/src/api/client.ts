@@ -72,3 +72,19 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   }
   return (await res.json()) as T;
 }
+
+/** 二进制下载：带鉴权取 blob（Content-Disposition 文件名缺省用 fallback）。 */
+export async function apiBlob(path: string, fallbackName: string): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
+  });
+  if (res.status === 401 && getToken()) {
+    clearToken();
+    window.location.assign(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
+    throw new ApiError(401, "unauthorized", "登录已过期");
+  }
+  if (!res.ok) throw new ApiError(res.status, `http_${res.status}`, res.statusText || "下载失败");
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const match = /filename="([^"]+)"/.exec(disposition);
+  return { blob: await res.blob(), filename: match?.[1] ?? fallbackName };
+}

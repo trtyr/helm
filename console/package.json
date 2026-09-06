@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 5180 --strictPort",
-    "api:gen": "openapi-typescript ../../docs/openapi.yaml -o src/api/schema.d.ts",
+    "api:gen": "openapi-typescript ../docs/openapi.yaml -o src/api/schema.d.ts",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test": "vitest run",

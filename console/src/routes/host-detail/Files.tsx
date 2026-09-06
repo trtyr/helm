@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowUp, ChevronRight, Download, RefreshCw, Upload } from "lucide-react";
+import { ArrowUp, ChevronRight, CornerDownLeft, Download, RefreshCw, Search, Upload, X } from "lucide-react";
 import type { components } from "../../api/schema";
 import { api } from "../../api/client";
 import { crumbLabel, crumbSegments, humanSize, joinPath, parentPath } from "../../lib/paths";
@@ -26,13 +26,26 @@ interface Transfer {
   finishedAt?: number;
 }
 
+const DRIVE_TYPE_LABEL: Record<string, string> = {
+  fixed: "本地磁盘",
+  removable: "可移动磁盘",
+  network: "网络磁盘",
+  cdrom: "光盘",
+  ramdisk: "内存盘",
+};
+
 /**
- * /hosts/:id/files（规格 routes/files.md）：单栏远端文件浏览 + Server 中转传输。
- * 上传/下载均为「路径对路径」（Server 侧 ↔ Agent 侧），与后端 push/pull 语义一致。
+ * /hosts/:id/files：全盘文件浏览器。
+ * - 空路径 =「此电脑」根视图（Windows 枚举全部驱动器；POSIX 为 /）
+ * - 面包屑 + 路径跳转输入框（回车直达任意路径）+ 双击进入目录
+ * - 上传/下载均为「路径对路径」（Server 中转），与后端 push/pull 语义一致
  */
 export default function Files() {
   const { host } = useOutletContext<Ctx>();
-  const [path, setPath] = useState("/");
+  // "" = 此电脑根视图（Windows 驱动器列表 / POSIX 根目录）
+  const [path, setPath] = useState("");
+  const [jumpDraft, setJumpDraft] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "name", desc: false });
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [uploadModal, setUploadModal] = useState(false);
@@ -55,10 +68,13 @@ export default function Files() {
     enabled: !!agent && host.online,
   });
 
+  const isDriveRootView = path === "" && (listQuery.data?.entries ?? []).some((e) => /^[A-Za-z]:\\?$/.test(e.name ?? ""));
+
   const sorted = useMemo(() => {
-    const list = [...(listQuery.data?.entries ?? [])];
+    const q = filter.trim().toLowerCase();
+    let list = [...(listQuery.data?.entries ?? [])];
+    if (q) list = list.filter((e) => (e.name ?? "").toLowerCase().includes(q));
     list.sort((a, b) => {
-      // 目录恒定排前
       if (!!a.is_dir !== !!b.is_dir) return a.is_dir ? -1 : 1;
       const dir = sort.desc ? -1 : 1;
       switch (sort.key) {
@@ -71,7 +87,7 @@ export default function Files() {
       }
     });
     return list;
-  }, [listQuery.data, sort]);
+  }, [listQuery.data, filter, sort]);
 
   function pushTransfer(t: Omit<Transfer, "id">) {
     const id = Date.now() + Math.random();
@@ -132,49 +148,69 @@ export default function Files() {
     },
   });
 
-  // 完成项 30s 后自动清理
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setTransfers((list) =>
-        list.filter(
-          (t) => t.state === "running" || !t.finishedAt || Date.now() - t.finishedAt < 30_000,
-        ),
-      );
-    }, 5000);
-    return () => clearInterval(timer);
-  }, []);
-
   const dirCount = sorted.filter((e) => e.is_dir).length;
   const fileCount = sorted.length - dirCount;
+  const atRoot = path === "";
+  const jumpValue = jumpDraft ?? path;
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 工具行：面包屑 + 操作 */}
+      {/* 工具行：面包屑 / 路径跳转 / 上级 / 刷新 / 上传 */}
       <div className="flex flex-wrap items-center gap-2">
-        <nav
-          className="flex min-w-0 flex-1 flex-wrap items-center gap-0.5 font-mono text-label-13"
-          aria-label="路径"
-        >
-          {crumbSegments(path).map((seg, i, arr) => (
-            <span key={seg} className="flex items-center">
-              {i > 0 && <ChevronRight size={12} strokeWidth={1.5} className="text-gray-900" />}
-              <button
-                type="button"
-                onClick={() => setPath(seg)}
-                className={`rounded px-1 py-0.5 transition-colors duration-150 hover:bg-gray-200 ${
-                  i === arr.length - 1 ? "text-gray-1000" : "text-blue-1000"
-                }`}
-              >
-                {crumbLabel(seg)}
-              </button>
-            </span>
-          ))}
-        </nav>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          {/* 面包屑 */}
+          <nav
+            className="hidden min-w-0 flex-wrap items-center gap-0.5 font-mono text-label-13 md:flex"
+            aria-label="路径"
+          >
+            {crumbSegments(path).map((seg, i, arr) => (
+              <span key={seg} className="flex items-center">
+                {i > 0 && <ChevronRight size={12} strokeWidth={1.5} className="text-gray-900" />}
+                <button
+                  type="button"
+                  onClick={() => setPath(seg)}
+                  className={`rounded px-1 py-0.5 transition-colors duration-150 hover:bg-gray-200 ${
+                    i === arr.length - 1 ? "text-gray-1000" : "text-blue-1000"
+                  }`}
+                >
+                  {crumbLabel(seg)}
+                </button>
+              </span>
+            ))}
+          </nav>
+          {/* 路径跳转输入框：回车直达任意路径 */}
+          <form
+            className="relative ml-auto flex min-w-0 flex-1 items-center md:ml-2 md:max-w-md"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (jumpDraft !== null) setPath(jumpDraft.trim());
+              setJumpDraft(null);
+            }}
+          >
+            <input
+              value={jumpValue}
+              onChange={(e) => setJumpDraft(e.target.value)}
+              onBlur={() => setJumpDraft(null)}
+              placeholder="输入路径回车跳转，如 C:\Windows 或 /var/log"
+              aria-label="路径跳转"
+              spellCheck={false}
+              className="h-8 w-full rounded-md border border-gray-400 bg-gray-100 pl-3 pr-8 font-mono text-label-13 outline-none transition-colors duration-150 hover:border-gray-500 focus-visible:border-gray-600"
+            />
+            <button
+              type="submit"
+              aria-label="跳转"
+              title="跳转"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-900 hover:text-gray-1000"
+            >
+              <CornerDownLeft size={13} strokeWidth={1.5} />
+            </button>
+          </form>
+        </div>
         <button
           type="button"
           aria-label="返回上级"
           disabled={parentPath(path) === null}
-          onClick={() => setPath(parentPath(path) ?? "/")}
+          onClick={() => setPath(parentPath(path) ?? "")}
           className="flex h-8 w-8 items-center justify-center rounded-md text-gray-900 transition-colors duration-150 hover:bg-gray-200 hover:text-gray-1000 disabled:opacity-30"
         >
           <ArrowUp size={14} strokeWidth={1.5} />
@@ -185,7 +221,7 @@ export default function Files() {
           onClick={() => listQuery.refetch()}
           className="flex h-8 w-8 items-center justify-center rounded-md text-gray-900 transition-colors duration-150 hover:bg-gray-200 hover:text-gray-1000"
         >
-          <RefreshCw size={14} strokeWidth={1.5} />
+          <RefreshCw size={14} strokeWidth={1.5} className={listQuery.isFetching ? "animate-spin" : ""} />
         </button>
         <button
           type="button"
@@ -199,7 +235,32 @@ export default function Files() {
       </div>
 
       {/* 表格 */}
-      <div className="overflow-hidden rounded-lg border border-gray-400">
+      <div className="overflow-hidden rounded-lg border border-gray-400 bg-background-100">
+        <div className="flex items-center gap-2 border-b border-gray-400 px-4 py-2">
+          <span className="text-label-13 text-gray-900">
+            {atRoot ? "此电脑 · 全部驱动器" : crumbLabel(path)}
+          </span>
+          <div className="relative ml-auto">
+            <Search size={13} strokeWidth={1.5} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-900" />
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="过滤当前目录"
+              aria-label="过滤文件"
+              className="h-7 w-44 rounded-md border border-gray-400 bg-gray-100 pl-8 pr-7 text-label-12 outline-none transition-colors duration-150 hover:border-gray-500 focus-visible:border-gray-600"
+            />
+            {filter && (
+              <button
+                type="button"
+                aria-label="清除过滤"
+                onClick={() => setFilter("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-900 hover:text-gray-1000"
+              >
+                <X size={11} strokeWidth={1.5} />
+              </button>
+            )}
+          </div>
+        </div>
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-400 text-label-13 text-gray-900">
@@ -216,7 +277,7 @@ export default function Files() {
               >
                 大小 {sort.key === "size" && (sort.desc ? "↓" : "↑")}
               </th>
-              <th className="px-4 py-2 font-normal">权限</th>
+              <th className="px-4 py-2 font-normal">{isDriveRootView ? "磁盘类型" : "权限"}</th>
               <th
                 className="cursor-pointer px-4 py-2 font-normal select-none hover:text-gray-1000"
                 onClick={() =>
@@ -241,69 +302,87 @@ export default function Files() {
                   <span className="text-label-13 text-red-1000">路径不存在或无权限</span>
                   <button
                     type="button"
-                    onClick={() => setPath("/")}
+                    onClick={() => setPath("")}
                     className="ml-3 text-label-13 text-blue-1000 hover:underline"
                   >
-                    回到 /
+                    回到此电脑
                   </button>
                 </td>
               </tr>
             ) : sorted.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-4 py-10 text-center text-label-13 text-gray-900">
-                  此目录为空
+                  {filter ? "没有匹配的文件" : "此目录为空"}
                 </td>
               </tr>
             ) : (
-              sorted.map((entry) => (
-                <tr
-                  key={entry.name}
-                  onDoubleClick={() => entry.is_dir && setPath(joinPath(path, entry.name ?? ""))}
-                  className="group cursor-pointer border-b border-gray-400/60 transition-colors duration-150 last:border-0 hover:bg-gray-100"
-                >
-                  <td className="px-4 py-2.5">
-                    <span className="flex items-center gap-2">
-                      <span className={entry.is_dir ? "text-blue-1000" : "text-gray-900"}>
-                        {entry.is_dir ? "▸" : "▤"}
-                      </span>
-                      <span className={`text-label-14 ${entry.is_dir ? "text-blue-1000" : ""}`}>
-                        {entry.name}
-                      </span>
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5 text-label-13 text-gray-900">
-                    {entry.is_dir ? "目录" : "文件"}
-                  </td>
-                  <td className="px-4 py-2.5 text-right font-mono text-label-13 text-gray-900 tabular-nums">
-                    {entry.is_dir ? "—" : humanSize(entry.size ?? 0)}
-                  </td>
-                  <td
-                    className="px-4 py-2.5 font-mono text-label-13 text-gray-900"
-                    title={entry.mode ?? ""}
+              sorted.map((entry) => {
+                const isDrive = isDriveRootView;
+                const target = joinPath(path, entry.name ?? "");
+                return (
+                  <tr
+                    key={entry.name}
+                    onDoubleClick={() => entry.is_dir && setPath(isDrive ? entry.name ?? target : target)}
+                    className="group cursor-pointer border-b border-gray-400/60 transition-colors duration-150 last:border-0 hover:bg-gray-100"
                   >
-                    {entry.mode?.replace(/^([d-])/, "") || "—"}
-                  </td>
-                  <td className="px-4 py-2.5 font-mono text-label-13 text-gray-900">
-                    {formatMtime(entry.modified_unix_ms)}
-                  </td>
-                  <td className="px-4 py-2.5 text-right">
-                    {!entry.is_dir && (
-                      <button
-                        type="button"
-                        aria-label={`下载 ${entry.name}`}
-                        onClick={() => setDownloadTarget(entry)}
-                        className="flex h-7 w-7 items-center justify-center rounded-md text-gray-900 opacity-0 transition-opacity duration-150 hover:bg-gray-200 hover:text-blue-1000 group-hover:opacity-100"
-                      >
-                        <Download size={14} strokeWidth={1.5} />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))
+                    <td className="px-4 py-2.5">
+                      <span className="flex items-center gap-2">
+                        <span className={entry.is_dir ? "text-blue-1000" : "text-gray-900"}>
+                          {isDrive ? "💽" : entry.is_dir ? "▸" : "▤"}
+                        </span>
+                        <span
+                          className={`text-label-14 ${entry.is_dir ? "text-blue-1000" : ""}`}
+                          onDoubleClick={undefined}
+                        >
+                          {entry.name}
+                        </span>
+                        {!isDrive && entry.is_dir && (
+                          <button
+                            type="button"
+                            onClick={() => setPath(target)}
+                            className="text-label-12 text-blue-1000 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+                          >
+                            打开
+                          </button>
+                        )}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-label-13 text-gray-900">
+                      {isDrive ? "驱动器" : entry.is_dir ? "目录" : "文件"}
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-mono text-label-13 text-gray-900 tabular-nums">
+                      {entry.is_dir ? "—" : humanSize(entry.size ?? 0)}
+                    </td>
+                    <td
+                      className="px-4 py-2.5 font-mono text-label-13 text-gray-900"
+                      title={entry.mode ?? ""}
+                    >
+                      {isDrive
+                        ? DRIVE_TYPE_LABEL[entry.mode ?? ""] ?? entry.mode ?? "—"
+                        : entry.mode?.replace(/^([d-])/, "") || "—"}
+                    </td>
+                    <td className="px-4 py-2.5 font-mono text-label-13 text-gray-900">
+                      {formatMtime(entry.modified_unix_ms)}
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      {!entry.is_dir && (
+                        <button
+                          type="button"
+                          aria-label={`下载 ${entry.name}`}
+                          onClick={() => setDownloadTarget(entry)}
+                          className="flex h-7 w-7 items-center justify-center rounded-md text-gray-900 opacity-0 transition-opacity duration-150 hover:bg-gray-200 hover:text-blue-1000 group-hover:opacity-100"
+                        >
+                          <Download size={14} strokeWidth={1.5} />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
-        <div className="flex h-9 items-center border-t border-gray-400 px-4 text-label-13 text-gray-900">
+        <div className="flex h-9 items-center border-t border-gray-400 px-4 font-mono text-label-13 text-gray-900">
           共 {sorted.length} 项 · {dirCount} 目录 · {fileCount} 文件
         </div>
       </div>
@@ -316,7 +395,7 @@ export default function Files() {
           fromLabel="Server 侧源路径"
           fromPlaceholder="/tmp/deploy.tar.gz"
           toLabel="远端目标路径"
-          toDefault={path === "/" ? "/" : path}
+          toDefault={path || "C:\\"}
           submitLabel="开始上传"
           submitting={uploadMutation.isPending}
           error={uploadMutation.isError ? uploadMutation.error.message : null}

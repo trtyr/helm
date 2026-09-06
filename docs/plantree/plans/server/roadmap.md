@@ -68,10 +68,36 @@ Status: active
   - 落地证据：e2e-phase9.py 五段全过（上线/冷却合并/已读未读/WS 推送/预警联动 gate）；
     63 测试（含 `within_cooldown`/`should_notify_stale` 纯函数 + 4 个通知集成测试）；
     openapi 44 端点校验通过。
+- **Phase 10 — API key（机器对机器认证）** ✅
+  - 定义（[决策 010](decisions/010-api-keys.md)）：`helm_` 前缀长效密钥，
+    `api_keys` 表仅存 sha256 哈希 + 展示前缀，明文仅创建响应返回一次。
+  - 生命周期：expires_at / revoked_at（幂等吊销）/ last_used_at（认证命中刷新）；
+    已吊销 key 随保留清理 30 天后删除。
+  - 认证接入：`verify_bearer_token` 统一 HTTP 中间件与 WS query-param 端点的凭据校验，
+    Bearer 按 `helm_` 前缀分流 JWT / API key；命中合成 Claims（`api-key:<name>`）供审计。
+  - API：`GET/POST /api-keys` + `GET/DELETE /api-keys/{id}`（仅 JWT，key 不可自管）。
+  - 落地证据：api_key_test.rs 4 个集成测试（roundtrip/吊销/过期/列表+刷新）+ service 5 个单测；
+    openapi 46 端点校验通过；e2e 冒烟（登录→建 key→key 调 API→吊销→401）见 current-state。
+- **Phase 11 — Skill 包分发（决策 011）** ✅
+  - 包源收拢仓库 `skill/`（SKILL.md + 16 个 Python 分域脚本 + 3 篇 references），
+    `include_dir` 编译期内嵌进 Server 二进制。
+  - `GET /api/v1/skill`（zip，脚本带可执行位）+ `GET /api/v1/skill/manifest`
+    （版本 + 文件 sha256，确定性生成）；JWT / API key 均可（key 是取用凭据，防死锁）。
+  - skill_package 4 个单测：布局齐全 / zip 可解压且逐文件一致 / manifest sha256 / 构建确定性；
+    e2e-skill.py 沉淀（key 下载→解包→包内脚本真操作平台→无凭据 401）。
+  - openapi 48 端点校验通过。
+- **Phase 12 — 单用户账号管理** ✅
+  - `GET /auth/me`（按 JWT sub 查库取权威身份 `{username, role, created_at}`；sub 失效 → 401 强制重登）。
+  - `POST /auth/change-password`（校验当前密码 + 新密码 ≥6 字符；已有 JWT 不失效，24h 自然过期）。
+  - `POST /auth/change-username`（校验当前密码 + UNIQUE 查重含软删行 23505→400；旧 sub 随即失效）。
+  - 三端点仅 JWT（API key 403——key 无账号概念）；改密/改名记审计 `password_change`/`username_change`。
+  - 前端 Settings 新增「账号」卡（身份展示 + 改名/改密表单，成功后清 token 回登录页带 notice）；
+    Login 页支持 `?notice=` 提示条。
+  - auth_account_test.rs 3 个集成测试；openapi 51 端点校验通过。
 
 ## Next（已规划，未开工）
 
-（暂无——Phase 9 已落地，见 Done。）
+（暂无——Phase 12 已落地，见 Done。）
 
 ## Deferred
 

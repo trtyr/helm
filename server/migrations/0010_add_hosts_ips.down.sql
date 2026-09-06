@@ -1,0 +1,2 @@
+ALTER TABLE hosts DROP COLUMN IF EXISTS public_ip;
+ALTER TABLE hosts DROP COLUMN IF EXISTS local_ips;

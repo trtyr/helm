@@ -1,5 +1,7 @@
+pub mod agent_gen;
 pub mod agents;
 pub mod alerts;
+pub mod api_keys;
 pub mod audit;
 pub mod auth;
 pub mod cert;
@@ -15,6 +17,7 @@ pub mod metrics;
 pub mod notifications;
 pub mod process;
 pub mod services;
+pub mod skill;
 pub mod stream;
 pub mod tasks;
 pub mod terminal;
@@ -49,6 +52,7 @@ pub struct AppState {
     pub heartbeat_timeout_secs: u64,
     pub session_idle_timeout_secs: u64,
     pub cert: CertService,
+    pub agent_gen: crate::application::agent_generator::AgentGenService,
 }
 
 /// 启动 HTTP 服务（控制台 API + health）。
@@ -79,6 +83,9 @@ pub async fn serve(
         heartbeat_timeout_secs: config.heartbeat_timeout_secs,
         session_idle_timeout_secs: config.session_idle_timeout_secs,
         cert,
+        agent_gen: crate::application::agent_generator::AgentGenService::new(
+            config.agent_source_dir.clone(),
+        ),
     };
 
     // 受保护路由（需 JWT）
@@ -117,6 +124,12 @@ pub async fn serve(
         .route("/agents/{id}/tags", put(agents::update_agent_tags))
         .route("/agents/{id}/uninstall", post(agents::uninstall_agent))
         .route(
+            "/agent-gen",
+            get(agent_gen::list_jobs).post(agent_gen::create),
+        )
+        .route("/agent-gen/{id}", get(agent_gen::get_job))
+        .route("/agent-gen/{id}/download", get(agent_gen::download))
+        .route(
             "/services",
             get(services::list_services).post(services::create_service),
         )
@@ -131,6 +144,8 @@ pub async fn serve(
         .route("/processes/list", post(process::list_processes))
         .route("/processes/kill", post(process::kill_process))
         .route("/net/info", post(process::net_info))
+        .route("/sys-services/list", post(process::list_sys_services))
+        .route("/sys-services/action", post(process::sys_service_action))
         .route("/audit", get(audit::list_audit))
         .route("/alerts", get(alerts::list_alerts))
         .route("/notifications", get(notifications::list_notifications))
@@ -143,6 +158,16 @@ pub async fn serve(
             "/notifications/read-all",
             post(notifications::mark_all_read),
         )
+        .route("/api-keys", get(api_keys::list).post(api_keys::create))
+        .route(
+            "/api-keys/{id}",
+            get(api_keys::get_one).delete(api_keys::revoke),
+        )
+        .route("/skill", get(skill::download))
+        .route("/skill/manifest", get(skill::manifest))
+        .route("/auth/me", get(auth::me))
+        .route("/auth/change-password", post(auth::change_password))
+        .route("/auth/change-username", post(auth::change_username))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_auth,

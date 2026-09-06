@@ -89,6 +89,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 当前账号（按 JWT sub 查库；仅 JWT，改名后旧 token 返回 401） */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 账号信息 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            account?: components["schemas"]["Account"];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/change-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 修改密码（校验当前密码；新密码 ≥ 6 字符；已有 JWT 不失效） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 已修改 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok?: boolean;
+                        };
+                    };
+                };
+                400: components["responses"]["Error"];
+                401: components["responses"]["Unauthorized"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/change-username": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 修改用户名（校验当前密码；UNIQUE 查重；旧 token 的 sub 随即失效） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 已修改（返回新用户名） */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok?: boolean;
+                            username?: string;
+                        };
+                    };
+                };
+                400: components["responses"]["Error"];
+                401: components["responses"]["Unauthorized"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agents/cert": {
         parameters: {
             query?: never;
@@ -351,6 +471,150 @@ export interface paths {
                         };
                     };
                 };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-gen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 列出 Agent 现场编译生成任务 */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 生成任务列表 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            jobs?: components["schemas"]["AgentGenJob"][];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** 创建 Agent 生成任务（现场交叉编译，异步执行） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateAgentGen"];
+                };
+            };
+            responses: {
+                /** @description 任务已创建（status=compiling，轮询 GET /agent-gen/{id} 取进度） */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AgentGenJob"];
+                    };
+                };
+                400: components["responses"]["InvalidArgument"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-gen/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** 查询生成任务进度（含编译日志尾部） */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 任务详情 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AgentGenJob"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-gen/{id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** 下载编译完成的 Agent 二进制（任务就绪后可用） */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 二进制文件流（application/octet-stream 附件下载） */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/octet-stream": string;
+                    };
+                };
+                404: components["responses"]["NotFound"];
             };
         };
         put?: never;
@@ -1782,7 +2046,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 采集 Agent 网络信息 */
+        /** 采集 Agent 网络信息（接口 + TCP/UDP 连接表） */
         post: {
             parameters: {
                 query?: never;
@@ -1807,6 +2071,103 @@ export interface paths {
                         "application/json": {
                             hostname?: string;
                             interfaces?: components["schemas"]["NetInterface"][];
+                            connections?: components["schemas"]["NetConnection"][];
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sys-services/list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 枚举目标机系统服务（Windows Service / systemd / launchctl） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        agent_id: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 系统服务列表 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            services?: components["schemas"]["SysService"][];
+                            error?: string | null;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sys-services/action": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 系统服务操作（start / stop / restart） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        agent_id: string;
+                        /** @description 服务标识（服务名 / unit 名 / label） */
+                        name: string;
+                        /** @enum {string} */
+                        action: "start" | "stop" | "restart";
+                    };
+                };
+            };
+            responses: {
+                /** @description 操作结果 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            name?: string;
+                            action?: string;
+                            ok?: boolean;
+                            error?: string | null;
                         };
                     };
                 };
@@ -2066,6 +2427,232 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/api-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 分页列出 API key（仅 JWT；只回展示前缀，不含哈希/明文） */
+        get: {
+            parameters: {
+                query?: {
+                    page?: number;
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description API key 列表（按创建时间倒序） */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            api_keys?: components["schemas"]["ApiKey"][];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** 创建 API key（仅 JWT；明文 key 仅本次响应返回一次） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        name: string;
+                        /**
+                         * Format: date-time
+                         * @description RFC 3339 过期时间，空则永不过期
+                         */
+                        expires_at?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 创建成功（key 为明文，仅此一次） */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            api_key?: components["schemas"]["ApiKey"];
+                            /** @example helm_3f9a... */
+                            key?: string;
+                        };
+                    };
+                };
+                400: components["responses"]["Error"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/api-keys/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ApiKeyId"];
+            };
+            cookie?: never;
+        };
+        /** API key 详情（仅 JWT） */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["parameters"]["ApiKeyId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 详情 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            api_key?: components["schemas"]["ApiKey"];
+                        };
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        /** 吊销 API key（仅 JWT；幂等，已吊销仍返回 ok） */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["parameters"]["ApiKeyId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 已吊销 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok?: boolean;
+                        };
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 下载运维 skill 完整包（zip；JWT / API key 均可，决策 011） */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description zip 包（内嵌 SKILL.md + scripts/ + references/） */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": string;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skill/manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Skill 包清单（版本 + 文件 + sha256，用于升级对比） */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 包清单 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            name?: string;
+                            version?: string;
+                            file_count?: number;
+                            files?: {
+                                path?: string;
+                                size?: number;
+                                sha256?: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2081,6 +2668,10 @@ export interface components {
             /** @enum {string} */
             conn_mode?: "reverse" | "forward";
             addr?: string;
+            /** @description Server 看到的 Agent 连接源地址（外网视角） */
+            public_ip?: string;
+            /** @description Agent 注册上报的本机网卡地址（内网视角，IPv4 在前） */
+            local_ips?: string[];
             /** Format: date-time */
             created_at?: string;
             /** Format: date-time */
@@ -2091,6 +2682,9 @@ export interface components {
             /** Format: date-time */
             last_seen?: string | null;
             stale?: boolean;
+            /** @description 关联 Agent 标识（最近注册的一个） */
+            agent_id?: string | null;
+            agent_version?: string | null;
         };
         CreateHost: {
             hostname: string;
@@ -2120,6 +2714,49 @@ export interface components {
             hostname?: string;
             /** Format: date-time */
             last_heartbeat_at?: string | null;
+        };
+        CreateAgentGen: {
+            /** @enum {string} */
+            os: "windows" | "linux" | "macos";
+            /** @enum {string} */
+            arch: "x86_64" | "aarch64";
+            /**
+             * Format: uuid
+             * @description 监听器（决定烙入的连入地址与注册 token）
+             */
+            listener_id: string;
+            /**
+             * @description reverse=Agent 主动连 Server；forward=Agent 监听、Server 拨号
+             * @default reverse
+             * @enum {string}
+             */
+            conn_mode: "reverse" | "forward";
+            /** @description forward 模式监听地址（默认 0.0.0.0:50052） */
+            listen_addr?: string;
+            /** @description 覆盖连入地址（reverse 模式有效；留空由监听器地址推导，通配主机替换为服务器内网 IP） */
+            server_addr?: string;
+        };
+        AgentGenJob: {
+            /** Format: uuid */
+            id?: string;
+            os?: string;
+            arch?: string;
+            /** @description Rust 目标三元组 */
+            triple?: string;
+            /** @description 烙入的 Server gRPC 地址 */
+            server_addr?: string;
+            /** @enum {string} */
+            conn_mode?: "reverse" | "forward";
+            /** @description forward 模式监听地址 */
+            listen_addr?: string;
+            /** @enum {string} */
+            status?: "compiling" | "ready" | "failed";
+            error?: string | null;
+            file_size?: number | null;
+            /** Format: date-time */
+            created_at?: string;
+            /** @description 编译日志尾部（详情查询返回，列表为空） */
+            log_tail?: string[];
         };
         AgentDetail: components["schemas"]["Agent"] & {
             online?: boolean;
@@ -2233,10 +2870,40 @@ export interface components {
             name?: string;
             cpu_percent?: number;
             mem_bytes?: number;
+            virt_mem_bytes?: number;
+            parent_pid?: number;
+            status?: string;
+            user?: string;
+            start_time_unix?: number;
+            exe_path?: string;
+            cmd?: string;
         };
         NetInterface: {
             name?: string;
             addrs?: string[];
+            mac?: string;
+            /** @description up / down / ... */
+            status?: string;
+            gateway?: string;
+            /** @description ethernet / wifi / loopback / tunnel / other */
+            kind?: string;
+        };
+        NetConnection: {
+            /** @enum {string} */
+            protocol?: "tcp" | "udp";
+            local?: string;
+            remote?: string;
+            state?: string;
+            pid?: number;
+            process_name?: string;
+        };
+        SysService: {
+            name?: string;
+            display_name?: string;
+            status?: string;
+            start_type?: string;
+            pid?: number;
+            description?: string;
         };
         Audit: {
             /** Format: uuid */
@@ -2274,6 +2941,29 @@ export interface components {
             /** Format: date-time */
             created_at?: string;
         };
+        /** @description API key 视图（不含哈希；明文仅创建响应返回一次） */
+        ApiKey: {
+            /** Format: uuid */
+            id?: string;
+            name?: string;
+            /** @example helm_3f9a81c2 */
+            prefix?: string;
+            /** Format: date-time */
+            created_at?: string;
+            /** Format: date-time */
+            last_used_at?: string | null;
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** Format: date-time */
+            revoked_at?: string | null;
+        };
+        Account: {
+            username?: string;
+            /** @enum {string} */
+            role?: "admin" | "operator";
+            /** Format: date-time */
+            created_at?: string;
+        };
     };
     responses: {
         /** @description 错误 */
@@ -2292,6 +2982,17 @@ export interface components {
         };
         /** @description 未授权 */
         Unauthorized: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    error?: Record<string, never>;
+                };
+            };
+        };
+        /** @description 请求参数不合法 */
+        InvalidArgument: {
             headers: {
                 [name: string]: unknown;
             };
@@ -2330,6 +3031,7 @@ export interface components {
         JobId: string;
         ListenerId: string;
         ServiceId: string;
+        ApiKeyId: string;
     };
     requestBodies: never;
     headers: never;

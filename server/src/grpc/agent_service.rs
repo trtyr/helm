@@ -71,6 +71,11 @@ impl AgentService for AgentServiceImpl {
         &self,
         request: Request<Streaming<AgentMessage>>,
     ) -> Result<Response<Self::OpenChannelStream>, Status> {
+        // 外网 IP：Server 看到的连接源地址（NAT 后即出口公网地址）；into_inner 会拿走 request，须先取
+        let public_ip = request
+            .remote_addr()
+            .map(|a| a.ip().to_string())
+            .unwrap_or_default();
         let mut inbound = request.into_inner();
 
         // 首条消息必须是 Register
@@ -106,8 +111,22 @@ impl AgentService for AgentServiceImpl {
             .as_ref()
             .map(|h| h.platform.as_str())
             .unwrap_or("");
+        let local_ips = register
+            .host
+            .as_ref()
+            .map(|h| h.local_ips.clone())
+            .unwrap_or_default();
         let host_id = match AgentRepo::new(self.db.clone())
-            .register(&agent_id, &register.version, hostname, os, arch, platform)
+            .register(
+                &agent_id,
+                &register.version,
+                hostname,
+                os,
+                arch,
+                platform,
+                &public_ip,
+                &local_ips,
+            )
             .await
         {
             Ok(id) => Some(id),

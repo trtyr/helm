@@ -197,8 +197,10 @@ async fn connect_once(
     }
     let agent_id = register.agent_id.clone();
 
-    // 落库：挂到声明的 forward host 下（不新建 host）
+    // 落库：挂到声明的 forward host 下（不新建 host）。
+    // public_ip 取拨号地址的 IP 部分（forward 场景 Server 主动拨出，该地址即对外可达地址）。
     let host_info = register.host.clone().unwrap_or_default();
+    let public_ip = addr.split(':').next().unwrap_or_default().to_string();
     AgentRepo::new(deps.db.clone())
         .register_under_host(
             host_id,
@@ -207,6 +209,8 @@ async fn connect_once(
             &host_info.os,
             &host_info.arch,
             &host_info.platform,
+            &public_ip,
+            &host_info.local_ips,
         )
         .await?;
 

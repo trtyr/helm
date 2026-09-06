@@ -7,8 +7,8 @@ export interface HostFormValues {
   tags: string[];
 }
 
-/** 创建/编辑主机右抽屉（规格 routes/hosts.md）：400px、conn_mode 分段、addr 条件显示。
- * 调用方以 `key={host?.id ?? "new"}` 挂载，保证每次打开重置表单状态。 */
+/** 编辑主机右抽屉（规格 routes/hosts.md）：400px、conn_mode 分段、addr 条件显示。
+ * 主机不在此创建（由 Agent 上线自动注册）。调用方以 `key={host.id}` 挂载，保证每次打开重置表单状态。 */
 export function HostFormDrawer({
   open,
   initial,
@@ -53,7 +53,7 @@ export function HostFormDrawer({
         }}
         className="relative z-10 flex h-full w-[400px] flex-col gap-6 overflow-y-auto border-l border-gray-400 bg-background-100 p-6"
       >
-        <h2 className="text-heading-20">{initial ? "编辑主机" : "创建主机"}</h2>
+        <h2 className="text-heading-20">编辑主机</h2>
 
         <div>
           <label className="block text-label-14" htmlFor="hostname">
@@ -166,7 +166,7 @@ export function HostFormDrawer({
             disabled={submitting}
             className="h-8 rounded-md bg-gray-700 px-4 text-label-14 transition-colors duration-150 hover:bg-gray-800 disabled:opacity-50"
           >
-            {submitting ? "保存中…" : initial ? "保存" : "创建"}
+            {submitting ? "保存中…" : "保存"}
           </button>
         </div>
       </form>

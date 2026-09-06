@@ -4,7 +4,6 @@ use helm_proto::pb::{AgentMessage, ServiceStatus, agent_message};
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
-use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot};
 
 /// 托管服务句柄：停止信号。
@@ -67,7 +66,7 @@ async fn monitor(
     tx: mpsc::Sender<AgentMessage>,
 ) {
     loop {
-        let mut child = match Command::new(&command)
+        let mut child = match crate::child::quiet_tokio(&command)
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

@@ -18,7 +18,6 @@ const TABS = [
   { seg: "services", label: "服务", ready: true },
   { seg: "processes", label: "进程", ready: true },
   { seg: "network", label: "网络", ready: true },
-  { seg: "metrics", label: "指标", ready: true },
   { seg: "tasks", label: "任务", ready: true },
 ] as const;
 

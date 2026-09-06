@@ -201,6 +201,27 @@ Server 注册 `oneshot` → 下发 `FileList`/`ProcessList`/`ProcessKill`/`NetIn
 |------|------|------|
 | GET | `/api/v1/audit?page=&limit=` | 分页列出审计日志 |
 
+### API key 管理（决策 010）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/api-keys?page=&limit=` | 分页列出（只回展示前缀，不含哈希/明文） |
+| POST | `/api/v1/api-keys` | 创建 `{name, expires_at?}` → `{api_key, key}`（**明文 key 仅此一次**） |
+| GET | `/api/v1/api-keys/{id}` | 详情（含 last_used_at / expires_at / revoked_at） |
+| DELETE | `/api/v1/api-keys/{id}` | 吊销（幂等，已吊销仍 200） |
+
+注意：这四个端点**仅接受 JWT**——API key 不能管理 API key（防自我续期/扩散，403 `forbidden`）。
+
+### Skill 包分发（决策 011）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/skill` | 下载运维 skill 完整包（zip：SKILL.md + scripts/ + references/） |
+| GET | `/api/v1/skill/manifest` | 包清单 `{name, version, file_count, files:[{path,size,sha256}]}` |
+
+两个端点 **JWT / API key 均可**——key 本身就是 skill 的取用凭据（否则死锁）。
+包内嵌在 Server 二进制（`include_dir` 编译期嵌入 `skill/` 目录），版本随 Server。
+
 ### WebSocket 实时流（query-param token 鉴权）
 
 | 方法 | 路径 | 说明 |
@@ -211,13 +232,24 @@ Server 注册 `oneshot` → 下发 `FileList`/`ProcessList`/`ProcessKill`/`NetIn
 | GET | `/api/v1/metrics/stream?token=` | 指标实时流（二进制帧 = JSON 指标点） |
 | GET | `/api/v1/notifications/stream?token=` | 通知实时流（二进制帧 = JSON 通知，上线/下线/预警） |
 
-WebSocket 握手无法携带 `Authorization` header，故鉴权走 query-param `token`（JWT），
-由 `AuthService::verify` 直接校验，绕开 JWT 中间件（挂顶层路由）。
+WebSocket 握手无法携带 `Authorization` header，故鉴权走 query-param `token`
+（JWT 或 `helm_` API key 均可，`http::auth::verify_bearer_token` 统一校验），绕开中间件（挂顶层路由）。
 
 ### 认证
 
 - `POST /api/v1/auth/login`：校验密码（bcrypt），签发 JWT（HS256，24h 过期），claims = `{sub: username, role, exp}`。
-- 其余受保护路由经 `require_auth` 中间件：解析 `Authorization: Bearer`，校验后把 `Claims` 塞进 request extension。
+- 其余受保护路由经 `require_auth` 中间件：解析 `Authorization: Bearer`，按前缀分流——
+  `helm_` 开头走 API key（sha256 比对 `api_keys` 表，命中后合成 Claims
+  `{sub: "api-key:<name>", role: "api-key"}` 供审计），其余按 JWT 解码；校验后把 `Claims` 塞进 request extension。
+- 审计 actor：JWT 记 username，API key 记 `api-key:<name>`。
+
+### 账号管理（单用户，仅 JWT；API key 返回 403）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/auth/me` | 当前账号 `{account: {username, role, created_at}}`（按 sub 查库取权威值；sub 失效 → 401） |
+| POST | `/api/v1/auth/change-password` | `{current_password, new_password}` → `{ok}`（新密码 ≥ 6 字符；已有 JWT 不失效） |
+| POST | `/api/v1/auth/change-username` | `{current_password, new_username}` → `{ok, username}`（UNIQUE 查重；旧 token 的 sub 随即失效） |
 
 ### 错误格式
 
@@ -227,8 +259,8 @@ WebSocket 握手无法携带 `Authorization` header，故鉴权走 query-param `
 { "error": { "code": "not_found", "message": "resource not found" } }
 ```
 
-- 稳定 `code`：`not_found` / `unauthorized` / `invalid_argument` / `not_connected` / `storage` / `io` / `internal`。
-- HTTP 状态映射：NotFound→404，Unauthorized→401，InvalidArgument→400，NotConnected→409，其余→500。
+- 稳定 `code`：`not_found` / `unauthorized` / `forbidden` / `invalid_argument` / `not_connected` / `storage` / `io` / `internal`。
+- HTTP 状态映射：NotFound→404，Unauthorized→401，Forbidden→403，InvalidArgument→400，NotConnected→409，其余→500。
 - 内部错误细节只进 tracing 日志，`message` 用 `safe_message()`（不外泄 DB/IO 内部串）。
 
 ## 3. 配置（环境变量 / CLI）

@@ -14,6 +14,8 @@ Status: active
 | [007](007-security-posture.md) | 安全水位：mTLS + RBAC 强制 + 审计 | active | security-hardening |
 | [008](008-agent-persistence.md) | Agent 持久化：服务化 + 去黑窗口 | active | agent-persistence |
 | [009](009-in-app-notifications.md) | 通知为系统内部能力（小卡片），不做外发 | active | notifications |
+| [010](010-api-keys.md) | API key：机器对机器认证（helm_ 前缀密钥，仅存哈希） | active | api-keys |
+| [011](011-skill-package-serving.md) | Skill 包由 Server 内嵌分发（API key 即取即用） | active | skill-package |
 
 ## 主题索引
 
@@ -25,3 +27,5 @@ Status: active
 - security-hardening → [007](007-security-posture.md)
 - agent-persistence → [008](008-agent-persistence.md)
 - notifications → [009](009-in-app-notifications.md)
+- api-keys → [010](010-api-keys.md)
+- skill-package → [011](011-skill-package-serving.md)

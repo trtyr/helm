@@ -1,16 +1,23 @@
 import { useMemo } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { components } from "../../api/schema";
 import { api } from "../../api/client";
 import { relativeTime } from "../../lib/format";
 import { jobStatusMeta } from "../../lib/job";
+import { SkeletonRows } from "../../components/ui";
 
 type Job = components["schemas"]["Job"];
 type Host = components["schemas"]["Host"];
 
 const STATUS_FILTERS = ["all", "succeeded", "failed", "running"] as const;
-const FILTER_LABEL: Record<string, string> = { all: "全部", succeeded: "✓ 成功", failed: "✗ 失败", running: "● 运行中" };
+const FILTER_LABEL: Record<string, string> = {
+  all: "全部",
+  succeeded: "成功",
+  failed: "失败",
+  running: "运行中",
+};
 
 /** /jobs 全局任务列表（规格 jobs.md F26：状态 chips + 主机过滤 + 分页）。 */
 export default function Jobs() {
@@ -67,65 +74,61 @@ export default function Jobs() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-heading-24">任务</h1>
-        <p className="mt-1 text-copy-13 text-gray-900">全部主机的命令执行历史</p>
-      </div>
+    <div className="flex flex-col gap-5">
+      <p className="-mt-1 text-copy-13 text-gray-900">全部主机的命令执行历史</p>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {STATUS_FILTERS.map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => patchParams({ status: s })}
-            aria-pressed={status === s}
-            className={`h-7 rounded-full border px-3 font-mono text-label-12 transition-colors duration-150 ${
-              status === s ? "border-gray-1000 bg-gray-200 text-gray-1000" : "border-gray-500 text-gray-900 hover:border-gray-600"
-            }`}
-          >
-            {FILTER_LABEL[s]} {counts[s as keyof typeof counts]}
-          </button>
-        ))}
-        <span className="flex-1" />
-        <select
-          aria-label="按主机过滤"
-          value={hostFilter}
-          onChange={(e) => patchParams({ host: e.target.value })}
-          disabled={hostsQuery.isError}
-          className="h-8 rounded-md border border-gray-400 bg-gray-100 px-2 text-label-13 outline-none transition-colors duration-150 hover:border-gray-500 disabled:opacity-40"
-        >
-          <option value="">全部主机</option>
-          {(hostsQuery.data?.hosts ?? []).map((h) => (
-            <option key={h.id} value={h.id ?? ""}>
-              {h.hostname}
-            </option>
+      {/* 列表卡 */}
+      <div className="overflow-hidden rounded-lg border border-gray-400 bg-background-100">
+        {/* 工具行：状态 chips + 主机过滤 */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-gray-400 px-4 py-2">
+          {STATUS_FILTERS.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => patchParams({ status: s })}
+              aria-pressed={status === s}
+              className={`h-7 rounded-full border px-3 text-label-12 transition-colors duration-150 ${
+                status === s
+                  ? "border-gray-1000 bg-gray-200 text-gray-1000"
+                  : "border-gray-500 text-gray-900 hover:border-gray-600"
+              }`}
+            >
+              {FILTER_LABEL[s]} {counts[s as keyof typeof counts]}
+            </button>
           ))}
-        </select>
-      </div>
+          <select
+            aria-label="按主机过滤"
+            value={hostFilter}
+            onChange={(e) => patchParams({ host: e.target.value })}
+            disabled={hostsQuery.isError}
+            className="ml-auto h-8 rounded-md border border-gray-400 bg-gray-100 px-2 text-label-13 outline-none transition-colors duration-150 hover:border-gray-500 disabled:opacity-40"
+          >
+            <option value="">全部主机</option>
+            {(hostsQuery.data?.hosts ?? []).map((h) => (
+              <option key={h.id} value={h.id ?? ""}>
+                {h.hostname}
+              </option>
+            ))}
+          </select>
+        </div>
 
-      <div className="overflow-hidden rounded-lg border border-gray-400">
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-400 text-label-13 text-gray-900">
-              <th className="px-4 py-2 font-normal">任务</th>
-              <th className="px-4 py-2 font-normal">主机</th>
-              <th className="px-4 py-2 font-normal">命令</th>
-              <th className="px-4 py-2 font-normal">状态</th>
-              <th className="px-4 py-2 font-normal">退出码</th>
-              <th className="px-4 py-2 font-normal">时间</th>
+              <th className="w-20 px-4 py-2.5 font-normal">编号</th>
+              <th className="px-4 py-2.5 font-normal">主机</th>
+              <th className="px-4 py-2.5 font-normal">命令</th>
+              <th className="px-4 py-2.5 font-normal">状态</th>
+              <th className="px-4 py-2.5 font-normal">退出码</th>
+              <th className="px-4 py-2.5 font-normal">时间</th>
             </tr>
           </thead>
           <tbody>
             {jobsQuery.isPending ? (
-              <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-label-13 text-gray-900">
-                  加载任务…
-                </td>
-              </tr>
+              <SkeletonRows rows={8} cols={6} />
             ) : jobsQuery.isError ? (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center">
+                <td colSpan={6} className="px-4 py-12 text-center">
                   <span className="text-label-13 text-red-1000">查询失败：{(jobsQuery.error as Error).message}</span>
                   <button type="button" onClick={() => jobsQuery.refetch()} className="ml-3 text-label-13 text-blue-1000 hover:underline">
                     重试
@@ -134,7 +137,7 @@ export default function Jobs() {
               </tr>
             ) : jobs.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-label-13 text-gray-900">
+                <td colSpan={6} className="px-4 py-12 text-center text-label-13 text-gray-900">
                   {(jobsQuery.data?.jobs ?? []).length === 0 ? (
                     <>
                       还没有任务历史 ·{" "}
@@ -161,29 +164,29 @@ export default function Jobs() {
                     onClick={() => navigate(`/jobs/${job.id}`)}
                     className="cursor-pointer border-b border-gray-400/60 transition-colors duration-150 last:border-0 hover:bg-gray-100"
                   >
-                    <td className="px-4 py-2.5 font-mono text-label-13 text-gray-900" title={job.id}>
+                    <td className="px-4 py-3 font-mono text-label-13 text-gray-900" title={job.id}>
                       #{job.id?.slice(0, 4)}
                     </td>
-                    <td className="px-4 py-2.5 text-label-13">{hostName(job.host_id)}</td>
-                    <td className="max-w-64 px-4 py-2.5">
+                    <td className="px-4 py-3 text-label-13">{hostName(job.host_id)}</td>
+                    <td className="max-w-64 px-4 py-3">
                       <span className="block truncate font-mono text-label-13 text-gray-900" title={[job.command, ...(job.args ?? [])].join(" ")}>
                         {job.command} {(job.args ?? []).join(" ")}
                       </span>
                     </td>
-                    <td className={`px-4 py-2.5 text-label-13 ${meta.cls}`}>
+                    <td className={`px-4 py-3 text-label-13 ${meta.cls}`}>
                       {meta.label}
                       {job.status === "running" && (
                         <span className="ml-2 inline-block h-3 w-3 animate-spin rounded-full border border-blue-1000 border-t-transparent align-[-1px]" />
                       )}
                     </td>
                     <td
-                      className={`px-4 py-2.5 font-mono text-label-13 tabular-nums ${
+                      className={`px-4 py-3 font-mono text-label-13 tabular-nums ${
                         job.exit_code == null ? "text-gray-900" : job.exit_code === 0 ? "text-green-1000" : "text-red-1000"
                       }`}
                     >
                       {job.exit_code ?? "—"}
                     </td>
-                    <td className="px-4 py-2.5 font-mono text-label-13 text-gray-900">
+                    <td className="px-4 py-3 font-mono text-label-13 text-gray-900">
                       {relativeTime(job.finished_at ?? job.started_at, jobsQuery.data?.at)}
                     </td>
                   </tr>
@@ -192,26 +195,35 @@ export default function Jobs() {
             )}
           </tbody>
         </table>
-        <div className="flex h-9 items-center justify-between border-t border-gray-400 px-4 font-mono text-label-13 text-gray-900">
+
+        {/* 底栏分页 */}
+        <div className="flex h-12 items-center justify-between border-t border-gray-400 px-4 text-label-13 text-gray-900">
           <span>
-            {status !== "all" || hostFilter ? `过滤后 ${jobs.length} 条 · ` : ""}第 {page} 页
+            {status !== "all" || hostFilter
+              ? `过滤后 ${jobs.length} 条 · 第 ${page} 页`
+              : (jobsQuery.data?.jobs?.length ?? 0) > 0
+                ? `第 ${page} 页 · 本页 ${jobsQuery.data?.jobs?.length} 条`
+                : "无任务"}
           </span>
-          <span className="flex items-center gap-3">
+          <span className="flex items-center gap-1">
             <button
               type="button"
               disabled={page <= 1}
               onClick={() => patchParams({ page: String(page - 1) })}
-              className="transition-colors duration-150 hover:text-gray-1000 disabled:opacity-30"
+              aria-label="上一页"
+              className="flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 hover:bg-gray-200 disabled:opacity-30"
             >
-              ‹ 上一页
+              <ChevronLeft size={14} strokeWidth={1.5} />
             </button>
+            <span className="font-mono">{page}</span>
             <button
               type="button"
               disabled={(jobsQuery.data?.jobs ?? []).length < limit}
               onClick={() => patchParams({ page: String(page + 1) })}
-              className="transition-colors duration-150 hover:text-gray-1000 disabled:opacity-30"
+              aria-label="下一页"
+              className="flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 hover:bg-gray-200 disabled:opacity-30"
             >
-              下一页 ›
+              <ChevronRight size={14} strokeWidth={1.5} />
             </button>
           </span>
         </div>

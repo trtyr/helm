@@ -81,8 +81,7 @@ export default function Notifications() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-heading-24">通知</h1>
-          <p className="mt-1 text-copy-13 text-gray-900">主机上下线与预警的系统内通知</p>
+          <p className="text-copy-13 text-gray-900">主机上下线与预警的系统内通知</p>
         </div>
         <button
           type="button"

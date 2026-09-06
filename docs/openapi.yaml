@@ -5,7 +5,9 @@ info:
     Helm 控制面（Server）的完整 HTTP API 契约，覆盖控制台、Agent 生命周期、
     命令执行、文件、服务、监听器、实时流（WebSocket）与审计/告警端点。
     除 `/healthz`、`/auth/login`、`/agents/cert` 与 WebSocket 端点外，
-    所有 `/api/v1` 端点均需 `Authorization: Bearer <JWT>`。
+    所有 `/api/v1` 端点均需 `Authorization: Bearer <JWT 或 API key>`（决策 010）。
+    API key 为 `helm_` 前缀密钥；WebSocket 端点的 `?token=` 两种均可。
+    api-keys 管理端点仅接受 JWT（key 不可自管）。
   version: 1.0.0
 servers:
   - url: http://127.0.0.1:18080
@@ -37,6 +39,10 @@ tags:
     description: 进程与网络信息
   - name: audit
     description: 审计日志
+  - name: api-keys
+    description: API key 管理
+  - name: skill
+    description: Skill 包分发
   - name: stream
     description: 实时流（WebSocket）
 
@@ -78,6 +84,59 @@ paths:
                 type: object
                 properties:
                   token: { type: string }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/auth/me:
+    get:
+      tags: [auth]
+      summary: 当前账号（按 JWT sub 查库；仅 JWT，改名后旧 token 返回 401）
+      responses:
+        "200":
+          description: 账号信息
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  account: { $ref: "#/components/schemas/Account" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/auth/change-password:
+    post:
+      tags: [auth]
+      summary: 修改密码（校验当前密码；新密码 ≥ 6 字符；已有 JWT 不失效）
+      responses:
+        "200":
+          description: 已修改
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/auth/change-username:
+    post:
+      tags: [auth]
+      summary: 修改用户名（校验当前密码；UNIQUE 查重；旧 token 的 sub 随即失效）
+      responses:
+        "200":
+          description: 已修改（返回新用户名）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  username: { type: string }
+        "400":
+          $ref: "#/components/responses/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -227,6 +286,72 @@ paths:
                   agents:
                     type: array
                     items: { $ref: "#/components/schemas/Agent" }
+
+  /api/v1/agent-gen:
+    get:
+      tags: [agents]
+      summary: 列出 Agent 现场编译生成任务
+      responses:
+        "200":
+          description: 生成任务列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobs:
+                    type: array
+                    items: { $ref: "#/components/schemas/AgentGenJob" }
+    post:
+      tags: [agents]
+      summary: 创建 Agent 生成任务（现场交叉编译，异步执行）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateAgentGen" }
+      responses:
+        "200":
+          description: 任务已创建（status=compiling，轮询 GET /agent-gen/{id} 取进度）
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentGenJob" }
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+
+  /api/v1/agent-gen/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [agents]
+      summary: 查询生成任务进度（含编译日志尾部）
+      responses:
+        "200":
+          description: 任务详情
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentGenJob" }
+
+  /api/v1/agent-gen/{id}/download:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [agents]
+      summary: 下载编译完成的 Agent 二进制（任务就绪后可用）
+      responses:
+        "200":
+          description: 二进制文件流（application/octet-stream 附件下载）
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/v1/agents/{id}:
     parameters:
@@ -888,7 +1013,7 @@ paths:
   /api/v1/net/info:
     post:
       tags: [process]
-      summary: 采集 Agent 网络信息
+      summary: 采集 Agent 网络信息（接口 + TCP/UDP 连接表）
       requestBody:
         required: true
         content:
@@ -910,6 +1035,63 @@ paths:
                   interfaces:
                     type: array
                     items: { $ref: "#/components/schemas/NetInterface" }
+                  connections:
+                    type: array
+                    items: { $ref: "#/components/schemas/NetConnection" }
+
+  /api/v1/sys-services/list:
+    post:
+      tags: [process]
+      summary: 枚举目标机系统服务（Windows Service / systemd / launchctl）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id]
+              properties:
+                agent_id: { type: string }
+      responses:
+        "200":
+          description: 系统服务列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  services:
+                    type: array
+                    items: { $ref: "#/components/schemas/SysService" }
+                  error: { type: string, nullable: true }
+
+  /api/v1/sys-services/action:
+    post:
+      tags: [process]
+      summary: 系统服务操作（start / stop / restart）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, name, action]
+              properties:
+                agent_id: { type: string }
+                name: { type: string, description: 服务标识（服务名 / unit 名 / label） }
+                action: { type: string, enum: [start, stop, restart] }
+      responses:
+        "200":
+          description: 操作结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string }
+                  action: { type: string }
+                  ok: { type: boolean }
+                  error: { type: string, nullable: true }
 
   /api/v1/audit:
     get:
@@ -1030,6 +1212,124 @@ paths:
                 properties:
                   updated: { type: integer }
 
+  /api/v1/api-keys:
+    get:
+      tags: [api-keys]
+      summary: 分页列出 API key（仅 JWT；只回展示前缀，不含哈希/明文）
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+      responses:
+        "200":
+          description: API key 列表（按创建时间倒序）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_keys:
+                    type: array
+                    items: { $ref: "#/components/schemas/ApiKey" }
+    post:
+      tags: [api-keys]
+      summary: 创建 API key（仅 JWT；明文 key 仅本次响应返回一次）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                expires_at:
+                  type: string
+                  format: date-time
+                  description: RFC 3339 过期时间，空则永不过期
+      responses:
+        "200":
+          description: 创建成功（key 为明文，仅此一次）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_key: { $ref: "#/components/schemas/ApiKey" }
+                  key: { type: string, example: "helm_3f9a..." }
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/api-keys/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ApiKeyId"
+    get:
+      tags: [api-keys]
+      summary: API key 详情（仅 JWT）
+      responses:
+        "200":
+          description: 详情
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_key: { $ref: "#/components/schemas/ApiKey" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [api-keys]
+      summary: 吊销 API key（仅 JWT；幂等，已吊销仍返回 ok）
+      responses:
+        "200":
+          description: 已吊销
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/skill:
+    get:
+      tags: [skill]
+      summary: 下载运维 skill 完整包（zip；JWT / API key 均可，决策 011）
+      responses:
+        "200":
+          description: zip 包（内嵌 SKILL.md + scripts/ + references/）
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+
+  /api/v1/skill/manifest:
+    get:
+      tags: [skill]
+      summary: Skill 包清单（版本 + 文件 + sha256，用于升级对比）
+      responses:
+        "200":
+          description: 包清单
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string }
+                  version: { type: string }
+                  file_count: { type: integer }
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path: { type: string }
+                        size: { type: integer }
+                        sha256: { type: string }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1062,6 +1362,11 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    ApiKeyId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
   responses:
     Error:
       description: 错误
@@ -1077,6 +1382,14 @@ components:
                   message: { type: string }
     Unauthorized:
       description: 未授权
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: object }
+    InvalidArgument:
+      description: 请求参数不合法
       content:
         application/json:
           schema:
@@ -1111,6 +1424,11 @@ components:
         tags: { type: array, items: { type: string } }
         conn_mode: { type: string, enum: [reverse, forward] }
         addr: { type: string }
+        public_ip: { type: string, description: Server 看到的 Agent 连接源地址（外网视角） }
+        local_ips:
+          type: array
+          items: { type: string }
+          description: Agent 注册上报的本机网卡地址（内网视角，IPv4 在前）
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     HostView:
@@ -1121,6 +1439,8 @@ components:
             online: { type: boolean }
             last_seen: { type: string, format: date-time, nullable: true }
             stale: { type: boolean }
+            agent_id: { type: string, nullable: true, description: 关联 Agent 标识（最近注册的一个） }
+            agent_version: { type: string, nullable: true }
     CreateHost:
       type: object
       required: [hostname]
@@ -1148,6 +1468,42 @@ components:
         version: { type: string }
         hostname: { type: string }
         last_heartbeat_at: { type: string, format: date-time, nullable: true }
+    CreateAgentGen:
+      type: object
+      required: [os, arch, listener_id]
+      properties:
+        os: { type: string, enum: [windows, linux, macos] }
+        arch: { type: string, enum: [x86_64, aarch64] }
+        listener_id: { type: string, format: uuid, description: 监听器（决定烙入的连入地址与注册 token） }
+        conn_mode:
+          type: string
+          enum: [reverse, forward]
+          default: reverse
+          description: reverse=Agent 主动连 Server；forward=Agent 监听、Server 拨号
+        listen_addr:
+          type: string
+          description: forward 模式监听地址（默认 0.0.0.0:50052）
+        server_addr:
+          type: string
+          description: 覆盖连入地址（reverse 模式有效；留空由监听器地址推导，通配主机替换为服务器内网 IP）
+    AgentGenJob:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        os: { type: string }
+        arch: { type: string }
+        triple: { type: string, description: Rust 目标三元组 }
+        server_addr: { type: string, description: 烙入的 Server gRPC 地址 }
+        conn_mode: { type: string, enum: [reverse, forward] }
+        listen_addr: { type: string, description: forward 模式监听地址 }
+        status: { type: string, enum: [compiling, ready, failed] }
+        error: { type: string, nullable: true }
+        file_size: { type: integer, nullable: true }
+        created_at: { type: string, format: date-time }
+        log_tail:
+          type: array
+          items: { type: string }
+          description: 编译日志尾部（详情查询返回，列表为空）
     AgentDetail:
       allOf:
         - $ref: "#/components/schemas/Agent"
@@ -1248,6 +1604,13 @@ components:
         name: { type: string }
         cpu_percent: { type: number }
         mem_bytes: { type: integer }
+        virt_mem_bytes: { type: integer }
+        parent_pid: { type: integer }
+        status: { type: string }
+        user: { type: string }
+        start_time_unix: { type: integer }
+        exe_path: { type: string }
+        cmd: { type: string }
     NetInterface:
       type: object
       properties:
@@ -1255,6 +1618,28 @@ components:
         addrs:
           type: array
           items: { type: string }
+        mac: { type: string }
+        status: { type: string, description: up / down / ... }
+        gateway: { type: string }
+        kind: { type: string, description: ethernet / wifi / loopback / tunnel / other }
+    NetConnection:
+      type: object
+      properties:
+        protocol: { type: string, enum: [tcp, udp] }
+        local: { type: string }
+        remote: { type: string }
+        state: { type: string }
+        pid: { type: integer }
+        process_name: { type: string }
+    SysService:
+      type: object
+      properties:
+        name: { type: string }
+        display_name: { type: string }
+        status: { type: string }
+        start_type: { type: string }
+        pid: { type: integer }
+        description: { type: string }
     Audit:
       type: object
       properties:
@@ -1283,6 +1668,25 @@ components:
         kind: { type: string, enum: [online, offline, alert] }
         message: { type: string }
         read: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    ApiKey:
+      type: object
+      description: API key 视图（不含哈希；明文仅创建响应返回一次）
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        prefix: { type: string, example: "helm_3f9a81c2" }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time, nullable: true }
+        expires_at: { type: string, format: date-time, nullable: true }
+        revoked_at: { type: string, format: date-time, nullable: true }
+
+    Account:
+      type: object
+      properties:
+        username: { type: string }
+        role: { type: string, enum: [admin, operator] }
         created_at: { type: string, format: date-time }
 
 security:

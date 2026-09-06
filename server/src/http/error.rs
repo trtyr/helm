@@ -14,6 +14,7 @@ impl IntoResponse for Error {
         let status = match self {
             Error::NotFound(_) => StatusCode::NOT_FOUND,
             Error::Unauthorized(_) => StatusCode::UNAUTHORIZED,
+            Error::Forbidden(_) => StatusCode::FORBIDDEN,
             Error::InvalidArgument(_) => StatusCode::BAD_REQUEST,
             Error::NotConnected(_) => StatusCode::CONFLICT,
             Error::Storage(_) | Error::Io(_) | Error::Internal(_) => {

@@ -2,6 +2,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod cert;
+mod child;
 mod config;
 mod connection;
 mod encoding;
@@ -13,8 +14,12 @@ mod monitor;
 mod process;
 mod pty;
 mod service;
+mod sys_service;
 mod telemetry;
 mod uninstall;
+
+#[cfg(windows)]
+mod win_native;
 
 use anyhow::Result;
 

@@ -15,6 +15,7 @@ export default function Login() {
   const location = useLocation();
   const redirectParam = new URLSearchParams(location.search).get("redirect");
   const redirect = redirectParam ? decodeURIComponent(redirectParam) : "/";
+  const notice = new URLSearchParams(location.search).get("notice");
 
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
@@ -69,6 +70,15 @@ export default function Login() {
           <h1 className="text-heading-24">helm</h1>
         </div>
         <p className="mt-1 text-copy-13 text-gray-900">集中式运维平台</p>
+
+        {notice && (
+          <p
+            className="mt-4 rounded-md border border-blue-1000 px-3 py-2 text-label-13 text-blue-1000"
+            role="status"
+          >
+            {notice}
+          </p>
+        )}
 
         <label className="mt-8 block text-label-14" htmlFor="username">
           用户名

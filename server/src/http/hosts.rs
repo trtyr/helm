@@ -31,7 +31,7 @@ fn default_conn_mode() -> String {
     "reverse".to_string()
 }
 
-/// 主机列表视图：附在线状态 + 最后心跳 + 心跳超时标记。
+/// 主机列表视图：附在线状态 + 最后心跳 + 心跳超时标记 + 关联 Agent 标识/版本。
 #[derive(Debug, Serialize)]
 struct HostView {
     #[serde(flatten)]
@@ -40,6 +40,9 @@ struct HostView {
     last_seen: Option<chrono::DateTime<chrono::Utc>>,
     /// 最后心跳是否超时（从未心跳或超过阈值；forward 主机无心跳恒为 true）。
     stale: bool,
+    /// 关联 Agent（最近注册的一个；无则为 null）。
+    agent_id: Option<String>,
+    agent_version: Option<String>,
 }
 
 /// 列表查询参数（可选标签过滤 + 分页）。
@@ -111,11 +114,14 @@ pub async fn list_hosts(
         let online = registry.any_online(&agent_ids).await;
         let last_seen = agent_repo.last_heartbeat(host.id).await?;
         let stale = is_stale(last_seen, chrono::Utc::now(), timeout);
+        let agent = agent_repo.first_by_host(host.id).await?;
         views.push(HostView {
             host,
             online,
             last_seen,
             stale,
+            agent_id: agent.as_ref().map(|a| a.id.clone()),
+            agent_version: agent.as_ref().map(|a| a.version.clone()),
         });
     }
 

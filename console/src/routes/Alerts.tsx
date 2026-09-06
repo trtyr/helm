@@ -39,10 +39,7 @@ export default function Alerts() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-heading-24">告警</h1>
-        <p className="mt-1 text-copy-13 text-gray-900">指标超过阈值的预警记录（保留 30 天）</p>
-      </div>
+      <p className="-mt-1 text-copy-13 text-gray-900">指标超过阈值的预警记录（保留 30 天）</p>
 
       <div className="flex items-center gap-2 rounded-lg bg-gray-200 px-4 py-2.5 text-label-13 text-gray-1000">
         <Info size={14} strokeWidth={1.5} className="shrink-0 text-blue-1000" />

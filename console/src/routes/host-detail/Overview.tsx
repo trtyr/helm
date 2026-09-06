@@ -1,10 +1,8 @@
-import { useState } from "react";
-import { useNavigate, useOutletContext, Link } from "react-router-dom";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Play } from "lucide-react";
+import { useOutletContext, Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { FolderOpen, SquareTerminal } from "lucide-react";
 import type { components } from "../../api/schema";
 import { api } from "../../api/client";
-import { toast } from "../../lib/toast";
 import { relativeTime } from "../../lib/format";
 
 type HostView = components["schemas"]["HostView"];
@@ -16,12 +14,9 @@ interface Ctx {
   host: HostView;
 }
 
-/** /hosts/:id/overview（规格 host-overview.md）：快速执行 + 指标快照 + Agent + 信息 + 最近任务。 */
+/** /hosts/:id/overview：系统负载快照 + Agent + 信息 + 最近任务。命令执行走「终端」页签。 */
 export default function Overview() {
   const { host } = useOutletContext<Ctx>();
-  const navigate = useNavigate();
-  const [command, setCommand] = useState("");
-  const [args, setArgs] = useState("");
 
   const metricsQuery = useQuery({
     queryKey: ["metrics", host.id],
@@ -42,28 +37,7 @@ export default function Overview() {
 
   const agentsForHost = (agentsQuery.data?.agents ?? []).filter((a) => a.host_id === host.id);
 
-  const execMutation = useMutation({
-    mutationFn: () =>
-      api<{ job_id: string }>("/api/v1/exec", {
-        method: "POST",
-        body: {
-          agent_id: agentsForHost[0]?.id,
-          command,
-          args: args.trim() ? args.split(/\s+/) : [],
-        },
-      }),
-    onSuccess: ({ job_id }) => {
-      toast(`任务已创建 #${job_id.slice(0, 4)}`);
-      setCommand("");
-      setArgs("");
-      jobsQuery.refetch();
-      // 实时输出页（/jobs/:id）已就位：创建后直达，流式看输出
-      navigate(`/jobs/${job_id}`);
-    },
-    onError: (e) => toast(`创建失败：${e.message}`),
-  });
-
-  // 指标快照：每指标最新值（后端按时间倒序，取每 name 首个）
+  // 负载快照：每指标最新值（后端按时间倒序，取每 name 首个）
   const snapshot = new Map<string, number>();
   for (const m of metricsQuery.data?.metrics ?? []) {
     if (m.name && !snapshot.has(m.name)) snapshot.set(m.name, m.value ?? 0);
@@ -73,56 +47,32 @@ export default function Overview() {
     .filter((j) => j.host_id === host.id)
     .slice(0, 5);
 
-  const offline = !host.online;
-
   return (
     <div className="flex flex-col gap-6">
-      {/* 快速执行 */}
-      <div className="rounded-lg border border-gray-400 p-6">
-        <form
-          className="flex flex-wrap items-center gap-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (command.trim() && agentsForHost[0]) execMutation.mutate();
-          }}
+      {/* 快捷入口 */}
+      <div className="flex flex-wrap gap-3">
+        <Link
+          to={`/hosts/${host.id}/terminal`}
+          className="flex h-9 items-center gap-2 rounded-md bg-gray-700 px-4 text-label-14 transition-colors duration-150 hover:bg-gray-800"
         >
-          <span className="font-mono text-label-14 text-gray-900">$</span>
-          <input
-            value={command}
-            onChange={(e) => setCommand(e.target.value)}
-            placeholder="uname -a"
-            disabled={offline || execMutation.isPending}
-            autoFocus
-            className="h-8 min-w-64 flex-1 rounded-md border border-gray-400 bg-gray-100 px-3 font-mono text-label-14 outline-none transition-colors duration-150 hover:border-gray-500 focus-visible:border-gray-600"
-          />
-          <input
-            value={args}
-            onChange={(e) => setArgs(e.target.value)}
-            placeholder="参数（空格分隔，可选）"
-            disabled={offline || execMutation.isPending}
-            className="h-8 w-56 rounded-md border border-gray-400 bg-gray-100 px-3 font-mono text-label-13 outline-none transition-colors duration-150 hover:border-gray-500 focus-visible:border-gray-600"
-          />
-          <button
-            type="submit"
-            disabled={offline || !command.trim() || !agentsForHost[0] || execMutation.isPending}
-            title={offline ? "主机离线" : agentsForHost[0] ? undefined : "无已注册 Agent"}
-            className="flex h-8 items-center gap-1.5 rounded-md bg-gray-700 px-3 text-label-14 transition-colors duration-150 hover:bg-gray-800 disabled:opacity-40"
-          >
-            <Play size={14} strokeWidth={1.5} />
-            {execMutation.isPending ? "创建中…" : "运行"}
-          </button>
-        </form>
-        <p className="mt-3 text-label-12 text-gray-900">
-          创建任务并直达详情页查看实时输出；历史记录见「任务」页签与全局任务列表
-        </p>
+          <SquareTerminal size={15} strokeWidth={1.5} />
+          打开终端
+        </Link>
+        <Link
+          to={`/hosts/${host.id}/files`}
+          className="flex h-9 items-center gap-2 rounded-md border border-gray-500 px-4 text-label-14 transition-colors duration-150 hover:bg-gray-200"
+        >
+          <FolderOpen size={15} strokeWidth={1.5} />
+          文件管理
+        </Link>
       </div>
 
       <div className="grid grid-cols-12 gap-6">
         {/* 左列 */}
         <div className="col-span-12 flex flex-col gap-6 lg:col-span-7">
-          {/* 指标快照 */}
+          {/* 负载快照 */}
           <div className="rounded-lg border border-gray-400 p-6">
-            <h2 className="text-heading-16">指标快照</h2>
+            <h2 className="text-heading-16">系统负载</h2>
             <div className="mt-4 flex flex-col gap-3">
               {(
                 [

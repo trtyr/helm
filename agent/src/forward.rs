@@ -191,6 +191,18 @@ impl ForwardAgentService for ForwardAgentServiceImpl {
                         let msg = crate::process::net_info(&req.request_id);
                         let _ = tx.send(msg).await;
                     }
+                    Some(server_message::Kind::SysServiceList(req)) => {
+                        let msg = crate::sys_service::list_services(&req.request_id);
+                        let _ = tx.send(msg).await;
+                    }
+                    Some(server_message::Kind::SysServiceAction(req)) => {
+                        let msg = crate::sys_service::service_action(
+                            &req.request_id,
+                            &req.name,
+                            &req.action,
+                        );
+                        let _ = tx.send(msg).await;
+                    }
                     _ => {}
                 }
             }

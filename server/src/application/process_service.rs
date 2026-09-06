@@ -4,7 +4,8 @@ use crate::domain::{Error, Result};
 use crate::grpc::connection_registry::ConnectionRegistry;
 use crate::grpc::query_registry::{QueryRegistry, QueryResponse};
 use helm_proto::pb::{
-    NetInfo, NetInfoResult, ProcessInfo, ProcessKill, ProcessList, ServerMessage, server_message,
+    NetInfo, NetInfoResult, ProcessInfo, ProcessKill, ProcessList, ServerMessage, SysServiceAction,
+    SysServiceList, SysServiceListResult, server_message,
 };
 use uuid::Uuid;
 
@@ -92,6 +93,49 @@ impl ProcessService {
             .await?;
         match resp {
             QueryResponse::NetInfo(r) => Ok(r),
+            _ => Err(Error::Internal("unexpected query response".into())),
+        }
+    }
+
+    /// 枚举目标机系统服务。
+    pub async fn sys_services(&self, agent_id: &str) -> Result<SysServiceListResult> {
+        let request_id = Uuid::new_v4().to_string();
+        let resp = self
+            .request(
+                agent_id,
+                &request_id,
+                server_message::Kind::SysServiceList(SysServiceList {
+                    request_id: request_id.clone(),
+                }),
+            )
+            .await?;
+        match resp {
+            QueryResponse::SysServiceList(r) => Ok(r),
+            _ => Err(Error::Internal("unexpected query response".into())),
+        }
+    }
+
+    /// 系统服务操作（start / stop / restart）。
+    pub async fn sys_service_action(
+        &self,
+        agent_id: &str,
+        name: &str,
+        action: &str,
+    ) -> Result<(bool, Option<String>)> {
+        let request_id = Uuid::new_v4().to_string();
+        let resp = self
+            .request(
+                agent_id,
+                &request_id,
+                server_message::Kind::SysServiceAction(SysServiceAction {
+                    request_id: request_id.clone(),
+                    name: name.to_string(),
+                    action: action.to_string(),
+                }),
+            )
+            .await?;
+        match resp {
+            QueryResponse::SysServiceAction(r) => Ok((r.ok, r.error)),
             _ => Err(Error::Internal("unexpected query response".into())),
         }
     }

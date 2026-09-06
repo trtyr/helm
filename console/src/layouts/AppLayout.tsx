@@ -1,42 +1,47 @@
-import { useState } from "react";
-import { Link, NavLink, Outlet } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, Outlet, useLocation } from "react-router-dom";
 import {
-  Activity,
-  ArrowLeftRight,
   Bell,
   ChevronLeft,
   Gauge,
   HardDrive,
   ListChecks,
   RadioTower,
-  ScrollText,
   Settings,
   SunMoon,
 } from "lucide-react";
 import { useTheme } from "../hooks/useTheme";
 import { ToastHost } from "../components/ToastHost";
 import { NotificationBell } from "../components/NotificationBell";
+import { clearChunkReloadFlag } from "../routes/placeholder";
 
 /** 全局布局：Topbar 56 + Sidebar 220（可折叠 64）+ 内容 + StatusBar 28。 */
 
+/**
+ * 侧栏导航：`to` 为入口，`match` 为高亮路径组（合并菜单的子页面同组高亮，
+ * 如「任务」覆盖 /jobs 与 /audit）。
+ */
 const NAV = [
-  { to: "/dashboard", label: "仪表盘", icon: Gauge, ready: true },
-  { to: "/hosts", label: "主机", icon: HardDrive, ready: true },
-  { to: "/notifications", label: "通知", icon: Bell, ready: true },
-  { to: "/alerts", label: "告警", icon: Activity, ready: true },
-  { to: "/jobs", label: "任务", icon: ListChecks, ready: true },
-  { to: "/audit", label: "审计", icon: ScrollText, ready: true },
-  { to: "/listeners", label: "监听器", icon: RadioTower, ready: true },
-  { to: "/forward", label: "正向执行", icon: ArrowLeftRight, ready: true },
+  { to: "/dashboard", label: "仪表盘", icon: Gauge, match: ["/dashboard"] },
+  { to: "/hosts", label: "主机", icon: HardDrive, match: ["/hosts"] },
+  { to: "/notifications", label: "通知", icon: Bell, match: ["/notifications", "/alerts"] },
+  { to: "/jobs", label: "任务", icon: ListChecks, match: ["/jobs", "/audit"] },
+  { to: "/listeners", label: "监听器", icon: RadioTower, match: ["/listeners"] },
 ] as const;
 
 const SIDEBAR_KEY = "helm-console.sidebar";
 
 export default function AppLayout() {
+  const location = useLocation();
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem(SIDEBAR_KEY) === "1",
   );
   const { toggle } = useTheme();
+
+  // 应用正常渲染：解除 chunk 失败后的自动刷新守卫
+  useEffect(() => {
+    clearChunkReloadFlag();
+  }, []);
 
   const toggleSidebar = () => {
     setCollapsed((c) => {
@@ -91,35 +96,28 @@ export default function AppLayout() {
           }`}
         >
           <div className="flex flex-col gap-0.5 p-2">
-            {NAV.map(({ to, label, icon: Icon, ready }) => (
-              <NavLink
-                key={to}
-                to={to}
-                title={label}
-                className={({ isActive }) =>
-                  `relative flex h-9 items-center gap-3 rounded-md px-3 text-label-14 transition-colors duration-150 ${
-                    isActive
+            {NAV.map(({ to, label, icon: Icon, match }) => {
+              const { pathname } = location;
+              const active = match.some((m) => pathname === m || pathname.startsWith(`${m}/`));
+              return (
+                <Link
+                  key={to}
+                  to={to}
+                  title={label}
+                  className={`relative flex h-9 items-center gap-3 rounded-md px-3 text-label-14 transition-colors duration-150 ${
+                    active
                       ? "bg-gray-200 text-gray-1000"
                       : "text-gray-900 hover:bg-gray-200 hover:text-gray-1000"
-                  } ${ready ? "" : "opacity-50"}`
-                }
-              >
-                {({ isActive }) => (
-                  <>
-                    {isActive && (
-                      <span className="absolute left-0 top-1.5 h-6 w-0.5 rounded-full bg-blue-1000" />
-                    )}
-                    <Icon size={16} strokeWidth={1.5} className="shrink-0" />
-                    {!collapsed && <span className="truncate">{label}</span>}
-                    {!collapsed && !ready && (
-                      <span className="ml-auto text-label-12 text-gray-900">
-                        后续
-                      </span>
-                    )}
-                  </>
-                )}
-              </NavLink>
-            ))}
+                  }`}
+                >
+                  {active && (
+                    <span className="absolute left-0 top-1.5 h-6 w-0.5 rounded-full bg-blue-1000" />
+                  )}
+                  <Icon size={16} strokeWidth={1.5} className="shrink-0" />
+                  {!collapsed && <span className="truncate">{label}</span>}
+                </Link>
+              );
+            })}
           </div>
           <button
             type="button"

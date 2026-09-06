@@ -168,6 +168,15 @@ async fn connect_once(config: &Config) -> Result<()> {
                 let msg = crate::process::net_info(&req.request_id);
                 let _ = tx.send(msg).await;
             }
+            Some(server_message::Kind::SysServiceList(req)) => {
+                let msg = crate::sys_service::list_services(&req.request_id);
+                let _ = tx.send(msg).await;
+            }
+            Some(server_message::Kind::SysServiceAction(req)) => {
+                let msg =
+                    crate::sys_service::service_action(&req.request_id, &req.name, &req.action);
+                let _ = tx.send(msg).await;
+            }
             other => {
                 tracing::debug!(agent_id = %config.agent_id, ?other, "server message (later phase)");
             }
@@ -195,9 +204,25 @@ pub(crate) fn build_register(config: &Config) -> Register {
             arch: arch.clone(),
             platform: format!("{os}-{arch}"),
             tags: Vec::new(),
+            local_ips: collect_local_ips(),
         }),
         version: env!("CARGO_PKG_VERSION").to_string(),
     }
+}
+
+/// 采集本机内网 IP：非回环地址，IPv4 在前（列表展示取首个 v4）。
+fn collect_local_ips() -> Vec<String> {
+    let mut ips: Vec<String> = sysinfo::Networks::new_with_refreshed_list()
+        .values()
+        .flat_map(|data| data.ip_networks().iter().map(|ip| ip.addr.to_string()))
+        .filter(|s| {
+            !s.parse::<std::net::IpAddr>()
+                .map_or(true, |a| a.is_loopback())
+        })
+        .collect();
+    ips.sort_by_key(|s| s.contains(':')); // IPv4 在前
+    ips.dedup();
+    ips
 }
 
 pub(crate) fn now_ms() -> u64 {

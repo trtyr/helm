@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { RefreshCw } from "lucide-react";
 import type { components } from "../../api/schema";
 import { api } from "../../api/client";
-import { relativeTime } from "../../lib/format";
+import { formatDateTime, formatDuration, relativeTime } from "../../lib/format";
 import { toast } from "../../lib/toast";
 import { intervalLabel, jobStatusMeta } from "../../lib/job";
 
@@ -18,12 +19,13 @@ interface Ctx {
 const STATUS_FILTERS = ["all", "succeeded", "failed", "running"] as const;
 const FILTER_LABEL: Record<string, string> = { all: "全部", succeeded: "成功", failed: "失败", running: "运行中" };
 
-/** /hosts/:id/tasks（规格 host-tasks.md F25/F29–F31：定时任务聚合 + 执行历史）。 */
+/** /hosts/:id/tasks（Process Monitor 风格事件列表：绝对时间 + 完整命令行 + 退出码 + 耗时）。 */
 export default function Tasks() {
   const { host } = useOutletContext<Ctx>();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const status = params.get("status") ?? "all";
+  const search = params.get("q") ?? "";
   const [drawerNonce, setDrawerNonce] = useState(0);
 
   const agentsQuery = useQuery({
@@ -43,7 +45,7 @@ export default function Tasks() {
       (q.state.data?.jobs ?? []).some((j) => j.status === "running" || j.status === "queued") ? 10_000 : false,
   });
 
-  // 定时任务聚合：同 task_id 多条 job 视为定时任务（前端推导，规格 host-tasks.md）
+  // 定时任务聚合：同 task_id 多条 job 视为定时任务（前端推导）
   const scheduled = useMemo(() => {
     const byTask = new Map<string, Job[]>();
     for (const j of jobsQuery.data?.jobs ?? []) {
@@ -65,13 +67,21 @@ export default function Tasks() {
     if (status === "running") return j.status === "running" || j.status === "queued";
     return j.status === status;
   });
+  const shown = jobs.filter((j) => {
+    if (!search.trim()) return true;
+    const q = search.trim().toLowerCase();
+    const cmdline = [j.command, ...(j.args ?? [])].join(" ").toLowerCase();
+    return cmdline.includes(q) || (j.id ?? "").toLowerCase().includes(q);
+  });
 
   const offline = !host.online;
 
-  function setStatus(s: string) {
+  function patchParams(patch: Record<string, string | null>) {
     const next = new URLSearchParams(params);
-    if (s === "all") next.delete("status");
-    else next.set("status", s);
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === null || v === "") next.delete(k);
+      else next.set(k, v);
+    }
     setParams(next, { replace: true });
   }
 
@@ -80,6 +90,14 @@ export default function Tasks() {
       <div className="flex items-center justify-between">
         <h2 className="text-label-13 text-gray-900">任务</h2>
         <span className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => jobsQuery.refetch()}
+            aria-label="刷新"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-gray-900 transition-colors duration-150 hover:bg-gray-200 hover:text-gray-1000"
+          >
+            <RefreshCw size={14} strokeWidth={1.5} />
+          </button>
           <button
             type="button"
             onClick={() => setDrawerNonce((n) => n + 1)}
@@ -113,12 +131,13 @@ export default function Tasks() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
+      {/* 工具行：状态 chips + 搜索 */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-gray-400 pb-3">
         {STATUS_FILTERS.map((s) => (
           <button
             key={s}
             type="button"
-            onClick={() => setStatus(s)}
+            onClick={() => patchParams({ status: s })}
             aria-pressed={status === s}
             className={`h-7 rounded-full border px-3 font-mono text-label-12 transition-colors duration-150 ${
               status === s ? "border-gray-1000 bg-gray-200 text-gray-1000" : "border-gray-500 text-gray-900 hover:border-gray-600"
@@ -127,59 +146,90 @@ export default function Tasks() {
             {FILTER_LABEL[s]}
           </button>
         ))}
+        <input
+          value={search}
+          onChange={(e) => patchParams({ q: e.target.value })}
+          placeholder="搜索命令行 / 任务 ID"
+          className="ml-auto h-8 w-56 rounded-md border border-gray-400 bg-gray-100 px-3 text-label-13 outline-none transition-colors duration-150 hover:border-gray-500 focus-visible:border-gray-600"
+        />
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-gray-400">
+      {/* 事件列表：Process Monitor 式全量可见 */}
+      <div className="overflow-hidden rounded-lg border border-gray-400 bg-background-100">
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-400 text-label-13 text-gray-900">
-              <th className="px-4 py-2 font-normal">任务</th>
-              <th className="px-4 py-2 font-normal">类型</th>
-              <th className="px-4 py-2 font-normal">命令</th>
-              <th className="px-4 py-2 font-normal">状态</th>
-              <th className="px-4 py-2 font-normal">时间</th>
+              <th className="w-44 px-4 py-2.5 font-normal">时间</th>
+              <th className="px-4 py-2.5 font-normal">命令行</th>
+              <th className="w-16 px-4 py-2.5 font-normal">类型</th>
+              <th className="w-20 px-4 py-2.5 font-normal">状态</th>
+              <th className="w-16 px-4 py-2.5 font-normal">退出码</th>
+              <th className="w-20 px-4 py-2.5 font-normal">耗时</th>
             </tr>
           </thead>
           <tbody>
             {jobsQuery.isPending ? (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-label-13 text-gray-900">
+                <td colSpan={6} className="px-4 py-10 text-center text-label-13 text-gray-900">
                   加载…
                 </td>
               </tr>
-            ) : jobs.length === 0 ? (
+            ) : shown.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-label-13 text-gray-900">
+                <td colSpan={6} className="px-4 py-10 text-center text-label-13 text-gray-900">
                   {(jobsQuery.data?.jobs ?? []).length === 0
                     ? "还没有执行过任务"
-                    : `没有${status !== "all" ? FILTER_LABEL[status] : ""}状态的任务`}
+                    : "没有匹配的任务"}
                 </td>
               </tr>
             ) : (
-              jobs.map((job) => {
+              shown.map((job) => {
                 const meta = jobStatusMeta(job.status);
+                const cmdline = [job.command, ...(job.args ?? [])].join(" ");
                 return (
                   <tr
                     key={job.id}
                     onClick={() => navigate(`/jobs/${job.id}`)}
+                    title={`点击查看实时输出 · ${cmdline}`}
                     className="cursor-pointer border-b border-gray-400/60 transition-colors duration-150 last:border-0 hover:bg-gray-100"
                   >
-                    <td className="px-4 py-2.5 font-mono text-label-13 text-gray-900" title={job.id}>
-                      #{job.id?.slice(0, 4)}
+                    <td className="px-4 py-2.5 align-top font-mono text-label-12 text-gray-900">
+                      {formatDateTime(job.started_at)}
                     </td>
-                    <td className="px-4 py-2.5">
-                      <span className="rounded border border-gray-400 px-1.5 text-label-12 text-gray-900">
+                    <td className="max-w-md px-4 py-2.5 align-top">
+                      <span className="line-clamp-2 font-mono text-label-13 text-gray-1000 [overflow-wrap:anywhere]">
+                        {cmdline}
+                      </span>
+                      {job.output && (
+                        <span className="mt-0.5 block truncate font-mono text-label-12 text-gray-900">
+                          {job.output.split("\n").find((l) => l.trim()) || ""}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 align-top">
+                      <span className="rounded border border-gray-400 px-1.5 py-0.5 text-label-12 text-gray-900">
                         {job.task_id ? "定时" : "快速"}
                       </span>
                     </td>
-                    <td className="max-w-64 px-4 py-2.5">
-                      <span className="block truncate font-mono text-label-13 text-gray-900" title={job.command}>
-                        {job.command}
-                      </span>
+                    <td className={`px-4 py-2.5 align-top text-label-13 ${meta.cls}`}>
+                      {meta.label}
+                      {job.status === "running" && (
+                        <span className="ml-1.5 inline-block h-3 w-3 animate-spin rounded-full border border-blue-1000 border-t-transparent align-[-1px]" />
+                      )}
                     </td>
-                    <td className={`px-4 py-2.5 text-label-13 ${meta.cls}`}>{meta.label}</td>
-                    <td className="px-4 py-2.5 font-mono text-label-13 text-gray-900">
-                      {relativeTime(job.finished_at ?? job.started_at, jobsQuery.data?.at)}
+                    <td
+                      className={`px-4 py-2.5 text-right align-top font-mono text-label-13 tabular-nums ${
+                        job.exit_code == null
+                          ? "text-gray-900"
+                          : job.exit_code === 0
+                            ? "text-green-1000"
+                            : "text-red-1000"
+                      }`}
+                    >
+                      {job.exit_code ?? "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-right align-top font-mono text-label-13 text-gray-900">
+                      {formatDuration(job.started_at, job.finished_at)}
                     </td>
                   </tr>
                 );
@@ -187,6 +237,14 @@ export default function Tasks() {
             )}
           </tbody>
         </table>
+        <div className="flex h-9 items-center justify-between border-t border-gray-400 px-4 font-mono text-label-13 text-gray-900">
+          <span>
+            共 {jobs.length} 条{search ? ` · 匹配 ${shown.length} 条` : ""}
+          </span>
+          <span className="text-label-12">
+            {jobs[0]?.started_at ? `最后执行 ${relativeTime(jobs[0].started_at, jobsQuery.data?.at)}` : ""}
+          </span>
+        </div>
       </div>
 
       {drawerNonce > 0 && (

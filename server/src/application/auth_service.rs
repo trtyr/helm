@@ -1,4 +1,4 @@
-//! 应用层：认证（登录、JWT 签发与校验、seed 管理员）。
+//! 应用层：认证（登录、JWT 签发与校验、seed 管理员、单用户账号管理）。
 
 use crate::domain::{Error, Result};
 use crate::store::{Db, user_repo::UserRepo};
@@ -13,6 +13,17 @@ pub struct Claims {
     pub role: String,
     pub exp: usize,
 }
+
+/// 账号视图（/auth/me；不含密码哈希）。
+#[derive(Debug, Serialize)]
+pub struct AccountView {
+    pub username: String,
+    pub role: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// 新密码最小长度。
+pub const MIN_PASSWORD_LEN: usize = 6;
 
 /// 认证用例。
 #[derive(Clone)]
@@ -63,6 +74,76 @@ impl AuthService {
 
     fn issue_token(&self, username: &str, role: &str) -> Result<String> {
         issue_jwt(&self.jwt_secret, username, role, 24 * 3600)
+    }
+
+    /// 当前账号（按 JWT sub 查库取权威数据；sub 已失效——如改名后旧 token——视为未授权）。
+    pub async fn account(&self, username: &str) -> Result<AccountView> {
+        let user = UserRepo::new(self.db.clone())
+            .get_by_username(username)
+            .await?
+            .ok_or_else(|| Error::Unauthorized("user no longer exists; re-login".into()))?;
+        Ok(AccountView {
+            username: user.username,
+            role: user.role,
+            created_at: user.created_at,
+        })
+    }
+
+    /// 修改密码：校验当前密码 → 更新哈希。已有 JWT 不失效（24h 自然过期）。
+    pub async fn change_password(&self, username: &str, current: &str, new: &str) -> Result<()> {
+        if new.len() < MIN_PASSWORD_LEN {
+            return Err(Error::InvalidArgument(format!(
+                "new password must be at least {MIN_PASSWORD_LEN} characters"
+            )));
+        }
+        let repo = UserRepo::new(self.db.clone());
+        let user = repo
+            .get_by_username(username)
+            .await?
+            .ok_or_else(|| Error::Unauthorized("user no longer exists; re-login".into()))?;
+        let ok = bcrypt::verify(current, &user.password_hash).unwrap_or(false);
+        if !ok {
+            return Err(Error::Unauthorized("current password incorrect".into()));
+        }
+        let hash = bcrypt::hash(new, bcrypt::DEFAULT_COST)
+            .map_err(|e| Error::Internal(format!("bcrypt: {e}")))?;
+        repo.update_password(user.id, &hash).await?;
+        Ok(())
+    }
+
+    /// 修改用户名：校验当前密码 → 查重（UNIQUE，含软删行）→ 更新。
+    /// 旧 JWT 的 sub 随即失效（/auth/me 等按 sub 查库的端点会要求重新登录）。
+    pub async fn change_username(&self, username: &str, current: &str, new: &str) -> Result<()> {
+        let new = new.trim();
+        if new.is_empty() || new.len() > 64 {
+            return Err(Error::InvalidArgument(
+                "new username must be 1-64 characters".into(),
+            ));
+        }
+        let repo = UserRepo::new(self.db.clone());
+        let user = repo
+            .get_by_username(username)
+            .await?
+            .ok_or_else(|| Error::Unauthorized("user no longer exists; re-login".into()))?;
+        let ok = bcrypt::verify(current, &user.password_hash).unwrap_or(false);
+        if !ok {
+            return Err(Error::Unauthorized("current password incorrect".into()));
+        }
+        if repo.get_by_username(new).await?.is_some() {
+            return Err(Error::InvalidArgument("username already taken".into()));
+        }
+        let updated = repo.update_username(user.id, new).await.map_err(|e| {
+            // username 全表 UNIQUE（含软删行），预查重覆盖不到的冲突（23505）转 400
+            if e.as_database_error().and_then(|d| d.code()).as_deref() == Some("23505") {
+                Error::InvalidArgument("username already taken".into())
+            } else {
+                Error::from(e)
+            }
+        })?;
+        if !updated {
+            return Err(Error::Internal("user vanished during rename".into()));
+        }
+        Ok(())
     }
 }
 

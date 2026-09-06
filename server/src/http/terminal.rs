@@ -1,8 +1,8 @@
 //! 交互终端 WebSocket 端点：GET /api/v1/agents/{id}/terminal?token=...
 
-use crate::application::auth_service::AuthService;
 use crate::domain::Error;
 use crate::http::AppState;
+use crate::http::auth::verify_bearer_token;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
@@ -26,23 +26,27 @@ pub struct TerminalQuery {
 const FRAME_INPUT: u8 = 0x01;
 const FRAME_RESIZE: u8 = 0x02;
 
-/// WebSocket 终端端点（认证走 query param，因 WS 握手无法带 Authorization header）。
+/// WebSocket 终端端点（认证走 query param，因 WS 握手无法带 Authorization header；JWT 或 API key 均可）。
 pub async fn terminal(
     State(state): State<AppState>,
     Path(agent_id): Path<String>,
     Query(query): Query<TerminalQuery>,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, Error> {
-    let auth = AuthService::new(state.db.clone(), state.jwt_secret.clone());
-    auth.verify(&query.token)
-        .map_err(|_| Error::Unauthorized("invalid token".into()))?;
+    verify_bearer_token(&state, &query.token).await?;
 
     if !state.registry.is_online(&agent_id).await {
         return Err(Error::NotConnected(agent_id));
     }
 
     Ok(ws.on_upgrade(move |socket| {
-        handle_socket(socket, state, agent_id, query.cols.unwrap_or(80), query.rows.unwrap_or(24))
+        handle_socket(
+            socket,
+            state,
+            agent_id,
+            query.cols.unwrap_or(80),
+            query.rows.unwrap_or(24),
+        )
     }))
 }
 
@@ -51,7 +55,13 @@ pub async fn terminal(
 /// 浏览器 → Server 二进制帧协议：首字节 `0x01` = PTY 输入（其余字节直通）；
 /// `0x02` = resize（后续 UTF-8 JSON `{"cols":u16,"rows":u16}` → SessionResize）。
 /// Text 帧按输入直通（向后兼容）。
-async fn handle_socket(mut socket: WebSocket, state: AppState, agent_id: String, cols: u32, rows: u32) {
+async fn handle_socket(
+    mut socket: WebSocket,
+    state: AppState,
+    agent_id: String,
+    cols: u32,
+    rows: u32,
+) {
     let session_id = Uuid::new_v4().to_string();
 
     let open = ServerMessage {

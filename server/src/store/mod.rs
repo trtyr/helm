@@ -4,6 +4,7 @@
 
 pub mod agent_repo;
 pub mod alert_repo;
+pub mod api_key_repo;
 pub mod audit_repo;
 pub mod file_transfer_repo;
 pub mod host_repo;

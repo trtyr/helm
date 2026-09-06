@@ -1,7 +1,7 @@
 import { Navigate, createBrowserRouter } from "react-router-dom";
 import AppLayout from "./layouts/AppLayout";
 import { RequireAuth } from "./layouts/RequireAuth";
-import { NotFound } from "./routes/placeholder";
+import { NotFound, RouteError } from "./routes/placeholder";
 
 /** 路由树（决策 003）：/login 公开；受保护路由挂在 AppLayout 下。 */
 export const router = createBrowserRouter([
@@ -11,13 +11,16 @@ export const router = createBrowserRouter([
       const { default: Login } = await import("./routes/login/Login");
       return { Component: Login };
     },
+    errorElement: <RouteError />,
   },
   {
     element: <RequireAuth />,
+    errorElement: <RouteError />,
     children: [
       {
         path: "/",
         element: <AppLayout />,
+        errorElement: <RouteError />,
         children: [
           { index: true, element: <Navigate to="/dashboard" replace /> },
           {
@@ -79,22 +82,15 @@ export const router = createBrowserRouter([
                   return { Component: Processes };
                 },
               },
-              {
-                path: "network",
-                lazy: async () => {
-                  const { default: Network } = await import("./routes/host-detail/Network");
-                  return { Component: Network };
-                },
-              },
-              {
-                path: "metrics",
-                lazy: async () => {
-                  const { default: Metrics } = await import("./routes/host-detail/Metrics");
-                  return { Component: Metrics };
-                },
-              },
-              {
-                path: "tasks",
+          {
+            path: "network",
+            lazy: async () => {
+              const { default: Network } = await import("./routes/host-detail/Network");
+              return { Component: Network };
+            },
+          },
+          {
+            path: "tasks",
                 lazy: async () => {
                   const { default: Tasks } = await import("./routes/host-detail/Tasks");
                   return { Component: Tasks };
@@ -105,9 +101,19 @@ export const router = createBrowserRouter([
           {
             path: "jobs",
             lazy: async () => {
-              const { default: Jobs } = await import("./routes/jobs/Jobs");
-              return { Component: Jobs };
+              const { default: JobsLayout } = await import("./routes/jobs/JobsLayout");
+              return { Component: JobsLayout };
             },
+            children: [
+              { index: true, lazy: async () => {
+                const { default: Jobs } = await import("./routes/jobs/Jobs");
+                return { Component: Jobs };
+              } },
+              { path: "audit", lazy: async () => {
+                const { default: Audit } = await import("./routes/Audit");
+                return { Component: Audit };
+              } },
+            ],
           },
           {
             path: "jobs/:id",
@@ -119,23 +125,27 @@ export const router = createBrowserRouter([
           {
             path: "notifications",
             lazy: async () => {
-              const { default: Notifications } = await import("./routes/Notifications");
-              return { Component: Notifications };
+              const { default: NotificationsLayout } = await import(
+                "./routes/notifications/NotificationsLayout"
+              );
+              return { Component: NotificationsLayout };
             },
+            children: [
+              { index: true, lazy: async () => {
+                const { default: Notifications } = await import("./routes/Notifications");
+                return { Component: Notifications };
+              } },
+              { path: "alerts", lazy: async () => {
+                const { default: Alerts } = await import("./routes/Alerts");
+                return { Component: Alerts };
+              } },
+            ],
           },
-          {
-            path: "alerts",
-            lazy: async () => {
-              const { default: Alerts } = await import("./routes/Alerts");
-              return { Component: Alerts };
-            },
-          },
+          // 旧 URL 兼容重定向（Dashboard 等历史链接）
+          { path: "alerts", element: <Navigate to="/notifications/alerts" replace /> },
           {
             path: "audit",
-            lazy: async () => {
-              const { default: Audit } = await import("./routes/Audit");
-              return { Component: Audit };
-            },
+            element: <Navigate to="/jobs/audit" replace />,
           },
           {
             path: "listeners",
@@ -149,13 +159,6 @@ export const router = createBrowserRouter([
             lazy: async () => {
               const { default: Settings } = await import("./routes/Settings");
               return { Component: Settings };
-            },
-          },
-          {
-            path: "forward",
-            lazy: async () => {
-              const { default: Forward } = await import("./routes/Forward");
-              return { Component: Forward };
             },
           },
           { path: "*", element: <NotFound /> },

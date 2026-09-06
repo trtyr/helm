@@ -16,3 +16,5 @@ http.workspace = true
 
 [build-dependencies]
 tonic-prost-build.workspace = true
+# 本机无 protoc 时的自包含方案（仅构建期使用预编译二进制）
+protoc-bin-vendored = "3"

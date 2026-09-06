@@ -34,6 +34,8 @@ message AgentMessage {
     ProcessListResult process_list_result = 12;
     ProcessKillResult process_kill_result = 13;
     NetInfoResult net_info_result = 14;
+    SysServiceListResult sys_service_list_result = 15;
+    SysServiceActionResult sys_service_action_result = 16;
   }
 }
 
@@ -56,6 +58,8 @@ message ServerMessage {
     ProcessList process_list = 14;
     ProcessKill process_kill = 15;
     NetInfo net_info = 16;
+    SysServiceList sys_service_list = 17;
+    SysServiceAction sys_service_action = 18;
   }
 }
 
@@ -252,6 +256,13 @@ message ProcessInfo {
   string name = 2;
   float cpu_percent = 3;
   uint64 mem_bytes = 4;
+  uint64 virt_mem_bytes = 5;    // 虚拟内存
+  int32 parent_pid = 6;         // 父进程 PID（0 = 无）
+  string status = 7;            // 运行态：Run / Sleep / Zombie / ...
+  string user = 8;              // 属主用户名（未知为空）
+  uint64 start_time_unix = 9;   // 启动时间（unix 秒，0 = 未知）
+  string exe_path = 10;         // 可执行文件路径
+  string cmd = 11;              // 完整命令行
 }
 
 // Server → Agent：列出进程。
@@ -279,10 +290,24 @@ message ProcessKillResult {
   optional string error = 4;
 }
 
-// 网络接口。
+// 网络接口（Windows 走 GetAdaptersAddresses 原生枚举，全量适配器）。
 message NetInterface {
   string name = 1;
   repeated string addrs = 2;
+  string mac = 3;        // 物理地址（如 00-1A-2B-3C-4D-5E），虚拟/回环可能为空
+  string status = 4;     // up / down / ...（OperationalStatus）
+  string gateway = 5;    // 默认网关（多个取首个）
+  string kind = 6;       // 接口类型（ethernet / wifi / loopback / tunnel / other）
+}
+
+// 网络连接（TCP/UDP 会话表条目，netstat/ss 视角）。
+message NetConnection {
+  string protocol = 1;       // tcp / udp
+  string local = 2;          // 本地地址 host:port
+  string remote = 3;         // 远端地址 host:port（UDP 为 *:*）
+  string state = 4;          // LISTENING / ESTABLISHED / ...（UDP 为空）
+  int32 pid = 5;             // 归属进程 PID（0 = 未知/无权限）
+  string process_name = 6;   // 归属进程名（空 = 未知）
 }
 
 // Server → Agent：采集网络信息。
@@ -295,4 +320,41 @@ message NetInfoResult {
   string request_id = 1;
   string hostname = 2;
   repeated NetInterface interfaces = 3;
+  repeated NetConnection connections = 4;
+}
+
+// 系统服务（Windows Service / systemd unit / launchctl）。
+message SysServiceEntry {
+  string name = 1;          // 服务标识（sc name / unit 名 / label）
+  string display_name = 2;  // 显示名
+  string status = 3;        // running / stopped / 其他原生状态
+  string start_type = 4;    // auto / manual / disabled / boot / system（未知为空）
+  int32 pid = 5;            // 运行中进程 PID（0 = 未运行）
+  string description = 6;   // 描述
+}
+
+// Server → Agent：枚举系统服务。
+message SysServiceList {
+  string request_id = 1;
+}
+
+// Agent → Server：系统服务列表。
+message SysServiceListResult {
+  string request_id = 1;
+  repeated SysServiceEntry services = 2;
+  optional string error = 3;
+}
+
+// Server → Agent：系统服务操作（start / stop / restart）。
+message SysServiceAction {
+  string request_id = 1;
+  string name = 2;
+  string action = 3;
+}
+
+// Agent → Server：操作结果。
+message SysServiceActionResult {
+  string request_id = 1;
+  bool ok = 2;
+  optional string error = 3;
 }

@@ -63,6 +63,8 @@ impl AgentRepo {
         os: &str,
         arch: &str,
         platform: &str,
+        public_ip: &str,
+        local_ips: &[String],
     ) -> sqlx::Result<Uuid> {
         let mut tx = self.db.pool().begin().await?;
 
@@ -77,28 +79,32 @@ impl AgentRepo {
         let host_id = match host_id {
             Some(id) => {
                 sqlx::query(
-                    "UPDATE hosts SET os = $2, arch = $3, platform = $4, updated_at = now() WHERE id = $1",
+                    "UPDATE hosts SET os = $2, arch = $3, platform = $4,
+                         public_ip = $5, local_ips = $6, updated_at = now()
+                     WHERE id = $1",
                 )
                 .bind(id)
                 .bind(os)
                 .bind(arch)
                 .bind(platform)
+                .bind(public_ip)
+                .bind(local_ips)
                 .execute(&mut *tx)
                 .await?;
                 id
             }
-            None => {
-                sqlx::query_scalar(
-                    "INSERT INTO hosts (hostname, os, arch, platform, conn_mode)
-                     VALUES ($1, $2, $3, $4, 'reverse') RETURNING id",
-                )
-                .bind(hostname)
-                .bind(os)
-                .bind(arch)
-                .bind(platform)
-                .fetch_one(&mut *tx)
-                .await?
-            }
+            None => sqlx::query_scalar(
+                "INSERT INTO hosts (hostname, os, arch, platform, conn_mode, public_ip, local_ips)
+                     VALUES ($1, $2, $3, $4, 'reverse', $5, $6) RETURNING id",
+            )
+            .bind(hostname)
+            .bind(os)
+            .bind(arch)
+            .bind(platform)
+            .bind(public_ip)
+            .bind(local_ips)
+            .fetch_one(&mut *tx)
+            .await?,
         };
 
         // 2. upsert agent
@@ -119,6 +125,7 @@ impl AgentRepo {
     }
 
     /// forward 模式注册：agent 挂到既定 host 下（不按 hostname 查找/新建 host）。
+    #[allow(clippy::too_many_arguments)]
     pub async fn register_under_host(
         &self,
         host_id: Uuid,
@@ -127,17 +134,23 @@ impl AgentRepo {
         os: &str,
         arch: &str,
         platform: &str,
+        public_ip: &str,
+        local_ips: &[String],
     ) -> sqlx::Result<()> {
         let mut tx = self.db.pool().begin().await?;
 
         // 更新 host 系统信息（保留 hostname/conn_mode/addr/tags 等声明字段）
         sqlx::query(
-            "UPDATE hosts SET os = $2, arch = $3, platform = $4, updated_at = now() WHERE id = $1",
+            "UPDATE hosts SET os = $2, arch = $3, platform = $4,
+                 public_ip = $5, local_ips = $6, updated_at = now()
+             WHERE id = $1",
         )
         .bind(host_id)
         .bind(os)
         .bind(arch)
         .bind(platform)
+        .bind(public_ip)
+        .bind(local_ips)
         .execute(&mut *tx)
         .await?;
 
@@ -184,6 +197,17 @@ impl AgentRepo {
             .bind(host_id)
             .fetch_all(self.db.pool())
             .await
+    }
+
+    /// 取 host 下最近注册的一个 agent（主机列表合并展示 Agent 标识/版本用）。
+    pub async fn first_by_host(&self, host_id: Uuid) -> sqlx::Result<Option<AgentRow>> {
+        sqlx::query_as::<_, AgentRow>(
+            "SELECT id, host_id, version, registered_at, last_heartbeat_at
+             FROM agents WHERE host_id = $1 ORDER BY registered_at DESC LIMIT 1",
+        )
+        .bind(host_id)
+        .fetch_optional(self.db.pool())
+        .await
     }
 
     /// 主机最近心跳时间（取该 host 所有 agent 的最大 last_heartbeat_at）。

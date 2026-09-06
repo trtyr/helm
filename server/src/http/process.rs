@@ -1,11 +1,11 @@
-//! 进程管理 + 网络信息端点。
+//! 进程管理 + 网络信息 + 系统服务端点。
 
 use crate::application::process_service::ProcessService;
 use crate::domain::Error;
 use crate::http::AppState;
 use axum::Json;
 use axum::extract::State;
-use helm_proto::pb::{NetInterface, ProcessInfo};
+use helm_proto::pb::{NetConnection, NetInterface, ProcessInfo, SysServiceEntry};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -20,12 +20,20 @@ pub struct KillBody {
     pub pid: i32,
 }
 
+/// 进程视图（对标 Process Hacker：CPU/内存/属主/父进程/命令行）。
 #[derive(Debug, Serialize)]
 pub struct ProcessView {
     pub pid: i32,
     pub name: String,
     pub cpu_percent: f32,
     pub mem_bytes: u64,
+    pub virt_mem_bytes: u64,
+    pub parent_pid: i32,
+    pub status: String,
+    pub user: String,
+    pub start_time_unix: u64,
+    pub exe_path: String,
+    pub cmd: String,
 }
 
 impl From<ProcessInfo> for ProcessView {
@@ -35,6 +43,13 @@ impl From<ProcessInfo> for ProcessView {
             name: p.name,
             cpu_percent: p.cpu_percent,
             mem_bytes: p.mem_bytes,
+            virt_mem_bytes: p.virt_mem_bytes,
+            parent_pid: p.parent_pid,
+            status: p.status,
+            user: p.user,
+            start_time_unix: p.start_time_unix,
+            exe_path: p.exe_path,
+            cmd: p.cmd,
         }
     }
 }
@@ -43,6 +58,10 @@ impl From<ProcessInfo> for ProcessView {
 pub struct NetInterfaceView {
     pub name: String,
     pub addrs: Vec<String>,
+    pub mac: String,
+    pub status: String,
+    pub gateway: String,
+    pub kind: String,
 }
 
 impl From<NetInterface> for NetInterfaceView {
@@ -50,6 +69,58 @@ impl From<NetInterface> for NetInterfaceView {
         Self {
             name: i.name,
             addrs: i.addrs,
+            mac: i.mac,
+            status: i.status,
+            gateway: i.gateway,
+            kind: i.kind,
+        }
+    }
+}
+
+/// 网络连接视图（netstat/ss 视角的 TCP/UDP 会话表）。
+#[derive(Debug, Serialize)]
+pub struct NetConnectionView {
+    pub protocol: String,
+    pub local: String,
+    pub remote: String,
+    pub state: String,
+    pub pid: i32,
+    pub process_name: String,
+}
+
+impl From<NetConnection> for NetConnectionView {
+    fn from(c: NetConnection) -> Self {
+        Self {
+            protocol: c.protocol,
+            local: c.local,
+            remote: c.remote,
+            state: c.state,
+            pid: c.pid,
+            process_name: c.process_name,
+        }
+    }
+}
+
+/// 系统服务视图。
+#[derive(Debug, Serialize)]
+pub struct SysServiceView {
+    pub name: String,
+    pub display_name: String,
+    pub status: String,
+    pub start_type: String,
+    pub pid: i32,
+    pub description: String,
+}
+
+impl From<SysServiceEntry> for SysServiceView {
+    fn from(s: SysServiceEntry) -> Self {
+        Self {
+            name: s.name,
+            display_name: s.display_name,
+            status: s.status,
+            start_type: s.start_type,
+            pid: s.pid,
+            description: s.description,
         }
     }
 }
@@ -81,7 +152,7 @@ pub async fn kill_process(
     Ok(Json(json!({ "pid": body.pid, "ok": ok })))
 }
 
-/// 采集网络信息：POST /api/v1/net/info
+/// 采集网络信息（接口 + 连接表）：POST /api/v1/net/info
 pub async fn net_info(
     State(state): State<AppState>,
     Json(body): Json<AgentBody>,
@@ -92,8 +163,51 @@ pub async fn net_info(
         .into_iter()
         .map(NetInterfaceView::from)
         .collect();
+    let connections: Vec<NetConnectionView> = net
+        .connections
+        .into_iter()
+        .map(NetConnectionView::from)
+        .collect();
     Ok(Json(json!({
         "hostname": net.hostname,
         "interfaces": interfaces,
+        "connections": connections,
     })))
+}
+
+/// 系统服务操作请求。
+#[derive(Debug, Deserialize)]
+pub struct SysServiceActionBody {
+    pub agent_id: String,
+    /// 服务标识（Windows 服务名 / systemd unit / launchctl label）
+    pub name: String,
+    /// start | stop | restart
+    pub action: String,
+}
+
+/// 枚举系统服务：POST /api/v1/sys-services/list
+pub async fn list_sys_services(
+    State(state): State<AppState>,
+    Json(body): Json<AgentBody>,
+) -> Result<Json<Value>, Error> {
+    let result = service(&state).sys_services(&body.agent_id).await?;
+    let services: Vec<SysServiceView> = result
+        .services
+        .into_iter()
+        .map(SysServiceView::from)
+        .collect();
+    Ok(Json(json!({ "services": services, "error": result.error })))
+}
+
+/// 系统服务操作：POST /api/v1/sys-services/action
+pub async fn sys_service_action(
+    State(state): State<AppState>,
+    Json(body): Json<SysServiceActionBody>,
+) -> Result<Json<Value>, Error> {
+    let (ok, error) = service(&state)
+        .sys_service_action(&body.agent_id, &body.name, &body.action)
+        .await?;
+    Ok(Json(
+        json!({ "name": body.name, "action": body.action, "ok": ok, "error": error }),
+    ))
 }

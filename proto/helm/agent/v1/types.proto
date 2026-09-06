@@ -9,6 +9,7 @@ message HostInfo {
   string arch = 3;      // x86_64 / aarch64
   string platform = 4;  // 完整平台字符串
   repeated string tags = 5;
+  repeated string local_ips = 6;  // 内网 IP（非回环网卡地址，IPv4 在前）
 }
 
 // 单个指标点

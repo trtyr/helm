@@ -32,7 +32,7 @@ pub async fn run_and_report(
 }
 
 async fn run_command(command: &str, args: &[String]) -> Result<(String, String, Option<i32>)> {
-    let output = tokio::process::Command::new(command)
+    let output = crate::child::quiet_tokio(command)
         .args(args)
         .output()
         .await?;

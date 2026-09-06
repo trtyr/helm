@@ -30,6 +30,8 @@ async fn deregister_removes_agent_and_orphan_host() {
             "linux",
             "x86_64",
             "linux-x86_64",
+            "203.0.113.7",
+            &["192.168.1.10".to_string()],
         )
         .await
         .expect("register");

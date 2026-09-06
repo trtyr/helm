@@ -67,6 +67,10 @@ pub struct Config {
     /// issue-cert：三件套输出目录（cert.pem/key.pem/ca.pem）
     #[arg(long, env = "HELM_ISSUE_OUT_DIR", default_value = "")]
     pub issue_out_dir: String,
+
+    /// Agent 源码工作区目录（现场编译生成 Agent 用；Server 须能在此目录执行 cargo）
+    #[arg(long, env = "HELM_AGENT_SOURCE_DIR", default_value = ".")]
+    pub agent_source_dir: String,
 }
 
 impl Config {

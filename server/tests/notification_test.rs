@@ -16,7 +16,13 @@ use helm_server::grpc::transfer_registry::TransferRegistry;
 use helm_server::store::Db;
 use helm_server::store::host_repo::{HostRepo, NewHost};
 use helm_server::store::notification_repo::NotificationRepo;
+use std::sync::LazyLock;
+use tokio::sync::Mutex;
 use uuid::Uuid;
+
+/// mark_all_read 是全局口径，两个对未读计数敏感的测试用互斥串行，
+/// 避免并行线程互相清零对方刚制造的未读行。
+static READ_STATE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 fn test_url() -> String {
     std::env::var("HELM_DATABASE_URL")
@@ -160,6 +166,7 @@ async fn repo_latest_of_type_is_type_independent() {
 
 #[tokio::test]
 async fn notify_coalesces_same_kind_within_window() {
+    let _serial = READ_STATE_LOCK.lock().await;
     let db = Db::connect(&test_url()).await.expect("connect");
     db.migrate().await.expect("migrate");
     let hostname = format!("itest-notif-cool-{}", std::process::id());
@@ -206,6 +213,7 @@ async fn notify_coalesces_same_kind_within_window() {
 
 #[tokio::test]
 async fn list_unread_filter_and_mark_all_read() {
+    let _serial = READ_STATE_LOCK.lock().await;
     let db = Db::connect(&test_url()).await.expect("connect");
     db.migrate().await.expect("migrate");
     let hostname = format!("itest-notif-read-{}", std::process::id());

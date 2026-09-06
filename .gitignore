@@ -6,3 +6,5 @@
 .pi/
 __pycache__/
 *.pyc
+.cargo-musl/
+/linux-agent

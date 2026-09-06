@@ -17,6 +17,7 @@ tonic = { version = "0.14", features = ["tls-ring"] }
 tonic-prost = "0.14"
 prost = "0.14"
 tonic-prost-build = "0.14"
+protoc-bin-vendored = "3"
 http = "1"
 
 # HTTP
@@ -43,6 +44,7 @@ anyhow = "1"
 
 # misc
 uuid = { version = "1", features = ["v4", "serde"] }
+rand = "0.9"
 chrono = { version = "0.4", features = ["serde"] }
 jsonwebtoken = { version = "11", features = ["rust_crypto"] }
 hostname = "0.4"
@@ -50,6 +52,10 @@ bcrypt = "0.19"
 sysinfo = "0.39"
 sha2 = "0.11"
 hex = "0.4"
+
+# skill 包分发（内嵌 skill/ 目录 + zip 打包）
+include_dir = "0.7"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 # pty (interactive terminal)
 portable-pty = "0.9"

@@ -106,7 +106,7 @@ pub async fn run() -> Result<()> {
     .resume_or_seed(&config.grpc_addr)
     .await?;
 
-    // 时序保留清理：后台每 24h 删除 30 天前的 metrics + alerts + notifications
+    // 时序保留清理：后台每 24h 删除 30 天前的 metrics + alerts + notifications + 已吊销 api_keys
     let cleanup_db = db.clone();
     tokio::spawn(async move {
         loop {
@@ -121,7 +121,10 @@ pub async fn run() -> Result<()> {
             let n = store::notification_repo::NotificationRepo::new(cleanup_db.clone())
                 .delete_before(cutoff)
                 .await;
-            tracing::info!(metrics_deleted = ?m, alerts_deleted = ?a, notifications_deleted = ?n, "retention cleanup");
+            let k = store::api_key_repo::ApiKeyRepo::new(cleanup_db.clone())
+                .delete_revoked_before(cutoff)
+                .await;
+            tracing::info!(metrics_deleted = ?m, alerts_deleted = ?a, notifications_deleted = ?n, api_keys_deleted = ?k, "retention cleanup");
         }
     });
 

@@ -79,10 +79,11 @@ def main() -> None:
     migrations = sorted(
         f for f in os.listdir(os.path.join(ROOT, "server/migrations")) if f.endswith(".up.sql")
     )
-    assert len(migrations) == 8, f"迁移版本应为 8，实际 {len(migrations)}: {migrations}"
+    assert len(migrations) == 9, f"迁移版本应为 9，实际 {len(migrations)}: {migrations}"
     dm = read("docs/data-model.md")
     assert "0007_add_alerts" in dm, "data-model.md 缺 0007_add_alerts 迁移"
     assert "0008_add_notifications" in dm, "data-model.md 缺 0008_add_notifications 迁移"
+    assert "0009_add_api_keys" in dm, "data-model.md 缺 0009_add_api_keys 迁移"
 
     # 4. 关键依赖：tech-stack.md 与 Cargo.toml 双向一致
     cargo = read("Cargo.toml")
