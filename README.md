@@ -28,6 +28,27 @@
 两种模式复用同一套信令协议（gRPC 双向流），见
 [docs/plantree](docs/plantree/README.md) 中的架构决策。
 
+## IR 应急响应能力
+
+以 Sysinternals Autoruns + Process Hacker + KAPE triage 为对标，内置完整应急响应能力：
+
+| 能力 | 说明 |
+|------|------|
+| **自启动项全景** | 12 分类 1300+ 条（Run/RunOnce/服务/驱动/计划任务/浏览器/外壳/WMI/引导执行/已知 DLL/Winsock/编解码器/认证），签名校验 + 厂商识别 |
+| **自启动项操作** | 禁用/启用/删除（AutorunsDisabled 机制），注册表/文件/服务/计划任务四类闭环 |
+| **基线快照对比** | 保存扫描基线，diff 出新增/移除的持久化项 |
+| **进程树** | 真实父子关系 + 折叠展开 + 异常父子高亮（办公派生解释器/LSASS 派生等 EDR 检测规则） |
+| **流式内存扫描** | 全进程 / 单 PID，SeDebugPrivilege 提权，WebSocket 增量推送 |
+| **NTFS USN 时间线** | 文件创建/删除/重命名实时活动记录 |
+| **安全日志** | Security 事件 4624/4625/4720/1102/7045/4104（提权可读） |
+| **批量操作** | 多主机同时下发命令，逐 agent 建任务跟踪 |
+| **证据包** | 一键收集进程/网络/服务/自启动/日志 JSON 下载 |
+| **权限检测** | 管理员/root 自动检测，前端徽章显示 |
+| **VirusTotal** | 按文件 SHA256 查杀（待 HELM_VT_API_KEY 配置） |
+| **页面缓存** | 自启动项/系统日志秒开（ir_page_cache 服务端缓存） |
+
+详见 [docs/ir-capabilities.md](docs/ir-capabilities.md)。
+
 ## 目录结构
 
 ```text
@@ -39,8 +60,10 @@ server/               # Server 控制端（axum + tonic + sqlx）
   src/grpc            #   gRPC 适配层（Agent 连入）
   src/http            #   HTTP API 适配层（控制台）
   src/store           #   持久化层（sqlx + Postgres）
-  migrations/         #   数据库迁移（8 个版本）
+  migrations/         #   数据库迁移（14 个版本）
 agent/                # Agent 被控端（tokio，跨平台）
+  src/ir/             #   IR 应急响应模块（自启动/内存扫描/文件时间线/操作等 14 个子模块）
+  src/privilege.rs    #   权限检测（SeDebugPrivilege / Administrators 组）
 console/              # 前端控制台（Vite + React；pnpm 独立工作流）
 skill/                # 运维 skill 包源（Server 内嵌分发：SKILL.md + Python 脚本 + references）
 deploy/               # 部署模板（systemd unit + Windows nssm 脚本）

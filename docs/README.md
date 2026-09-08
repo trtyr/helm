@@ -15,8 +15,9 @@
 | [run-and-deploy.md](run-and-deploy.md) | 本地运行、开发命令、e2e、部署模板、发布门禁 | 要跑起来 / 部署 / 提 PR 前 |
 | [conventions.md](conventions.md) | 分层、错误处理、命名、测试、契约演进、git 约定 | 要写代码、保持一致时 |
 | [current-state.md](current-state.md) | 已验证的构建/测试结果、git 状态、开放项/已知问题 | 接手时看现状与坑 |
+| [ir-capabilities.md](ir-capabilities.md) | IR 应急响应全能力：自启动项/进程树/内存扫描/基线对比/批量操作/证据包/USN 时间线/权限/下线 | 应急响应、运维管控、安全审计时 |
 | [real-machine-test-report.md](real-machine-test-report.md) | Linux 真机测试报告：forward 持久连接 + mTLS 15/15、Windows GBK 修复验证 | 要看真机实证 / 评估 forward 模式时 |
-| [openapi.yaml](openapi.yaml) | HTTP API 契约（OpenAPI 3.0.3，44 端点） | 前端对接 / 接口校验时 |
+| [openapi.yaml](openapi.yaml) | HTTP API 契约（OpenAPI 3.0.3，72 端点） | 前端对接 / 接口校验时 |
 
 ## 规划树（另行维护）
 
