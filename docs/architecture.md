@@ -22,7 +22,7 @@ helm/
 │   │   ├── http/                 # HTTP API 适配层（控制台）
 │   │   ├── store/                # 持久化适配层（sqlx + 各实体仓储）
 │   │   └── telemetry/            # tracing 初始化
-│   ├── migrations/               # sqlx 迁移（8 个版本）
+│   ├── migrations/               # sqlx 迁移（14 个版本）
 │   └── tests/                    # 集成测试（连真实 Postgres）
 ├── agent/                # Agent 被控端（单二进制、跨平台）
 │   └── src/
@@ -40,7 +40,29 @@ helm/
 │       ├── pty.rs                # 交互终端（portable-pty）
 │       ├── service.rs            # 常驻服务管理（ServiceManager）
 │       ├── uninstall.rs          # 自杀卸载（SelfDestruct）
-│       └── telemetry/            # tracing 初始化（含按天滚动落文件）
+│       ├── privilege.rs          # 权限检测（Windows Administrators / Unix root）
+│       ├── child.rs              # 子进程包装（CREATE_NO_WINDOW）
+│       ├── sys_service.rs        # 系统服务列表/启停（SCM 原生）
+│       ├── win_native.rs         # Windows 原生能力（SCM/适配器/TCP-UDP 表/磁盘/路径/签名校验）
+│       ├── proxy.rs              # SOCKS5 代理隧道
+│       └── ir/                   # IR 应急响应模块（14 个子模块）
+│           ├── mod.rs            # 入口：ir_scan 按类型分派 + mem_scan + fs_timeline
+│           ├── util.rs           # Scanner/签名校验/注册表/路径归一化/命令行解析
+│           ├── autostart.rs      # 自启动项全景（Run/RunOnce/ActiveSetup/GPExt/HKU/shellex）
+│           ├── services.rs       # 服务+驱动（含 svchost ServiceDll 解析）
+│           ├── tasks.rs          # 计划任务（兼容中英文表头）
+│           ├── actions.rs        # 禁用/启用/删除（AutorunsDisabled 机制）
+│           ├── browser.rs        # 浏览器扩展（BHO/Chrome/Edge/Firefox）
+│           ├── hijacks.rs        # 映像劫持（IFEO/SilentProcessExit/AppInit/Winlogon）
+│           ├── lsa.rs            # LSA/凭据提供程序/打印监视器
+│           ├── system.rs         # 引导执行/已知 DLL/Winsock/编解码器
+│           ├── events.rs         # 安全事件日志（4624/4625/4720/1102/7045/4104）
+│           ├── files.rs          # 可疑落地文件
+│           ├── accounts.rs       # 账户审计（隐藏/克隆/管理员组）
+│           ├── wmi.rs            # WMI 事件订阅
+│           ├── office.rs         # Office 加载项
+│           ├── memscan.rs        # 进程内存字符串扫描
+│           └── filemeta.rs       # 文件 SHA256/大小/mtime
 ├── deploy/               # 部署模板（systemd unit + Windows nssm 脚本）
 ├── scripts/              # e2e 脚本（Python）+ OpenAPI 校验
 └── docs/                 # 本文档归档 + openapi.yaml + plantree 规划树
@@ -86,7 +108,8 @@ helm/
 - `audit_service.rs` — 审计记录落库 + 查询。
 - `alert_service.rs` — 阈值告警判定（`threshold_for`）+ 落库。
 - `notification_service.rs` — 通知中心（决策 009）：`notify`（同 host 同类型 5 分钟冷却合并 + 落库 + StreamRegistry 广播）、查询/已读用例、`spawn_offline_sweeper` 心跳超时兜底扫描（含半开死连接注销）。
-- `process_service.rs` — 进程 list/kill + 网络信息（经 QueryRegistry 请求-应答）。
+- `process_service.rs` — 进程 list/kill + 网络/系统服务 + IR 扫描/内存/文件元数据/USN 时间线/自启动操作（经 QueryRegistry 请求-应答）。
+- `agent_lifecycle_service.rs` — 下线/注销/卸载（含离线挂起补执行：agent_pending_offline 表 + 重连瞬间补送 SelfDestruct）。
 - `service_service.rs` — 常驻服务 CRUD + 启停/重启/日志。
 
 HTTP 与 gRPC 适配器**都**调用本层，适配层之间禁止互相 import。
@@ -108,12 +131,12 @@ HTTP 与 gRPC 适配器**都**调用本层，适配层之间禁止互相 import�
 - `mod.rs` — `AppState`、路由装配（`/healthz` 免认证、`/api/v1/*` 挂 JWT 中间件、WS 端点挂顶层）。
 - `auth.rs` — 登录端点 + `require_auth` 中间件（claims 塞 request extension）。
 - `error.rs` — 领域错误 → HTTP 响应的**单点错误边界**（内部细节只进日志）。
-- 各端点模块：`hosts` / `agents` / `exec` / `jobs` / `metrics` / `files` / `tasks` / `forward` / `listeners` / `services` / `process` / `audit` / `alerts` / `notifications`（通知中心）/ `cert` / `health` / `terminal`（WS）/ `stream`（WS 实时流，含通知流）。
+- 各端点模块：`hosts` / `agents` / `exec` / `jobs` / `metrics` / `files` / `tasks` / `forward` / `listeners` / `services` / `process` / `audit` / `alerts` / `notifications`（通知中心）/ `cert` / `health` / `terminal`（WS）/ `stream`（WS 实时流）/ `ir`（IR 扫描/内存/缓存）/ `ir_ops`（操作/快照/VT/文件元数据）/ `p2`（批量/证据包/USN 时间线）。
 
 ### `server/src/store/`（持久化适配层）
 
 - `mod.rs` — `Db` 聚合根：连接池（max 10）+ `migrate()`（`sqlx::migrate!("./migrations")`）。
-- 各 `*_repo.rs` — 按实体拆分仓储：host / agent / job / metric / file_transfer / task / user / listener / service / audit / alert / notification。
+- 各 `*_repo.rs` — 按实体拆分仓储：host / agent / job / metric / file_transfer / task / user / listener / service / audit / alert / notification / ir_repo（快照+页面缓存+VT 缓存）。
 
 ### `agent/src/`（被控端）
 

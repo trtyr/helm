@@ -50,14 +50,15 @@
 | time | 0.3 | rcgen 证书时间字段 |
 | reqwest | 0.12（json, rustls-tls） | Agent 换证书 HTTP 调用（rustls，musl 交叉编译友好） |
 | encoding_rs | 0.8 | Agent 控制台输出解码（Windows OEM 代码页 936/GBK 等 → UTF-8） |
-| windows-sys | 0.59（`Win32_Globalization`，仅 `cfg(windows)`） | `GetOEMCP()` 查询系统控制台代码页 |
+| windows-sys | 0.59（`cfg(windows)`，features 见下方） | Windows 原生能力层：SCM 服务管理、IpHelper 网络/连接表、进程路径查询、Authenticode 签名校验（WinTrust + CryptCatalog）、USN 文件时间线（DeviceIoControl + Ioctl）、权限检测（CheckTokenMembership）、CREATE_NO_WINDOW 子进程包装 |
+| — features | `Win32_Globalization` / `Win32_Foundation` / `Win32_Storage_FileSystem` / `Win32_System_Services` / `Win32_System_Threading` / `Win32_System_Registry` / `Win32_System_Diagnostics_Debug` / `Win32_System_Diagnostics_ToolHelp` / `Win32_System_Memory` / `Win32_NetworkManagement_IpHelper` / `Win32_NetworkManagement_Ndis` / `Win32_NetworkManagement_NetManagement` / `Win32_Networking_WinSock` / `Win32_Security` / `Win32_Security_WinTrust` / `Win32_Security_Cryptography` / `Win32_Security_Cryptography_Catalog` / `Win32_System_IO` / `Win32_System_Ioctl` | |
 
 > 注：`sha2` 同时存在 0.11.0（直接依赖，声明 "0.11"）与 0.10.9（bcrypt/jsonwebtoken 等传递依赖）两个版本。
 
 ## crate 依赖分布
 
-- **helm-server**：helm-proto + tokio/tonic/prost/axum/sqlx/clap/tracing/tracing-appender/serde/serde_json/tokio-stream/uuid/chrono/bcrypt/jsonwebtoken/sha2/hex/rcgen/time。
-- **helm-agent**：helm-proto + tokio/tonic/prost/tracing/tracing-appender/clap/serde/serde_json/tokio-stream/hostname/sysinfo/sha2/hex/portable-pty/rcgen/reqwest/encoding_rs（+ `cfg(windows)` 下 windows-sys）。
+- **helm-server**：helm-proto + tokio/tonic/prost/axum/sqlx/clap/tracing/tracing-appender/serde/serde_json/tokio-stream/uuid/chrono/bcrypt/jsonwebtoken/sha2/hex/rcgen/time/reqwest。
+- **helm-agent**：helm-proto + tokio/tonic/prost/tracing/tracing-appender/clap/serde/serde_json/tokio-stream/hostname/sysinfo/sha2/hex/portable-pty/rcgen/reqwest/encoding_rs（+ `cfg(windows)` 下 windows-sys 19 个 feature）。
 - **helm-proto**：prost/tonic/tonic-prost/http + build-dep tonic-prost-build。
 
 ## 契约工具

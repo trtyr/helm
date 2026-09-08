@@ -16,6 +16,11 @@ ORM/查询层：**sqlx**（异步、编译期 SQL 检查）。迁移用 `sqlx::m
 | 7 | `0007_add_alerts.up.sql` | `alerts` 表（阈值告警） |
 | 8 | `0008_add_notifications.up.sql` | `notifications` 表（系统内通知中心，决策 009） |
 | 9 | `0009_add_api_keys.up.sql` | `api_keys` 表（机器对机器认证，决策 010） |
+| 10 | `0010_add_hosts_ips.up.sql` | `hosts` 加 `public_ip` + `local_ips`（内网网卡地址列表） |
+| 11 | `0011_add_ir_snapshots.up.sql` | `ir_snapshots`（基线快照，findings JSONB）+ `ir_vt_cache`（VT 查杀缓存） |
+| 12 | `0012_add_ir_page_cache.up.sql` | `ir_page_cache` 表（自启动/系统日志页面缓存，秒开） |
+| 13 | `0013_add_agent_pending_offline.up.sql` | `agent_pending_offline` 表（离线 agent 下线挂起，重连补执行） |
+| 14 | `0014_add_agents_elevated.up.sql` | `agents` 加 `elevated BOOLEAN`（管理员/root 权限标识） |
 
 > 每个迁移都有对应 `.down.sql` 回滚文件。约定：所有表含 `created_at`/`updated_at`，外键 + 索引，
 > 软删除标记 `deleted_at`（hosts/users/tasks/jobs/file_transfers/metrics；`agents`/`listeners`/`services`/`audit_logs`/`alerts` 无软删除）。
@@ -42,6 +47,7 @@ ORM/查询层：**sqlx**（异步、编译期 SQL 检查）。迁移用 `sqlx::m
 | host_id | UUID FK → hosts | `ON DELETE CASCADE` |
 | version | TEXT | Agent 版本 |
 | registered_at / last_heartbeat_at | TIMESTAMPTZ | 注册 / 心跳时间 |
+| elevated | BOOLEAN NOT NULL DEFAULT FALSE | 是否以管理员/root 运行（迁移 14） |
 
 > 迁移 2 后 `host_id` 不再唯一：同一 host 可有多条 agent 记录。`agents` 表无 `deleted_at`，
 > `last_heartbeat_at` 可空（`AgentRow` 对应 `Option<DateTime<Utc>>`）。
@@ -198,3 +204,46 @@ Service 状态映射由 `agent_service::map_service_status`：running→running�
 - **时序保留**：后台任务每 24h 清理 30 天前的 `metrics` 与 `alerts`（`delete_before`）。
 
 仓储层实现见 `server/src/store/*_repo.rs`；相关规划稿见 [docs/plantree/baseline/storage-and-state.md](plantree/baseline/storage-and-state.md)（注意其中「SQLite 起步」已被决策 004 取代）。
+
+
+## IR 应急响应表
+
+### `ir_snapshots` — 基线快照
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | UUID PK | `gen_random_uuid()` |
+| agent_id | TEXT NOT NULL | agent 标识 |
+| label | TEXT | 快照标签 |
+| findings | JSONB | 全量 IrFinding 数组 |
+| entry_count | INT | 条目数 |
+| created_at | TIMESTAMPTZ | 创建时间 |
+
+索引：`(agent_id, created_at DESC)`
+
+### `ir_page_cache` — 页面缓存（自启动/系统日志秒开）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| agent_id + kind | TEXT 联合 PK | kind = 排序后的 types 逗号拼接（如 "autostart,registry"） |
+| findings | JSONB | 全量 IrFinding 数组 |
+| entry_count | INT | 条目数 |
+| created_at | TIMESTAMPTZ | 写入时间 |
+
+### `ir_vt_cache` — VirusTotal 查杀缓存
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| sha256 | TEXT PK | 文件哈希 |
+| positives / total | INT | 检出 / 总引擎数（positives=-1 = VT 未收录） |
+| checked_at | TIMESTAMPTZ | 查询时间（7 天内复用） |
+
+### `agent_pending_offline` — 离线下线挂起
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| agent_id | TEXT PK | agent 标识 |
+| action | TEXT | "uninstall" 或 "deregister" |
+| created_at | TIMESTAMPTZ | 标记时间 |
+
+语义：agent 离线时执行卸载/注销 → 写入此表 → agent 重连注册瞬间 → server 读取并补送 SelfDestruct → 删除行 + 注销档案。

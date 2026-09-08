@@ -41,6 +41,16 @@ service ForwardAgentService {
 | `process_list_result` | ProcessListResult | 进程列表 |
 | `process_kill_result` | ProcessKillResult | 终止结果 |
 | `net_info_result` | NetInfoResult | 网络信息 |
+| `sys_service_list_result` | SysServiceListResult | 系统服务列表 |
+| `sys_service_action_result` | SysServiceActionResult | 服务操作结果 |
+| `proxy_connected` | ProxyConnected | SOCKS 代理连接状态 |
+| `proxy_data` | ProxyData | SOCKS 代理数据 |
+| `proxy_close` | ProxyClose | SOCKS 代理关闭 |
+| `ir_scan_result` | IrScanResult | 应急扫描结果（IrFinding 数组） |
+| `mem_scan_result` | MemScanResult | 内存扫描结果（含命中/覆盖率） |
+| `autoruns_action_result` | AutorunsActionResult | 自启动项操作结果 |
+| `file_meta_result` | FileMetaResult | 文件 SHA256/大小/mtime |
+| `fs_timeline_result` | FsTimelineResult | NTFS USN 文件时间线条目 |
 
 **ServerMessage**（Server → Agent），`oneof kind`：
 
@@ -62,6 +72,16 @@ service ForwardAgentService {
 | `process_list` | ProcessList | 列出进程（request_id） |
 | `process_kill` | ProcessKill | 终止进程（request_id, pid） |
 | `net_info` | NetInfo | 采集网络信息（request_id） |
+| `sys_service_list` | SysServiceList | 列出系统服务（request_id） |
+| `sys_service_action` | SysServiceAction | 服务启停/重启（request_id, name, action） |
+| `proxy_connect` | ProxyConnect | 建立 SOCKS5 代理隧道 |
+| `proxy_close` | ProxyClose | 关闭代理隧道 |
+| `proxy_data` | ProxyData | 代理数据转发 |
+| `ir_scan` | IrScan | 应急扫描（request_id, types[]） |
+| `mem_scan` | MemScan | 内存扫描（request_id, pid, min_len, keywords, timeout_secs, stream） |
+| `autoruns_action` | AutorunsAction | 自启动项操作（request_id, action, op_key） |
+| `file_meta_query` | FileMetaQuery | 文件元数据查询（request_id, path） |
+| `fs_timeline_query` | FsTimelineQuery | USN 文件时间线（request_id, drive, since_hours, limit, keyword） |
 
 ### 关键类型（`types.proto`）
 
@@ -73,6 +93,10 @@ service ForwardAgentService {
 - `FileEntry`：name / is_dir / size / modified_unix_ms / mode。
 - `ProcessInfo`：pid / name / cpu_percent / mem_bytes。
 - `NetInterface`：name / addrs[]。
+- `IrFinding`：category / name / detail / severity / path / publisher / signState / desc / opKey / disabled / mtime / tsUnix。
+- `MemScanResult`：pid / matches[] / hits[] / scanned_bytes / truncated / pids_total / pids_scanned / finished。
+- `FsTimelineEntry`：name / frn / parent_frn / ts_unix / reason。
+- `HostInfo.elevated`：bool（agent 是否以管理员/root 运行）。
 
 ### 请求-应答关联约定
 
@@ -123,7 +147,7 @@ Server 注册 `oneshot` → 下发 `FileList`/`ProcessList`/`ProcessKill`/`NetIn
 | GET | `/api/v1/agents/{id}` | Agent 详情（附在线状态） |
 | DELETE | `/api/v1/agents/{id}` | 注销（删 agent + 孤儿主机软删） |
 | PUT | `/api/v1/agents/{id}/tags` | 更新关联主机标签 `{tags}` → `{host}` |
-| POST | `/api/v1/agents/{id}/uninstall` | 下发卸载指令（SelfDestruct） `{remove_binary}` → `{ok}`（离线返回 409） |
+| POST | `/api/v1/agents/{id}/uninstall` | 卸载 `{remove_binary}` → `{ok, delivered, deferred, message}`（离线 deferred=true，挂起重连补执行） |
 
 ### 命令执行与 Job
 
@@ -162,6 +186,32 @@ Server 注册 `oneshot` → 下发 `FileList`/`ProcessList`/`ProcessKill`/`NetIn
 | POST | `/api/v1/tasks/script` | 脚本执行（复用 exec） `{agent_id, command, args}` → `{job_id}` |
 | POST | `/api/v1/tasks/schedule` | 定时任务 `{agent_id, command, args, interval_secs}` → `{task_id}` |
 | POST | `/api/v1/forward/exec` | 正向按需拨号执行 `{hostname?\|agent_addr?, command, args}` → `{output, exit_code}`（临时连接的旧路径；forward host 持久连接后，其余端点按 agent_id 直接可用） |
+
+### IR 应急响应
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/ir/scan` | 应急扫描 `{agent_id, types[]}`，types = autostart / registry / events / suspicious_files / accounts |
+| POST | `/api/v1/ir/autorun-action` | 自启动项操作 `{agent_id, action: disable/enable/delete, key: opKey}` |
+| POST | `/api/v1/ir/memscan` | 内存扫描（非流式） `{agent_id, pid, min_len, keyword}` |
+| POST | `/api/v1/ir/memscan/stream` | 启动流式扫描 `{agent_id, pid, ...}` → `{scanId}` |
+| GET | `/api/v1/ir/memscan/{id}/stream?token=` | WS 订阅流式增量 |
+| POST | `/api/v1/ir/file-meta` | 文件 SHA256 `{agent_id, path}` |
+| POST | `/api/v1/ir/vt` | VT 查杀 `{sha256}`（需 HELM_VT_API_KEY） |
+| POST | `/api/v1/ir/evidence` | 证据包 JSON 下载 `{agent_id}` |
+| POST | `/api/v1/ir/snapshots` | 保存基线快照 |
+| GET | `/api/v1/ir/snapshots?agent_id=` | 快照列表 |
+| GET | `/api/v1/ir/snapshots/{id}` | 快照详情 |
+| DELETE | `/api/v1/ir/snapshots/{id}` | 删除快照 |
+| POST | `/api/v1/ir/snapshots/compare` | 基线对比 `{base_id, target_id? 或 agent_id}` |
+| GET | `/api/v1/ir/cache?agent_id=&types=` | 页面缓存读取 |
+| POST | `/api/v1/ir/fs-timeline` | USN 文件时间线 `{agent_id, drive, since_hours, limit, keyword}` |
+
+### 批量操作
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/exec/batch` | 多主机批量命令 `{agent_ids[], command, args}` → `{total, jobs[]}` |
 
 ### 监听器
 

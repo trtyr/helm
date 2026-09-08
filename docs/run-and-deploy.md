@@ -27,7 +27,7 @@ cargo run -p helm-server
 ```
 
 - 默认 HTTP `:8080`、gRPC `:50051`。
-- 首次启动自动执行迁移（8 个版本），并 seed 管理员 `admin / admin123`（仅当 users 表为空）。
+- 首次启动自动执行迁移（14 个版本），并 seed 管理员 `admin / admin123`（仅当 users 表为空）。
 - 首次启动自动 seed 默认监听器（`listeners` 表为空时），后续启动恢复 running 的监听器。
 - 启用 mTLS：`cargo run -p helm-server -- --mtls --tls-dir /var/lib/helm-tls`。
   `--tls-dir` 持久化 CA 与 Server 证书（`ca.pem`/`ca-key.pem`/`server.pem`/`server-key.pem`），

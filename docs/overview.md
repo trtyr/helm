@@ -2,7 +2,7 @@
 
 ## 一句话
 
-一个**集中式运维平台后端**：把轻量 Agent 下发到目标主机（Windows / Linux / macOS），即可从控制端对整批主机做**远程命令执行、文件上下传、交互式终端、常驻服务管理、进程/网络管控、指标采集与告警、审计**，并提供完整的 HTTP API 与 OpenAPI 契约供前端控制台消费。
+一个**集中式运维 + 应急响应平台**：把轻量 Agent 下发到目标主机（Windows / Linux / macOS），即可从控制端对整批主机做**远程命令执行、文件上下传、交互式终端、常驻服务管理、进程/网络管控、指标采集与告警、审计**，以及完整的**应急响应能力**（自启动项全景扫描与操作、基线快照对比、进程树+异常父子检测、流式内存扫描、安全事件审计、NTFS 文件时间线、批量操作、证据包收集、权限检测），并提供完整的 HTTP API 与 OpenAPI 契约供前端控制台消费。
 
 ## 两大组件
 
@@ -11,7 +11,8 @@
 ```
 
 - **Server（`server/`）**：集中管理、任务编排、状态收集、持久化（Postgres）、对外 HTTP API（含 WebSocket 实时流）。
-- **Agent（`agent/`）**：装在目标机，执行命令、采集指标、文件传输、交互终端、常驻服务、进程/网络信息。单二进制、跨平台。
+- **Agent（`agent/`）**：装在目标机，执行命令、采集指标、文件传输、交互终端、常驻服务、进程/网络信息、
+  IR 应急采集（自启动/日志/内存/文件时间线）与操作（禁用/启用/删除持久化）。单二进制、跨平台。
 - **proto（`proto/`）**：gRPC 契约（protobuf），Server 与 Agent 的**单一事实来源**。
 
 ## 核心能力
@@ -36,6 +37,10 @@
 | 实时流 | WebSocket：服务日志 tail-f / job 输出流 / metrics 指标流 / 通知流 |
 | 通知 | 系统内小卡片（决策 009）：上线/下线/预警 + 已读未读 + WS 实时推送 + 5 分钟冷却合并，不做外发 |
 | 契约 | `docs/openapi.yaml`（OpenAPI 3.0.3）覆盖全部 HTTP 端点，可机器校验 |
+| **IR 应急响应** | 自启动项全景 12 分类（签名校验+厂商）+ 禁用/启用/删除（Autoruns 机制）+ 基线快照对比 + 异常父子检测 + 流式内存扫描（全进程/单 PID、SeDebugPrivilege）+ 安全事件审计 + NTFS USN 文件时间线 + VirusTotal 接口 + 证据包一键收集 |
+| **批量操作** | 多主机批量命令下发（逐 agent 建 job，离线标 error） |
+| **权限检测** | Windows Administrators 组 / Unix uid=0 自动检测，前端徽章显示 |
+| **页面缓存** | 自启动项/系统日志扫描结果服务端缓存，页面秒开 |
 
 ## 连接模式
 
@@ -51,10 +56,10 @@ token 经 HTTP 换证书并缓存；正向由管理员在 Server 侧离线签发
 
 - **语言/框架**：Rust（edition 2024），tokio 异步；axum（HTTP + WebSocket）+ tonic（gRPC，tls-ring）+ sqlx（Postgres）。
 - **仓库形态**：Cargo workspace，三个成员 crate：`proto` / `server` / `agent`。
-- **持久化**：PostgreSQL，sqlx 编译期嵌入迁移（8 个版本）。
+- **持久化**：PostgreSQL，sqlx 编译期嵌入迁移（14 个版本）。
 - **安全**：rcgen 内置 CA + mTLS；bcrypt 密码哈希 + JWT。
-- **前端控制台**：`console/`（Vite + React，单仓，M1–M4 已全落地——20 路由：主机/终端/文件/
-  服务/进程/指标/任务/通知/告警/审计/监听器/仪表盘等）；本仓库同仓提供 HTTP API + OpenAPI
+- **前端控制台**：`console/`（Vite + React，单仓，M1–M4 已全落地——多路由：主机/概览/终端/文件/服务/进程/网络/自启动项/系统日志/内存扫描/代理/任务/
+  通知/告警/审计/监听器/仪表盘等）；本仓库同仓提供 HTTP API + OpenAPI
   契约供其消费（设计规格见 docs/plantree/plans/frontend/）。
 
 详见 [tech-stack.md](tech-stack.md)。
