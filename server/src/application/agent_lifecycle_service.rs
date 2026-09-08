@@ -31,8 +31,14 @@ impl AgentLifecycleService {
     }
 
     /// 下线/注销：删除 agent 记录 + 孤儿 host 软删除，并解除连接。
+    /// agent 离线时无法送达指令：删记录 + 标记挂起，重连瞬间补执行注销。
     pub async fn deregister(&self, agent_id: &str) -> Result<()> {
         let agent_repo = AgentRepo::new(self.db.clone());
+        if !self.registry.is_online(agent_id).await {
+            agent_repo
+                .mark_pending_offline(agent_id, "deregister")
+                .await?;
+        }
         let host_id = agent_repo
             .get_host_id(agent_id)
             .await?
@@ -50,8 +56,15 @@ impl AgentLifecycleService {
         Ok(())
     }
 
-    /// 卸载：下发 SelfDestruct 指令（要求在线），随后注销 DB 记录。
-    pub async fn uninstall(&self, agent_id: &str, remove_binary: bool) -> Result<()> {
+    /// 卸载：下发 SelfDestruct 指令，随后注销 DB 记录。
+    /// 返回是否即时送达；agent 离线时标记挂起（false），重连瞬间自动补下线。
+    pub async fn uninstall(&self, agent_id: &str, remove_binary: bool) -> Result<bool> {
+        if !self.registry.is_online(agent_id).await {
+            AgentRepo::new(self.db.clone())
+                .mark_pending_offline(agent_id, "uninstall")
+                .await?;
+            return Ok(false);
+        }
         let msg = ServerMessage {
             kind: Some(server_message::Kind::SelfDestruct(SelfDestruct {
                 remove_binary,
@@ -62,7 +75,8 @@ impl AgentLifecycleService {
             .await
             .map_err(|e| Error::NotConnected(e.to_string()))?;
 
-        self.deregister(agent_id).await
+        self.deregister(agent_id).await?;
+        Ok(true)
     }
 }
 

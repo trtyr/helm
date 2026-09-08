@@ -11,7 +11,8 @@ use crate::grpc::stream_registry::StreamRegistry;
 use crate::grpc::transfer_registry::TransferRegistry;
 use crate::store::{Db, agent_repo::AgentRepo};
 use helm_proto::pb::{
-    AgentMessage, RegisterAck, ServerMessage, agent_message, agent_service_server::AgentService,
+    AgentMessage, RegisterAck, SelfDestruct, ServerMessage, agent_message,
+    agent_service_server::AgentService,
     server_message,
 };
 use tokio::sync::mpsc;
@@ -116,6 +117,7 @@ impl AgentService for AgentServiceImpl {
             .as_ref()
             .map(|h| h.local_ips.clone())
             .unwrap_or_default();
+        let elevated = register.host.as_ref().map(|h| h.elevated).unwrap_or(false);
         let host_id = match AgentRepo::new(self.db.clone())
             .register(
                 &agent_id,
@@ -126,6 +128,7 @@ impl AgentService for AgentServiceImpl {
                 platform,
                 &public_ip,
                 &local_ips,
+                elevated,
             )
             .await
         {
@@ -155,8 +158,26 @@ impl AgentService for AgentServiceImpl {
         };
         let _ = tx.send(ack).await;
 
-        // 上线通知（决策 009：系统内小卡片；落库失败无 host_id 则跳过）
-        if let Some(hid) = host_id {
+        // 掉线期间挂起的卸载/注销：重连瞬间补执行（否则进程残留 = "下线了但还在"）
+        let pending = AgentRepo::new(self.db.clone())
+            .take_pending_offline(&agent_id)
+            .await
+            .unwrap_or(None);
+        let mut deferred_offline = false;
+        if let Some(action) = pending {
+            deferred_offline = true;
+            tracing::info!(agent_id = %agent_id, %action, "deferred offline command executed on reconnect");
+            let remove_binary = action == "uninstall";
+            let _ = tx.send(ServerMessage {
+                kind: Some(server_message::Kind::SelfDestruct(SelfDestruct { remove_binary })),
+            }).await;
+            let _ = AgentRepo::new(self.db.clone()).delete(&agent_id).await;
+        }
+
+        // 上线通知（决策 009：系统内小卡片；落库失败无 host_id 则跳过；挂起补执行时不通知）
+        if let Some(hid) = host_id
+            && !deferred_offline
+        {
             let svc = crate::application::notification_service::NotificationService::new(
                 self.db.clone(),
                 self.streams.clone(),

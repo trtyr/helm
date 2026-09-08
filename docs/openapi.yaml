@@ -287,6 +287,406 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/Agent" }
 
+  /api/v1/ir/scan:
+    post:
+      tags: [ir]
+      summary: 应急响应基线扫描（账户/持久化/事件日志/可疑文件，Windows）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id]
+              properties:
+                agent_id: { type: string }
+                types:
+                  type: array
+                  items: { type: string, enum: [accounts, autostart, events, suspicious_files] }
+                  description: 空 = 全部
+      responses:
+        "200":
+          description: 发现列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  findings:
+                    type: array
+                    items: { $ref: "#/components/schemas/IrFinding" }
+                  error: { type: string, nullable: true }
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+
+  /api/v1/ir/memscan:
+    post:
+      tags: [ir]
+      summary: 进程内存字符串扫描（Volatility strings 简化版，需 SeDebugPrivilege）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, pid]
+              properties:
+                agent_id: { type: string }
+                pid: { type: integer, description: 目标 PID；0 = 遍历全部进程（全局限额+60s 超时） }
+                min_len: { type: integer, default: 6 }
+                keyword: { type: string, description: 过滤关键词（空 = 不过滤） }
+      responses:
+        "200":
+          description: 命中字符串
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pid: { type: integer }
+                  matches: { type: array, items: { type: string } }
+                  scanned_bytes: { type: integer }
+                  truncated: { type: boolean }
+                  error: { type: string, nullable: true }
+                  pidsTotal: { type: integer, description: pid=0 全进程模式：枚举到的进程数 }
+                  pidsScanned: { type: integer, description: 全进程模式：成功扫描的进程数 }
+
+  /api/v1/ir/memscan/stream:
+    post:
+      tags: [ir]
+      summary: 启动流式内存扫描（返回 scanId，随后订阅 WS /ir/memscan/{id}/stream 接收增量批次）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, pid, scan_id]
+              properties:
+                agent_id: { type: string }
+                scan_id: { type: string, format: uuid, description: 客户端生成，先订阅 WS 再启动 }
+                pid: { type: integer, description: 0 = 遍历全部进程 }
+                min_len: { type: integer, default: 6 }
+                keyword: { type: string }
+      responses:
+        "200":
+          description: 扫描已启动
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scanId: { type: string }
+
+  /api/v1/ir/memscan/{id}/stream:
+    get:
+      tags: [ir]
+      summary: 内存扫描实时流（WebSocket，query 传 token）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: 升级为 WebSocket }
+
+  /api/v1/exec/batch:
+    post:
+      tags: [exec]
+      summary: 多主机批量命令下发（逐 agent 建 job，任务页跟踪）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_ids, command]
+              properties:
+                agent_ids: { type: array, items: { type: string } }
+                command: { type: string }
+                args: { type: array, items: { type: string } }
+      responses:
+        "200":
+          description: 逐 agent 结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  jobs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        agent_id: { type: string }
+                        job_id: { type: string, nullable: true }
+                        error: { type: string, nullable: true }
+
+  /api/v1/ir/evidence:
+    post:
+      tags: [ir]
+      summary: 证据包一键收集（JSON 附件下载：进程/网络/服务/自启动/日志/可疑文件）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id]
+              properties:
+                agent_id: { type: string }
+      responses:
+        "200":
+          description: 证据包 JSON 附件
+          content:
+            application/json:
+              schema: { type: object }
+
+  /api/v1/ir/fs-timeline:
+    post:
+      tags: [ir]
+      summary: NTFS USN 文件时间线（按盘符 + 最近 N 小时，需管理员）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id]
+              properties:
+                agent_id: { type: string }
+                drive: { type: string, default: C }
+                since_hours: { type: integer, default: 24 }
+                limit: { type: integer, default: 5000 }
+                keyword: { type: string }
+      responses:
+        "200":
+          description: 文件活动记录
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  drive: { type: string }
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        frn: { type: integer }
+                        parentFrn: { type: integer }
+                        tsUnix: { type: integer }
+                        reason: { type: string }
+                  totalScanned: { type: integer }
+                  truncated: { type: boolean }
+                  error: { type: string, nullable: true }
+
+  /api/v1/ir/cache:
+    get:
+      tags: [ir]
+      summary: 页面缓存（最后一次扫描结果，秒开）
+      parameters:
+        - { name: agent_id, in: query, required: true, schema: { type: string } }
+        - { name: types, in: query, required: true, schema: { type: string }, description: 逗号分隔，如 autostart,registry 或 events }
+      responses:
+        "200":
+          description: 缓存内容（findings 为 null = 无缓存）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  findings: { type: array, nullable: true, items: { $ref: "#/components/schemas/IrFinding" } }
+                  entryCount: { type: integer }
+                  createdAt: { type: string }
+
+  /api/v1/ir/autorun-action:
+    post:
+      tags: [ir]
+      summary: 自启动项操作（禁用/启用/删除，AutorunsDisabled 机制）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, action, key]
+              properties:
+                agent_id: { type: string }
+                action: { type: string, enum: [disable, enable, delete] }
+                key: { type: string, description: 扫描结果中的 opKey 操作地址 }
+      responses:
+        "200":
+          description: 操作结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  error: { type: string, nullable: true }
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+
+  /api/v1/ir/file-meta:
+    post:
+      tags: [ir]
+      summary: 文件元数据按需查询（SHA256/大小/mtime）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, path]
+              properties:
+                agent_id: { type: string }
+                path: { type: string }
+      responses:
+        "200":
+          description: 文件元数据
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path: { type: string }
+                  sha256: { type: string }
+                  size: { type: integer }
+                  mtime: { type: string }
+                  error: { type: string, nullable: true }
+
+  /api/v1/ir/vt:
+    post:
+      tags: [ir]
+      summary: VirusTotal 查杀查询（按 SHA256，结果缓存 7 天，需 HELM_VT_API_KEY）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sha256]
+              properties:
+                sha256: { type: string }
+      responses:
+        "200":
+          description: 查杀结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sha256: { type: string }
+                  positives: { type: integer, description: 恶意+可疑引擎数；-1 = VT 未收录 }
+                  total: { type: integer }
+                  permalink: { type: string }
+                  cached: { type: boolean }
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+
+  /api/v1/ir/snapshots:
+    post:
+      tags: [ir]
+      summary: 保存当前扫描为基线快照（现场扫描 autostart+registry）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id]
+              properties:
+                agent_id: { type: string }
+                label: { type: string }
+      responses:
+        "200":
+          description: 快照 id
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, format: uuid }
+                  entry_count: { type: integer }
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+    get:
+      tags: [ir]
+      summary: 快照列表
+      parameters:
+        - { name: agent_id, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: 快照元数据列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  snapshots:
+                    type: array
+                    items: { $ref: "#/components/schemas/IrSnapshotMeta" }
+
+  /api/v1/ir/snapshots/compare:
+    post:
+      tags: [ir]
+      summary: 基线对比（added = 目标有基线无；removed = 基线有目标无）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [base_id]
+              properties:
+                base_id: { type: string, format: uuid }
+                target_id: { type: string, format: uuid, description: 与 agent_id 二选一 }
+                agent_id: { type: string, description: 现场重扫作为对比目标（不入库） }
+      responses:
+        "200":
+          description: 对比结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  base: { type: object }
+                  target: { type: string }
+                  added: { type: array, items: { $ref: "#/components/schemas/IrFinding" } }
+                  removed: { type: array, items: { $ref: "#/components/schemas/IrFinding" } }
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+
+  /api/v1/ir/snapshots/{id}:
+    get:
+      tags: [ir]
+      summary: 快照详情（含 findings 全文）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: 快照全文
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  snapshot: { type: object }
+    delete:
+      tags: [ir]
+      summary: 删除快照
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: 删除数量
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted: { type: integer }
+
   /api/v1/proxies:
     get:
       tags: [proxy]
@@ -1502,6 +1902,7 @@ components:
             stale: { type: boolean }
             agent_id: { type: string, nullable: true, description: 关联 Agent 标识（最近注册的一个） }
             agent_version: { type: string, nullable: true }
+            agent_elevated: { type: boolean, nullable: true, description: 关联 Agent 是否以管理员/root 运行 }
     CreateHost:
       type: object
       required: [hostname]
@@ -1524,6 +1925,7 @@ components:
     Agent:
       type: object
       properties:
+        elevated: { type: boolean, description: agent 是否以管理员/root 权限运行 }
         id: { type: string }
         host_id: { type: string, format: uuid }
         version: { type: string }
@@ -1692,6 +2094,30 @@ components:
         state: { type: string }
         pid: { type: integer }
         process_name: { type: string }
+    IrFinding:
+      type: object
+      properties:
+        category: { type: string, description: 账户 / 登录 / 服务 / 驱动 / 计划任务 / 浏览器 / 外壳 / WMI 订阅 / 映像劫持 / 认证 / 事件日志 / 可疑文件 / hosts }
+        name: { type: string }
+        detail: { type: string }
+        severity: { type: string, enum: [info, warn, critical] }
+        path: { type: string, nullable: true, description: 关联可执行文件/DLL/脚本路径 }
+        publisher: { type: string, nullable: true, description: 文件厂商（版本资源 CompanyName） }
+        signState: { type: string, nullable: true, description: Authenticode 签名状态（含目录签名）：verified / unsigned / invalid / unknown }
+        desc: { type: string, nullable: true, description: 条目描述（服务 DisplayName / CLSID 名等） }
+        opKey: { type: string, nullable: true, description: 操作地址（disable/enable/delete 目标；空 = 不可操作） }
+        disabled: { type: boolean, nullable: true, description: 是否处于 AutorunsDisabled 禁用态 }
+        mtime: { type: string, nullable: true, description: 关联文件最后修改时间（unix 秒字符串） }
+
+    IrSnapshotMeta:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        agent_id: { type: string }
+        label: { type: string }
+        entry_count: { type: integer }
+        created_at: { type: string }
+
     ProxyView:
       type: object
       properties:

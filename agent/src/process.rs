@@ -1,10 +1,7 @@
 //! 进程管理 + 网络信息采集（进程列表对标 Process Hacker：CPU/内存/属主/父进程/命令行）。
 
 use std::collections::HashMap;
-use std::sync::{
-    Mutex, OnceLock,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::{Mutex, OnceLock};
 
 use helm_proto::pb::{
     AgentMessage, NetConnection, NetInfoResult, NetInterface, ProcessInfo, ProcessKillResult,
@@ -18,15 +15,30 @@ fn shared_system() -> &'static Mutex<sysinfo::System> {
     SYS.get_or_init(|| Mutex::new(sysinfo::System::new_all()))
 }
 
+/// 上次快照刷新时刻：距上次超过 3s 就重建短测量窗口，
+/// 避免「页面关了一小时再打开」时 CPU 显示成一小时长平均值。
+fn last_refresh() -> &'static Mutex<Option<std::time::Instant>> {
+    static LAST: OnceLock<Mutex<Option<std::time::Instant>>> = OnceLock::new();
+    LAST.get_or_init(|| Mutex::new(None))
+}
+
 /// 列出进程，返回 ProcessListResult 消息。
 pub fn list_processes(request_id: &str) -> AgentMessage {
     let mut sys = shared_system().lock().unwrap();
+    let mut last = last_refresh().lock().unwrap();
 
-    // 首次请求：补一次最小测量窗口（sysinfo 要求两次刷新间隔 ≥ 200ms）
-    static FIRST: AtomicBool = AtomicBool::new(true);
-    let first = FIRST.swap(false, Ordering::Relaxed);
-    if first {
-        std::thread::sleep(std::time::Duration::from_millis(250));
+    // 距上次刷新过久（首次/页面闲置后）：重建 300ms 短测量窗口，保证 CPU 是瞬时值
+    let stale = match *last {
+        Some(t) => t.elapsed() > std::time::Duration::from_secs(3),
+        None => true,
+    };
+    if stale {
+        sys.refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::All,
+            true,
+            sysinfo::ProcessRefreshKind::nothing(),
+        );
+        std::thread::sleep(std::time::Duration::from_millis(300));
     }
 
     // 全量刷新并取完整信息（exe/cmd/user + CPU/内存差值）
@@ -35,6 +47,7 @@ pub fn list_processes(request_id: &str) -> AgentMessage {
         true,
         sysinfo::ProcessRefreshKind::everything(),
     );
+    *last = Some(std::time::Instant::now());
 
     let users = sysinfo::Users::new_with_refreshed_list();
 

@@ -18,12 +18,15 @@ const TABS = [
   { seg: "services", label: "服务", ready: true },
   { seg: "processes", label: "进程", ready: true },
   { seg: "network", label: "网络", ready: true },
+  { seg: "autostart", label: "自启动项", ready: true },
+  { seg: "syslog", label: "系统日志", ready: true },
+  { seg: "memscan", label: "内存扫描", ready: true },
   { seg: "proxy", label: "代理", ready: true },
   { seg: "tasks", label: "任务", ready: true },
 ] as const;
 
 /** 受操作守卫的 tab（离线时显示通栏并禁用操作；概览/指标/任务不受限，规格 host-detail.md）。 */
-const GUARDED = new Set(["terminal", "files", "services", "processes", "network", "proxy"]);
+const GUARDED = new Set(["terminal", "files", "services", "processes", "network", "proxy", "autostart", "syslog", "memscan"]);
 
 /** /hosts/:id 布局框架：主机头 + 8 页签 + tab 内容（子路由 Outlet）。 */
 export default function HostDetailLayout() {
@@ -131,6 +134,7 @@ export default function HostDetailLayout() {
             {host.online ? "在线" : host.stale ? "心跳超时" : "离线"} · {host.os || "—"}
             {host.arch ? ` · ${host.arch}` : ""} · {host.conn_mode === "forward" ? "正向" : "反向"}
           </span>
+          <AgentPrivilegeBadge hostId={host.id} />
           <span className="ml-auto flex items-center gap-2">
             <button
               type="button"
@@ -327,5 +331,27 @@ function TagsModal({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Agent 权限徽章：在线的优先；无 agent 不显示。 */
+function AgentPrivilegeBadge({ hostId }: { hostId: string }) {
+  const agentsQuery = useQuery({
+    queryKey: ["agents"],
+    queryFn: () => api<{ agents: components["schemas"]["Agent"][] }>("/api/v1/agents"),
+    refetchInterval: 30_000,
+  });
+  const same = (agentsQuery.data?.agents ?? []).filter((a) => a.host_id === hostId);
+  const agent = same.find((a) => a.online) ?? same[0];
+  if (!agent || agent.elevated === undefined || agent.elevated === null) return null;
+  return (
+    <span
+      className={`whitespace-nowrap rounded px-1.5 py-0.5 text-label-12 ${
+        agent.elevated ? "bg-green-1000/10 text-green-1000" : "bg-gray-200 text-gray-900"
+      }`}
+      title={agent.elevated ? "Agent 以管理员权限运行：可读系统进程、安全日志" : "Agent 以普通权限运行：无法读系统进程/安全日志"}
+    >
+      {agent.elevated ? "管理员权限" : "普通权限"}
+    </span>
   );
 }

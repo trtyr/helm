@@ -231,6 +231,61 @@ impl InboundCtx {
                     .complete(&rid, QueryResponse::SysServiceAction(result))
                     .await;
             }
+            Some(agent_message::Kind::IrScanResult(result)) => {
+                let rid = result.request_id.clone();
+                self.query
+                    .complete(&rid, QueryResponse::IrScan(result))
+                    .await;
+            }
+            Some(agent_message::Kind::MemScanResult(result)) => {
+                let rid = result.request_id.clone();
+                // 流式扫描：所有帧都广播给 WS 订阅者；最终帧额外完成挂起的查询
+                let payload = serde_json::json!({
+                    "scanId": rid,
+                    "finished": result.finished,
+                    "pid": result.pid,
+                    "matches": result.matches,
+                    "hits": result
+                        .hits
+                        .iter()
+                        .map(|h| serde_json::json!({"addr": h.addr, "kind": h.kind, "value": h.value}))
+                        .collect::<Vec<_>>(),
+                    "scannedBytes": result.scanned_bytes,
+                    "pidsTotal": result.pids_total,
+                    "pidsScanned": result.pids_scanned,
+                    "truncated": result.truncated,
+                    "timedOut": result.timed_out,
+                    "error": result.error,
+                })
+                .to_string();
+                tracing::debug!(rid = %rid, finished = result.finished, n = result.matches.len(), "memscan frame");
+                self.streams
+                    .broadcast(&format!("memscan:{rid}"), payload.into_bytes())
+                    .await;
+                if result.finished {
+                    self.query
+                        .complete(&rid, QueryResponse::MemScan(result))
+                        .await;
+                }
+            }
+            Some(agent_message::Kind::AutorunsActionResult(result)) => {
+                let rid = result.request_id.clone();
+                self.query
+                    .complete(&rid, QueryResponse::AutorunsAction(result))
+                    .await;
+            }
+            Some(agent_message::Kind::FsTimelineResult(result)) => {
+                let rid = result.request_id.clone();
+                self.query
+                    .complete(&rid, QueryResponse::FsTimeline(result))
+                    .await;
+            }
+            Some(agent_message::Kind::FileMetaResult(result)) => {
+                let rid = result.request_id.clone();
+                self.query
+                    .complete(&rid, QueryResponse::FileMeta(result))
+                    .await;
+            }
             Some(agent_message::Kind::ProxyConnected(result)) => {
                 crate::grpc::proxy_registry::registry()
                     .connected(&result.conn_id, result.ok, result.error)

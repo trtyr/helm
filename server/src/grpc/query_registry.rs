@@ -1,8 +1,8 @@
 //! 通用查询注册表：桥接「下发请求 ↔ 回传结果」的一次性查询（进程/网络/系统服务）。
 
 use helm_proto::pb::{
-    NetInfoResult, ProcessKillResult, ProcessListResult, SysServiceActionResult,
-    SysServiceListResult,
+    AutorunsActionResult, FileMetaResult, IrScanResult, MemScanResult, NetInfoResult,
+    ProcessKillResult, ProcessListResult, SysServiceActionResult, SysServiceListResult,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -16,6 +16,11 @@ pub enum QueryResponse {
     NetInfo(NetInfoResult),
     SysServiceList(SysServiceListResult),
     SysServiceAction(SysServiceActionResult),
+    IrScan(IrScanResult),
+    MemScan(MemScanResult),
+    AutorunsAction(AutorunsActionResult),
+    FileMeta(FileMetaResult),
+    FsTimeline(helm_proto::pb::FsTimelineResult),
 }
 
 /// 待完成的查询请求：request_id → oneshot。

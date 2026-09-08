@@ -16,5 +16,24 @@ services:
       timeout: 3s
       retries: 12
 
+  server:
+    build: .
+    container_name: helm-server
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      HELM_HTTP_ADDR: 0.0.0.0:8080
+      HELM_GRPC_ADDR: 0.0.0.0:50051
+      HELM_DATABASE_URL: postgres://helm:helm@postgres:5432/helm
+      HELM_SERVER_TOKEN: dev-token-change-me
+      HELM_JWT_SECRET: dev-secret-change-me
+      HELM_LOG: info
+      HELM_AGENT_SOURCE_DIR: /workspace
+    ports:
+      - "8080:8080"   # HTTP API / 控制台代理
+      - "50051:50051" # gRPC（agent 反向连入）
+    restart: unless-stopped
+
 volumes:
   pgdata:

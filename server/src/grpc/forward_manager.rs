@@ -211,6 +211,7 @@ async fn connect_once(
             &host_info.platform,
             &public_ip,
             &host_info.local_ips,
+            host_info.elevated,
         )
         .await?;
 

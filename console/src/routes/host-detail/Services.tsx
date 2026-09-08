@@ -3,7 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Play, RefreshCw, RotateCw, Search, Square, X } from "lucide-react";
 import type { components } from "../../api/schema";
-import { api } from "../../api/client";
+import { api, pickAgent } from "../../api/client";
 import { toast } from "../../lib/toast";
 
 type HostView = components["schemas"]["HostView"];
@@ -37,7 +37,7 @@ export default function Services() {
     queryFn: () => api<{ agents: Agent[] }>("/api/v1/agents"),
     refetchInterval: 30_000,
   });
-  const agent = (agentsQuery.data?.agents ?? []).find((a) => a.host_id === host.id);
+  const agent = pickAgent(agentsQuery.data?.agents ?? [], host.id);
 
   const servicesQuery = useQuery({
     queryKey: ["sys-services", agent?.id],
@@ -290,20 +290,20 @@ function SysStatusBadge({ status }: { status: string }) {
   const s = (status || "").toLowerCase();
   if (s === "running") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-label-13 text-green-1000">
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-label-13 text-green-1000">
         <span className="h-2 w-2 rounded-full bg-green-1000" />运行
       </span>
     );
   }
   if (s === "failed" || s === "stopped_list") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-label-13 text-red-1000">
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-label-13 text-red-1000">
         <span className="text-xs leading-none">✕</span>{status}
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 text-label-13 text-gray-900">
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-label-13 text-gray-900">
       <span className="h-2 w-2 rounded-full border border-gray-600" />
       {status || "stopped"}
     </span>

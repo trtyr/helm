@@ -8,6 +8,7 @@ pub mod api_key_repo;
 pub mod audit_repo;
 pub mod file_transfer_repo;
 pub mod host_repo;
+pub mod ir_repo;
 pub mod job_repo;
 pub mod listener_repo;
 pub mod metric_repo;

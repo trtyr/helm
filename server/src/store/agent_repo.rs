@@ -12,6 +12,7 @@ pub struct AgentRow {
     pub version: String,
     pub registered_at: chrono::DateTime<chrono::Utc>,
     pub last_heartbeat_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub elevated: bool,
 }
 
 /// 兜底下线扫描用的行：agent + host 定位。
@@ -55,6 +56,7 @@ impl AgentRepo {
 
     /// 注册（或更新）Agent，并关联（复用或新建）host。返回 host_id。
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub async fn register(
         &self,
         agent_id: &str,
@@ -65,6 +67,7 @@ impl AgentRepo {
         platform: &str,
         public_ip: &str,
         local_ips: &[String],
+        elevated: bool,
     ) -> sqlx::Result<Uuid> {
         let mut tx = self.db.pool().begin().await?;
 
@@ -109,14 +112,15 @@ impl AgentRepo {
 
         // 2. upsert agent
         sqlx::query(
-            "INSERT INTO agents (id, host_id, version, registered_at, last_heartbeat_at)
-             VALUES ($1, $2, $3, now(), now())
+            "INSERT INTO agents (id, host_id, version, registered_at, last_heartbeat_at, elevated)
+             VALUES ($1, $2, $3, now(), now(), $4)
              ON CONFLICT (id) DO UPDATE SET host_id = $2, version = $3,
-                 registered_at = now(), last_heartbeat_at = now()",
+                 registered_at = now(), last_heartbeat_at = now(), elevated = $4",
         )
         .bind(agent_id)
         .bind(host_id)
         .bind(version)
+        .bind(elevated)
         .execute(&mut *tx)
         .await?;
 
@@ -136,6 +140,7 @@ impl AgentRepo {
         platform: &str,
         public_ip: &str,
         local_ips: &[String],
+        elevated: bool,
     ) -> sqlx::Result<()> {
         let mut tx = self.db.pool().begin().await?;
 
@@ -156,14 +161,15 @@ impl AgentRepo {
 
         // upsert agent
         sqlx::query(
-            "INSERT INTO agents (id, host_id, version, registered_at, last_heartbeat_at)
-             VALUES ($1, $2, $3, now(), now())
+            "INSERT INTO agents (id, host_id, version, registered_at, last_heartbeat_at, elevated)
+             VALUES ($1, $2, $3, now(), now(), $4)
              ON CONFLICT (id) DO UPDATE SET host_id = $2, version = $3,
-                 registered_at = now(), last_heartbeat_at = now()",
+                 registered_at = now(), last_heartbeat_at = now(), elevated = $4",
         )
         .bind(agent_id)
         .bind(host_id)
         .bind(version)
+        .bind(elevated)
         .execute(&mut *tx)
         .await?;
 
@@ -202,7 +208,7 @@ impl AgentRepo {
     /// 取 host 下最近注册的一个 agent（主机列表合并展示 Agent 标识/版本用）。
     pub async fn first_by_host(&self, host_id: Uuid) -> sqlx::Result<Option<AgentRow>> {
         sqlx::query_as::<_, AgentRow>(
-            "SELECT id, host_id, version, registered_at, last_heartbeat_at
+            "SELECT id, host_id, version, registered_at, last_heartbeat_at, elevated
              FROM agents WHERE host_id = $1 ORDER BY registered_at DESC LIMIT 1",
         )
         .bind(host_id)
@@ -224,7 +230,7 @@ impl AgentRepo {
     /// 列出所有 agent（按注册时间倒序）。
     pub async fn list_all(&self) -> sqlx::Result<Vec<AgentRow>> {
         sqlx::query_as::<_, AgentRow>(
-            "SELECT id, host_id, version, registered_at, last_heartbeat_at
+            "SELECT id, host_id, version, registered_at, last_heartbeat_at, elevated
              FROM agents ORDER BY registered_at DESC",
         )
         .fetch_all(self.db.pool())
@@ -234,7 +240,7 @@ impl AgentRepo {
     /// 按 agent_id 查行。
     pub async fn get(&self, agent_id: &str) -> sqlx::Result<Option<AgentRow>> {
         sqlx::query_as::<_, AgentRow>(
-            "SELECT id, host_id, version, registered_at, last_heartbeat_at
+            "SELECT id, host_id, version, registered_at, last_heartbeat_at, elevated
              FROM agents WHERE id = $1",
         )
         .bind(agent_id)
@@ -250,4 +256,30 @@ impl AgentRepo {
             .await?;
         Ok(())
     }
+}
+
+impl AgentRepo {
+/// 掉线期间挂起的下线/注销操作。
+pub async fn mark_pending_offline(&self, agent_id: &str, action: &str) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO agent_pending_offline (agent_id, action) VALUES ($1, $2)
+         ON CONFLICT (agent_id) DO UPDATE SET action = EXCLUDED.action, created_at = now()",
+    )
+    .bind(agent_id)
+    .bind(action)
+    .execute(self.db.pool())
+    .await?;
+    Ok(())
+}
+
+/// 取出并清除挂起操作（重连瞬间调用）。
+pub async fn take_pending_offline(&self, agent_id: &str) -> sqlx::Result<Option<String>> {
+    let row: Option<(String,)> = sqlx::query_as(
+        "DELETE FROM agent_pending_offline WHERE agent_id = $1 RETURNING action",
+    )
+    .bind(agent_id)
+    .fetch_optional(self.db.pool())
+    .await?;
+    Ok(row.map(|r| r.0))
+}
 }

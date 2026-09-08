@@ -76,6 +76,17 @@ pub async fn metrics_stream(
     Ok(ws.on_upgrade(move |socket| handle_stream(socket, state, "metrics".to_string())))
 }
 
+/// 内存扫描实时流：GET /api/v1/ir/memscan/{id}/stream?token=
+pub async fn memscan_stream(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(q): Query<StreamQuery>,
+    ws: WebSocketUpgrade,
+) -> Result<impl IntoResponse, Error> {
+    verify_token(&state, &q.token).await?;
+    Ok(ws.on_upgrade(move |socket| handle_stream(socket, state, format!("memscan:{id}"))))
+}
+
 /// 通知实时流：GET /api/v1/notifications/stream?token=（决策 009：系统内小卡片推送）
 pub async fn notifications_stream(
     State(state): State<AppState>,

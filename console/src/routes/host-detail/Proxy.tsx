@@ -3,7 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, X } from "lucide-react";
 import type { components } from "../../api/schema";
-import { api } from "../../api/client";
+import { api, pickAgent } from "../../api/client";
 import { toast } from "../../lib/toast";
 
 type HostView = components["schemas"]["HostView"];
@@ -28,7 +28,7 @@ export default function Proxy() {
     queryFn: () => api<{ agents: Agent[] }>("/api/v1/agents"),
     refetchInterval: 30_000,
   });
-  const agent = (agentsQuery.data?.agents ?? []).find((a) => a.host_id === host.id);
+  const agent = pickAgent(agentsQuery.data?.agents ?? [], host.id);
 
   const listQuery = useQuery({
     queryKey: ["proxies"],

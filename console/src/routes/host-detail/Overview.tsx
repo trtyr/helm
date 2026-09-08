@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useOutletContext, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { FolderOpen, SquareTerminal } from "lucide-react";
@@ -47,6 +48,32 @@ export default function Overview() {
     .filter((j) => j.host_id === host.id)
     .slice(0, 5);
 
+  const [evidenceBusy, setEvidenceBusy] = useState(false);
+  const agent = (agentsQuery.data?.agents ?? []).find((a) => a.host_id === host.id);
+
+  const downloadEvidence = async () => {
+    if (!agentsQuery.data) return;
+    setEvidenceBusy(true);
+    try {
+      const r = await fetch("/api/v1/ir/evidence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("helm-console.token")}` },
+        body: JSON.stringify({ agent_id: agent?.id }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const blob = await r.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = (r.headers.get("content-disposition") ?? "").match(/filename="([^"]+)"/)?.[1] ?? "evidence.json";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      alert(`证据包导出失败: ${(e as Error).message}`);
+    } finally {
+      setEvidenceBusy(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-6">
       {/* 快捷入口 */}
@@ -58,6 +85,15 @@ export default function Overview() {
           <SquareTerminal size={15} strokeWidth={1.5} />
           打开终端
         </Link>
+
+        <button
+          type="button"
+          disabled={!host.online || evidenceBusy}
+          onClick={downloadEvidence}
+          className="flex h-9 items-center gap-2 rounded-md border border-gray-500 px-4 text-label-14 text-gray-900 transition-colors duration-150 hover:bg-gray-200 disabled:opacity-40"
+        >
+          {evidenceBusy ? "收集证据中…" : "导出证据包"}
+        </button>
         <Link
           to={`/hosts/${host.id}/files`}
           className="flex h-9 items-center gap-2 rounded-md border border-gray-500 px-4 text-label-14 transition-colors duration-150 hover:bg-gray-200"

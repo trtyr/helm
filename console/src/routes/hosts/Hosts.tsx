@@ -27,6 +27,40 @@ export default function Hosts() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchCmd, setBatchCmd] = useState("cmd");
+  const [batchArgs, setBatchArgs] = useState("/c tasklist");
+  const [batchResult, setBatchResult] = useState<{ agent_id: string; job_id?: string; error?: string }[]>([]);
+
+  const batchMutation = useMutation({
+    mutationFn: () =>
+      api<{ total: number; jobs: { agent_id: string; job_id?: string; error?: string }[] }>(
+        "/api/v1/exec/batch",
+        {
+          method: "POST",
+          body: {
+            agent_ids: [...selected],
+            command: batchCmd.trim(),
+            args: batchArgs.split(/\s+/).filter(Boolean),
+          },
+        },
+      ),
+    onSuccess: (r) => {
+      setBatchResult(r.jobs ?? []);
+      toast(`已下发 ${r.total} 台`, "success");
+    },
+    onError: (e) => toast(e.message, "error"),
+  });
+
+  const toggleSel = (id: string) => {
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  };
   const [tag, setTag] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<HostView | null>(null);
@@ -98,7 +132,18 @@ export default function Hosts() {
       <div className="overflow-hidden rounded-lg border border-gray-400 bg-background-100">
         {/* 工具行 */}
         <div className="flex items-center gap-2 border-b border-gray-400 px-4 py-2">
-          {allTags.length > 0 && (
+          <button
+          type="button"
+          disabled={selected.size === 0}
+          onClick={() => {
+            setBatchResult([]);
+            setBatchOpen(true);
+          }}
+          className="h-8 rounded-md border border-gray-500 px-3 text-label-13 text-gray-900 hover:bg-gray-200 disabled:opacity-40"
+        >
+          批量执行（已选 {selected.size}）
+        </button>
+        {allTags.length > 0 && (
             <select
               value={tag ?? ""}
               onChange={(e) => {
@@ -173,6 +218,21 @@ export default function Hosts() {
           <table className="w-full text-left">
             <thead>
               <tr className="border-b border-gray-400 text-label-13 text-gray-900">
+                <th className="w-10 px-3 py-2.5">
+                  <input
+                    type="checkbox"
+                    aria-label="全选"
+                    checked={rows.length > 0 && rows.every((h) => selected.has(h.agent_id ?? ""))}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelected(new Set(rows.map((h) => h.agent_id ?? "").filter(Boolean)));
+                      } else {
+                        setSelected(new Set());
+                      }
+                    }}
+                    className="h-3.5 w-3.5 accent-blue-1000"
+                  />
+                </th>
                 <th className="w-14 px-4 py-2.5 font-normal">状态</th>
                 <th className="px-4 py-2.5 font-normal">主机</th>
                 <th className="px-4 py-2.5 font-normal">心跳</th>
@@ -195,12 +255,33 @@ export default function Hosts() {
                     className="group cursor-pointer border-b border-gray-400/60 transition-colors duration-150 last:border-0 hover:bg-gray-100"
                   >
                     <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        aria-label={`选择 ${h.hostname}`}
+                        checked={!!h.agent_id && selected.has(h.agent_id)}
+                        disabled={!h.agent_id}
+                        onChange={() => h.agent_id && toggleSel(h.agent_id)}
+                        className="h-3.5 w-3.5 accent-blue-1000"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
                       <StatusDot online={!!h.online} stale={h.stale} />
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-label-14">{h.hostname}</div>
-                      <div className="mt-0.5 font-mono text-label-12 text-gray-900">
-                        {h.agent_id ? `${h.agent_id} · v${h.agent_version ?? "?"}` : "未注册 Agent"}
+                      <div className="mt-0.5 flex items-center gap-1.5 font-mono text-label-12 text-gray-900">
+                        <span>
+                          {h.agent_id ? `${h.agent_id} · v${h.agent_version ?? "?"}` : "未注册 Agent"}
+                        </span>
+                        {h.agent_elevated != null && (
+                          <span
+                            className={`whitespace-nowrap rounded px-1 py-px text-label-12 ${
+                              h.agent_elevated ? "bg-green-1000/10 text-green-1000" : "bg-gray-200 text-gray-900"
+                            }`}
+                          >
+                            {h.agent_elevated ? "管理员" : "普通"}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td
@@ -342,6 +423,63 @@ export default function Hosts() {
         submitting={deleteMutation.isPending}
       />
       <AgentGenerateDrawer open={generating} onClose={() => setGenerating(false)} />
+      {/* 批量执行对话框 */}
+      {batchOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <button
+            type="button"
+            aria-label="关闭"
+            onClick={() => setBatchOpen(false)}
+            className="absolute inset-0 bg-black/40"
+          />
+          <div className="relative z-10 flex w-[520px] flex-col gap-4 rounded-xl border border-gray-400 bg-background-100 p-6">
+            <h2 className="text-heading-16">批量执行命令（{selected.size} 台）</h2>
+            <div className="flex items-center gap-2">
+              <span className="w-16 text-label-13 text-gray-900">命令</span>
+              <input
+                value={batchCmd}
+                onChange={(e) => setBatchCmd(e.target.value)}
+                className="h-8 flex-1 rounded-md border border-gray-400 bg-gray-100 px-2 font-mono text-label-13 outline-none hover:border-gray-500"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-16 text-label-13 text-gray-900">参数</span>
+              <input
+                value={batchArgs}
+                onChange={(e) => setBatchArgs(e.target.value)}
+                className="h-8 flex-1 rounded-md border border-gray-400 bg-gray-100 px-2 font-mono text-label-13 outline-none hover:border-gray-500"
+              />
+            </div>
+            {batchResult.length > 0 && (
+              <div className="max-h-40 overflow-y-auto rounded-md border border-gray-400 bg-gray-100 p-2 font-mono text-label-12">
+                {batchResult.map((r) => (
+                  <div key={r.agent_id} className={r.error ? "text-red-1000" : "text-green-1000"}>
+                    {r.agent_id}: {r.job_id ? `job ${r.job_id.slice(0, 8)}…` : r.error}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setBatchOpen(false)}
+                className="h-8 rounded-md border border-gray-500 px-4 text-label-14 hover:bg-gray-200"
+              >
+                关闭
+              </button>
+              <button
+                type="button"
+                disabled={batchMutation.isPending}
+                onClick={() => batchMutation.mutate()}
+                className="h-8 rounded-md bg-gray-700 px-4 text-label-14 text-white hover:bg-gray-800 disabled:opacity-50"
+              >
+                {batchMutation.isPending ? "下发中…" : "全部下发"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+
   );
 }

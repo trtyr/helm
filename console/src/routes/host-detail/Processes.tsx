@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { RefreshCw, Search, X } from "lucide-react";
+import { ChevronDown, ChevronRight, RefreshCw, Search, X } from "lucide-react";
 import type { components } from "../../api/schema";
-import { api } from "../../api/client";
+import { api, pickAgent } from "../../api/client";
 import { formatDateTime, formatUptime } from "../../lib/format";
 import { humanSize } from "../../lib/paths";
 import { toast } from "../../lib/toast";
@@ -49,7 +49,95 @@ const COLUMNS: {
   { key: "actions", label: "", align: "text-right", sortable: false, width: "w-px" },
 ];
 
-/** 进程监控（Process Hacker 风格：全维排序/搜索/自动刷新/负载着色/单进程详情抽屉）。 */
+// ---------------------------------------------------------------------------
+// 应急：异常父子关系检测（对齐 EDR 的常见检测点，保持高信号、低误报）
+// ---------------------------------------------------------------------------
+
+const RX_OFFICE = /^(winword|excel|powerpnt|outlook|onenote)\.exe$/i;
+const RX_BROWSER = /^(chrome|msedge|firefox|brave|opera)\.exe$/i;
+const RX_PDF = /^(acrobat|acrord32|foxit|sumatrapdf)\.exe$/i;
+const RX_INTERP = /^(cmd|powershell|pwsh|wscript|cscript|mshta|rundll32|regsvr32|msbuild|installutil|certutil|bitsadmin|curl)\.exe$/i;
+
+/** 返回异常规则名（无异常返回 null）。 */
+export function suspiciousPair(parent: string, child: string): string | null {
+  const p = (parent || "").toLowerCase();
+  const c = (child || "").toLowerCase();
+  if (!p || !c) return null;
+  if (p === "lsass.exe") return "LSASS 派生进程（凭据窃取典型行为）";
+  if (p === "smss.exe" && !/^(csrss|wininit|smss)\.exe$/.test(c)) return "SMSS 异常子进程";
+  if (p === "services.exe" && RX_INTERP.test(c)) return "服务管理器派生解释器";
+  if ((RX_OFFICE.test(p) || RX_BROWSER.test(p) || RX_PDF.test(p)) && RX_INTERP.test(c))
+    return "办公/浏览器派生解释器（宏或网页挂马典型链）";
+  return null;
+}
+
+/** 树形节点：进程 + 深度。 */
+interface TreeRow {
+  p: ProcessInfo;
+  depth: number;
+  hasChildren: boolean;
+}
+
+/**
+ * 由平铺列表构建进程树行序（深度优先、兄弟按名称排序）。
+ * 父进程不在快照中的进程视为根；cycled/孤儿防环。
+ */
+export function buildTreeRows(procs: ProcessInfo[], collapsed: Set<number>, keepAncestorsOf?: Set<number>): TreeRow[] {
+  const byPid = new Map<number, ProcessInfo>();
+  for (const p of procs) if (p.pid != null) byPid.set(p.pid, p);
+  const children = new Map<number, ProcessInfo[]>();
+  const roots: ProcessInfo[] = [];
+  for (const p of procs) {
+    const parent = p.parent_pid ?? 0;
+    if (parent !== p.pid && byPid.has(parent)) {
+      const list = children.get(parent) ?? [];
+      list.push(p);
+      children.set(parent, list);
+    } else {
+      roots.push(p);
+    }
+  }
+  const byName = (a: ProcessInfo, b: ProcessInfo) => (a.name ?? "").localeCompare(b.name ?? "");
+  for (const list of children.values()) list.sort(byName);
+  roots.sort(byName);
+
+  const rows: TreeRow[] = [];
+  const visited = new Set<number>();
+  const pushTree = (p: ProcessInfo, depth: number) => {
+    if (visited.has(p.pid!)) return; // 防环
+    visited.add(p.pid!);
+    const kids = children.get(p.pid!) ?? [];
+    const keep = !keepAncestorsOf || keepAncestorsOf.has(p.pid!) || kids.some((k) => keepAncestorsOf.has(k.pid!));
+    if (!keep) return;
+    rows.push({ p, depth, hasChildren: (children.get(p.pid!)?.length ?? 0) > 0 });
+    const isCollapsed = collapsed.has(p.pid!);
+    if (!isCollapsed) {
+      for (const k of [...(children.get(p.pid!) ?? [])].sort(byName)) {
+        pushTree(k, depth + 1);
+      }
+    } else {
+      // 折叠的子树全部标记已访问，避免被孤儿兜底重新收录
+      // （不能用 visited.has 早退——起始节点自身已被 pushTree 标记，会整棵漏标）
+      const markSubtree = (pid: number, path: Set<number>) => {
+        if (path.has(pid)) return;
+        path.add(pid);
+        visited.add(pid);
+        for (const k of children.get(pid) ?? []) markSubtree(k.pid, path);
+      };
+      markSubtree(p.pid!, new Set());
+    }
+  };
+  for (const r of [...roots].sort(byName)) pushTree(r, 0);
+  // 环引用兜底：DFS 不可达的进程平铺追加，保证全部可见
+  const orphans = procs.filter((p) => !visited.has(p.pid!)).sort(byName);
+  for (const p of orphans) pushTree(p, 0);
+  return rows;
+}
+
+/**
+ * 进程监控（Process Hacker 风格：平铺排序视图 + 应急进程树视图，
+ * 全维搜索/自动刷新/负载着色/单进程详情抽屉/异常父子高亮）。
+ */
 export default function Processes() {
   const { host } = useOutletContext<Ctx>();
   const [search, setSearch] = useState("");
@@ -57,13 +145,15 @@ export default function Processes() {
   const [interval, setIntervalOpt] = useState<IntervalOpt>(5_000);
   const [killTarget, setKillTarget] = useState<ProcessInfo | null>(null);
   const [detail, setDetail] = useState<ProcessInfo | null>(null);
+  const [view, setView] = useState<"flat" | "tree">("tree");
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
 
   const agentsQuery = useQuery({
     queryKey: ["agents"],
     queryFn: () => api<{ agents: Agent[] }>("/api/v1/agents"),
     refetchInterval: 30_000,
   });
-  const agent = (agentsQuery.data?.agents ?? []).find((a) => a.host_id === host.id);
+  const agent = pickAgent(agentsQuery.data?.agents ?? [], host.id);
 
   const listQuery = useQuery({
     queryKey: ["processes", agent?.id],
@@ -100,18 +190,46 @@ export default function Processes() {
     },
   });
 
-  // 搜索 + 全维排序（CPU 降序默认）
-  const filtered = useMemo(() => {
+  const all = listQuery.data?.processes ?? [];
+  const procByName = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const p of all) if (p.pid != null) m.set(p.pid, p.name ?? "");
+    return m;
+  }, [all]);
+
+  // 搜索命中集合（树模式下保留祖先链）
+  const matchSet = useMemo(() => {
     const q = search.trim().toLowerCase();
-    let list = listQuery.data?.processes ?? [];
-    if (q) {
-      list = list.filter(
-        (p) =>
-          (p.name ?? "").toLowerCase().includes(q) ||
-          String(p.pid ?? "").startsWith(q) ||
-          (p.user ?? "").toLowerCase().includes(q),
-      );
+    if (!q) return null;
+    const matched = new Set<number>();
+    for (const p of all) {
+      if (
+        (p.name ?? "").toLowerCase().includes(q) ||
+        String(p.pid ?? "").startsWith(q) ||
+        (p.user ?? "").toLowerCase().includes(q)
+      ) {
+        matched.add(p.pid!);
+      }
     }
+    // 补齐祖先链
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const p of all) {
+        if (matched.has(p.pid!) || !p.parent_pid) continue;
+        if (matched.has(p.parent_pid)) {
+          matched.add(p.pid!);
+          grew = true;
+        }
+      }
+    }
+    return matched;
+  }, [all, search]);
+
+  // 平铺视图：搜索 + 全维排序（CPU 降序默认）
+  const filtered = useMemo(() => {
+    let list = listQuery.data?.processes ?? [];
+    if (matchSet) list = list.filter((p) => matchSet.has(p.pid!));
     const dir = sort.desc ? -1 : 1;
     return [...list].sort((a, b) => {
       switch (sort.key) {
@@ -129,11 +247,23 @@ export default function Processes() {
           return ((a.pid ?? 0) - (b.pid ?? 0)) * dir;
       }
     });
-  }, [listQuery.data, search, sort]);
+  }, [listQuery.data, sort, matchSet]);
 
-  const all = listQuery.data?.processes ?? [];
-  // 系统级负载（telemetry）：进程 RSS 合计会把共享页重复计数（Linux 上远超物理内存），
-  // 顶部资源条以系统口径为准；进程口径仅作参考副行。
+  // 树视图行
+  const treeRows = useMemo(() => {
+    const procs = matchSet ? all.filter((p) => matchSet.has(p.pid!)) : all;
+    return buildTreeRows(procs, collapsed, matchSet ?? undefined);
+  }, [all, collapsed, matchSet]);
+
+  const suspiciousCount = useMemo(() => {
+    let n = 0;
+    for (const p of all) {
+      const parent = p.parent_pid ? (procByName.get(p.parent_pid) ?? "") : "";
+      if (suspiciousPair(parent, p.name ?? "")) n += 1;
+    }
+    return n;
+  }, [all, procByName]);
+
   const metricsQuery = useQuery({
     queryKey: ["metrics", host.id],
     queryFn: () => api<{ metrics: components["schemas"]["Metric"][] }>(
@@ -155,6 +285,17 @@ export default function Processes() {
   const memRssSum = all.reduce((sum, p) => sum + (p.mem_bytes ?? 0), 0);
   const now = listQuery.data?.at ?? 0;
   const offline = !host.online;
+  const isTree = view === "tree";
+  const displayRows: TreeRow[] | null = isTree ? treeRows : null;
+
+  const toggleCollapse = (pid: number) => {
+    setCollapsed((s) => {
+      const n = new Set(s);
+      if (n.has(pid)) n.delete(pid);
+      else n.add(pid);
+      return n;
+    });
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -198,6 +339,51 @@ export default function Processes() {
             </button>
           )}
         </div>
+        {/* 树形/平铺切换 */}
+        <div className="flex h-8 items-center overflow-hidden rounded-md border border-gray-400">
+          {(["tree", "flat"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setView(v)}
+              className={`h-full px-3 text-label-13 transition-colors duration-150 ${
+                view === v ? "bg-gray-700 text-white" : "bg-gray-100 text-gray-900 hover:bg-gray-200"
+              }`}
+            >
+              {v === "tree" ? "进程树" : "平铺"}
+            </button>
+          ))}
+        </div>
+        {isTree && (
+          <>
+            {suspiciousCount > 0 && (
+              <span
+                className="whitespace-nowrap rounded bg-red-1000/10 px-1.5 py-0.5 text-label-12 text-red-1000"
+                title="父子关系命中应急检测规则（办公/浏览器派生解释器、LSASS 派生等）"
+              >
+                ⚠ 异常父子 {suspiciousCount}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setCollapsed(new Set())}
+              className="h-8 rounded-md border border-gray-400 px-2 text-label-12 text-gray-900 hover:bg-gray-200"
+            >
+              全部展开
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const allPids = new Set<number>();
+                for (const p of all) if (p.pid) allPids.add(p.pid);
+                setCollapsed(allPids);
+              }}
+              className="h-8 rounded-md border border-gray-400 px-2 text-label-12 text-gray-900 hover:bg-gray-200"
+            >
+              全部折叠
+            </button>
+          </>
+        )}
         <span className="flex-1" />
         <span className="font-mono text-label-12 text-gray-900">
           {listQuery.data ? `快照 ${new Date(listQuery.data.at).toLocaleTimeString()}` : ""}
@@ -233,15 +419,15 @@ export default function Processes() {
                 <th
                   key={key}
                   className={`${width} whitespace-nowrap px-3 py-2.5 font-normal ${align} ${
-                    sortable ? "cursor-pointer select-none hover:text-gray-1000" : ""
+                    sortable && !isTree ? "cursor-pointer select-none hover:text-gray-1000" : ""
                   } ${key === "name" ? "max-w-0" : ""}`}
                   onClick={
-                    sortable
+                    sortable && !isTree
                       ? () => setSort((s) => ({ key: key as SortKey, desc: s.key === key && !s.desc }))
                       : undefined
                   }
                 >
-                  {label} {sort.key === key && (sort.desc ? "↓" : "↑")}
+                  {label} {sort.key === key && !isTree && (sort.desc ? "↓" : "↑")}
                 </th>
               ))}
             </tr>
@@ -253,7 +439,7 @@ export default function Processes() {
                   加载进程列表…
                 </td>
               </tr>
-            ) : filtered.length === 0 ? (
+            ) : (isTree ? treeRows : filtered).length === 0 ? (
               <tr>
                 <td colSpan={9} className="px-4 py-10 text-center text-label-13 text-gray-900">
                   {search ? (
@@ -268,68 +454,44 @@ export default function Processes() {
                   )}
                 </td>
               </tr>
-            ) : (
-              filtered.slice(0, 200).map((p) => {
-                const cpu = p.cpu_percent ?? 0;
-                const mem = p.mem_bytes ?? 0;
+            ) : isTree ? (
+              displayRows!.map(({ p, depth, hasChildren }) => {
+                const parent = p.parent_pid ? (procByName.get(p.parent_pid) ?? "") : "";
+                const rule = suspiciousPair(parent, p.name ?? "");
+                const isCollapsed = collapsed.has(p.pid!);
                 return (
-                  <tr
-                    key={`${p.pid}-${p.name}`}
+                  <ProcessRow
+                    key={`t-${p.pid}-${p.name}`}
+                    p={p}
+                    offline={offline}
+                    suspicious={rule}
+                    indent={depth}
+                    expandable={hasChildren}
+                    expanded={!isCollapsed}
+                    onToggle={() => toggleCollapse(p.pid!)}
                     onClick={() => setDetail(p)}
-                    className={`group cursor-pointer border-b border-gray-400/60 transition-colors duration-150 last:border-0 hover:bg-gray-100 ${
-                      cpu > 50 ? "bg-amber-1000/5" : ""
-                    }`}
-                  >
-                    <td className="whitespace-nowrap px-3 py-2 font-mono text-label-13 text-gray-900 tabular-nums">{p.pid}</td>
-                    <td className="max-w-0 px-3 py-2">
-                      <span className="block truncate text-label-14" title={p.cmd || p.name}>
-                        {p.name}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-label-13 tabular-nums">
-                      <span className={cpu > 50 ? "font-semibold text-amber-1000" : cpu > 5 ? "text-gray-1000" : "text-gray-900"}>
-                        {cpu.toFixed(1)}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-label-13 tabular-nums">
-                      <span className={mem > 500 * 1024 * 1024 ? "text-amber-1000" : "text-gray-1000"}>
-                        {humanSize(mem)}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-label-13 text-gray-900 tabular-nums">
-                      {p.virt_mem_bytes ? humanSize(p.virt_mem_bytes) : "—"}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-label-12 text-gray-900">{p.status || "—"}</td>
-                    <td className="max-w-32 truncate whitespace-nowrap px-3 py-2 text-label-13 text-gray-900" title={p.user}>
-                      {p.user || "—"}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-label-13 text-gray-900 tabular-nums">
-                      {p.start_time_unix ? formatUptime(p.start_time_unix, now) : "—"}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right">
-                      <button
-                        type="button"
-                        aria-label={`结束 ${p.name ?? p.pid}`}
-                        disabled={offline}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setKillTarget(p);
-                        }}
-                        className="rounded border border-gray-400 px-1.5 py-0.5 text-label-12 text-gray-900 opacity-0 transition-all duration-150 hover:border-red-1000 hover:text-red-1000 group-hover:opacity-100 disabled:opacity-30"
-                      >
-                        结束
-                      </button>
-                    </td>
-                  </tr>
+                    onKill={() => setKillTarget(p)}
+                  />
                 );
               })
+            ) : (
+              filtered.slice(0, 200).map((p) => (
+                <ProcessRow
+                  key={`f-${p.pid}-${p.name}`}
+                  p={p}
+                  offline={offline}
+                  onClick={() => setDetail(p)}
+                  onKill={() => setKillTarget(p)}
+                />
+              ))
             )}
           </tbody>
         </table>
         <div className="flex h-9 items-center justify-between border-t border-gray-400 px-4 font-mono text-label-13 text-gray-900">
           <span>
-            共 {all.length} 个进程{search && filtered.length !== all.length ? ` · 匹配 ${filtered.length}` : ""}
-            {filtered.length > 200 ? " · 显示前 200" : ""}
+            共 {all.length} 个进程{search && !isTree && filtered.length !== all.length ? ` · 匹配 ${filtered.length}` : ""}
+            {isTree ? ` · 树显示 ${treeRows.length}` : ""}
+            {filtered.length > 200 && !isTree ? " · 显示前 200" : ""}
           </span>
           <span>CPU 合计 {cpuTotal.toFixed(1)}%（单核口径）· RSS 合计 {humanSize(memRssSum)}</span>
         </div>
@@ -339,6 +501,7 @@ export default function Processes() {
       {detail && (
         <ProcessDetail
           p={detail}
+          parentName={detail.parent_pid ? (procByName.get(detail.parent_pid) ?? "") : ""}
           killing={killMutation.isPending}
           onClose={() => setDetail(null)}
           onKill={() => detail && killMutation.mutate(detail.pid!)}
@@ -422,24 +585,126 @@ function LoadCard({
   );
 }
 
-/** 单进程详情（只读属性表 + 终止操作）。 */
+/** 单行（平铺/树共用）：树模式带缩进、折叠箭头与异常父子标记。 */
+function ProcessRow({
+  p,
+  offline,
+  suspicious,
+  indent = 0,
+  expandable = false,
+  expanded = true,
+  onToggle,
+  onClick,
+  onKill,
+}: {
+  p: ProcessInfo;
+  offline: boolean;
+  suspicious?: string | null;
+  indent?: number;
+  expandable?: boolean;
+  expanded?: boolean;
+  onToggle?: () => void;
+  onClick?: () => void;
+  onKill?: () => void;
+}) {
+  const cpu = p.cpu_percent ?? 0;
+  const mem = p.mem_bytes ?? 0;
+  return (
+    <tr
+      onClick={onClick}
+      className={`group cursor-pointer border-b border-gray-400/60 transition-colors duration-150 last:border-0 hover:bg-gray-100 ${
+        cpu > 50 ? "bg-amber-1000/5" : ""
+      }`}
+      title={suspicious ?? undefined}
+    >
+      <td className="whitespace-nowrap px-3 py-2 font-mono text-label-13 text-gray-900 tabular-nums">{p.pid}</td>
+      <td className="max-w-0 px-3 py-2">
+        <div className="flex items-center gap-1" style={{ paddingLeft: indent * 18 }}>
+          {expandable ? (
+            <button
+              type="button"
+              aria-label={expanded ? "折叠" : "展开"}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggle?.();
+              }}
+              className="shrink-0 rounded p-0.5 text-gray-900 hover:bg-gray-200"
+            >
+              {expanded ? <ChevronDown size={13} strokeWidth={1.5} /> : <ChevronRight size={13} strokeWidth={1.5} />}
+            </button>
+          ) : (
+            <span className="w-[19px] shrink-0" />
+          )}
+          {suspicious && (
+            <span className="shrink-0 rounded bg-red-1000/10 px-1 py-px text-label-12 font-medium text-red-1000" title={suspicious}>
+              ⚠
+            </span>
+          )}
+          <span className="block truncate text-label-14" title={p.cmd || p.name}>
+            {p.name}
+          </span>
+        </div>
+      </td>
+      <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-label-13 tabular-nums">
+        <span className={cpu > 50 ? "font-semibold text-amber-1000" : cpu > 5 ? "text-gray-1000" : "text-gray-900"}>
+          {cpu.toFixed(1)}
+        </span>
+      </td>
+      <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-label-13 tabular-nums">
+        <span className={mem > 500 * 1024 * 1024 ? "text-amber-1000" : "text-gray-1000"}>
+          {humanSize(mem)}
+        </span>
+      </td>
+      <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-label-13 text-gray-900 tabular-nums">
+        {p.virt_mem_bytes ? humanSize(p.virt_mem_bytes) : "—"}
+      </td>
+      <td className="whitespace-nowrap px-3 py-2 text-label-12 text-gray-900">{p.status || "—"}</td>
+      <td className="max-w-32 truncate whitespace-nowrap px-3 py-2 text-label-13 text-gray-900" title={p.user}>
+        {p.user || "—"}
+      </td>
+      <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-label-13 text-gray-900 tabular-nums">
+        {p.start_time_unix ? formatUptime(p.start_time_unix, Date.now() / 1000) : "—"}
+      </td>
+      <td className="whitespace-nowrap px-3 py-2 text-right">
+        <button
+          type="button"
+          aria-label={`结束 ${p.name ?? p.pid}`}
+          disabled={offline}
+          onClick={(e) => {
+            e.stopPropagation();
+            onKill?.();
+          }}
+          className="rounded border border-gray-400 px-1.5 py-0.5 text-label-12 text-gray-900 opacity-0 transition-all duration-150 hover:border-red-1000 hover:text-red-1000 group-hover:opacity-100 disabled:opacity-30"
+        >
+          结束
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+/** 单进程详情（只读属性表 + 终止操作 + 父进程名称）。 */
 function ProcessDetail({
   p,
+  parentName,
   killing,
   onClose,
   onKill,
 }: {
   p: ProcessInfo;
+  parentName: string;
   killing: boolean;
   onClose: () => void;
   onKill: () => void;
 }) {
+  const parentLabel = parentName ? `${p.parent_pid ?? "—"}（${parentName}）` : String(p.parent_pid ?? "—");
+  const rule = suspiciousPair(parentName, p.name ?? "");
   const rows: [string, string][] = [
     ["PID", String(p.pid ?? "—")],
     ["名称", p.name ?? "—"],
     ["状态", p.status || "—"],
     ["用户", p.user || "—"],
-    ["父进程 PID", p.parent_pid ? String(p.parent_pid) : "—"],
+    ["父进程", parentLabel],
     ["CPU", `${(p.cpu_percent ?? 0).toFixed(1)}%`],
     ["内存", humanSize(p.mem_bytes ?? 0)],
     ["虚拟内存", p.virt_mem_bytes ? humanSize(p.virt_mem_bytes) : "—"],
@@ -461,6 +726,9 @@ function ProcessDetail({
             <X size={14} strokeWidth={1.5} />
           </button>
         </div>
+        {rule && (
+          <p className="rounded-md bg-red-1000/10 px-3 py-2 text-label-13 text-red-1000">⚠ 异常父子关系：{rule}</p>
+        )}
         <dl className="flex flex-col">
           {rows.map(([k, v]) => (
             <div

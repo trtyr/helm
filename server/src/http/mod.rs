@@ -11,10 +11,13 @@ pub mod files;
 pub mod forward;
 pub mod health;
 pub mod hosts;
+pub mod ir;
+pub mod ir_ops;
 pub mod jobs;
 pub mod listeners;
 pub mod metrics;
 pub mod notifications;
+pub mod p2;
 pub mod process;
 pub mod proxies;
 pub mod services;
@@ -56,6 +59,7 @@ pub struct AppState {
     pub agent_gen: crate::application::agent_generator::AgentGenService,
     pub proxy_service: crate::application::proxy_service::ProxyService,
     pub conn_registry: ConnectionRegistry,
+    pub vt_api_key: String,
 }
 
 /// 启动 HTTP 服务（控制台 API + health）。
@@ -91,6 +95,7 @@ pub async fn serve(
         ),
         proxy_service: crate::application::proxy_service::ProxyService::new(),
         conn_registry: registry,
+        vt_api_key: config.vt_api_key.clone(),
     };
 
     // 受保护路由（需 JWT）
@@ -151,6 +156,19 @@ pub async fn serve(
         .route("/net/info", post(process::net_info))
         .route("/sys-services/list", post(process::list_sys_services))
         .route("/sys-services/action", post(process::sys_service_action))
+        .route("/ir/scan", post(ir::ir_scan))
+        .route("/ir/memscan", post(ir::mem_scan))
+        .route("/ir/memscan/stream", post(ir_ops::memscan_stream_start))
+        .route("/ir/cache", get(ir::get_cache))
+        .route("/ir/fs-timeline", post(p2::fs_timeline))
+        .route("/ir/evidence", post(p2::evidence))
+        .route("/exec/batch", post(p2::batch_exec))
+        .route("/ir/autorun-action", post(ir_ops::autorun_action))
+        .route("/ir/file-meta", post(ir_ops::file_meta))
+        .route("/ir/vt", post(ir_ops::vt_lookup))
+        .route("/ir/snapshots", post(ir_ops::create_snapshot).get(ir_ops::list_snapshots))
+        .route("/ir/snapshots/compare", post(ir_ops::compare_snapshots))
+        .route("/ir/snapshots/{id}", get(ir_ops::get_snapshot).delete(ir_ops::delete_snapshot))
         .route(
             "/proxies",
             get(proxies::list_proxies).post(proxies::create_proxy),
@@ -196,6 +214,10 @@ pub async fn serve(
         .route(
             "/api/v1/notifications/stream",
             get(stream::notifications_stream),
+        )
+        .route(
+            "/api/v1/ir/memscan/{id}/stream",
+            get(stream::memscan_stream),
         )
         .route("/api/v1/agents/cert", post(cert::issue_cert))
         .nest("/api/v1", protected)

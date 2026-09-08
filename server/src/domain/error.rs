@@ -50,15 +50,17 @@ impl Error {
         matches!(self, Error::NotConnected(_) | Error::Storage(_))
     }
 
-    /// 对外安全消息：不泄漏内部错误细节。
-    pub fn safe_message(&self) -> &'static str {
+    /// 对外安全消息：校验/连接类错误透传细节（客户端可据此修正），
+    /// 基础设施类错误保持笼统（不泄漏内部细节）。
+    pub fn safe_message(&self) -> std::borrow::Cow<'_, str> {
         match self {
-            Error::NotFound(_) => "resource not found",
-            Error::Unauthorized(_) => "unauthorized",
-            Error::Forbidden(_) => "forbidden",
-            Error::InvalidArgument(_) => "invalid request",
-            Error::NotConnected(_) => "target agent not connected",
-            Error::Storage(_) | Error::Io(_) | Error::Internal(_) => "internal server error",
+            Error::NotFound(_) => "resource not found".into(),
+            Error::Unauthorized(_) => "unauthorized".into(),
+            Error::Forbidden(_) => "forbidden".into(),
+            // InvalidArgument 的细节是服务端编写的校验提示（如"未配置 HELM_VT_API_KEY"），对客户端有用且安全
+            Error::InvalidArgument(m) => std::borrow::Cow::Borrowed(m.as_str()),
+            Error::NotConnected(m) => std::borrow::Cow::Borrowed(m.as_str()),
+            Error::Storage(_) | Error::Io(_) | Error::Internal(_) => "internal server error".into(),
         }
     }
 }

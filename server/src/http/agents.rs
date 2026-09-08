@@ -63,10 +63,15 @@ pub async fn uninstall_agent(
     Path(agent_id): Path<String>,
     Json(body): Json<UninstallBody>,
 ) -> Result<Json<Value>, Error> {
-    AgentLifecycleService::new(state.db, state.registry)
+    let delivered = AgentLifecycleService::new(state.db, state.registry)
         .uninstall(&agent_id, body.remove_binary)
         .await?;
-    Ok(Json(json!({ "ok": true })))
+    Ok(Json(json!({
+        "ok": true,
+        "delivered": delivered,
+        "deferred": !delivered,
+        "message": if delivered { String::new() } else { "agent 离线：已标记挂起，重连瞬间将自动下线".to_string() },
+    })))
 }
 
 /// 详情：GET /api/v1/agents/{id}

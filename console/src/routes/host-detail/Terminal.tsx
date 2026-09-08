@@ -3,7 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Maximize2, Plus, Settings2 } from "lucide-react";
 import type { components } from "../../api/schema";
-import { api } from "../../api/client";
+import { api, pickAgent } from "../../api/client";
 import { TerminalSession } from "./TerminalSession";
 import {
   FONT_SIZES,
@@ -34,9 +34,7 @@ export default function Terminal() {
     queryFn: () => api<{ agents: Agent[] }>("/api/v1/agents"),
     refetchInterval: 30_000,
   });
-  const agent = (agentsQuery.data?.agents ?? []).find(
-    (a) => a.host_id === host.id,
-  );
+  const agent = pickAgent(agentsQuery.data?.agents ?? [], host.id);
 
   function patchSettings(patch: Partial<{ fontSize: number; theme: TermThemeName }>) {
     setSettings((prev) => {

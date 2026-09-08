@@ -3,7 +3,7 @@ import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import type { components } from "../../api/schema";
-import { api } from "../../api/client";
+import { api, pickAgent } from "../../api/client";
 import { formatDateTime, formatDuration, relativeTime } from "../../lib/format";
 import { toast } from "../../lib/toast";
 import { intervalLabel, jobStatusMeta } from "../../lib/job";
@@ -33,7 +33,7 @@ export default function Tasks() {
     queryFn: () => api<{ agents: Agent[] }>("/api/v1/agents"),
     refetchInterval: 30_000,
   });
-  const agent = (agentsQuery.data?.agents ?? []).find((a) => a.host_id === host.id);
+  const agent = pickAgent(agentsQuery.data?.agents ?? [], host.id);
 
   const jobsQuery = useQuery({
     queryKey: ["jobs", "host", host.id],

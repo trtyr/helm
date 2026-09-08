@@ -481,6 +481,741 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ir/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 应急响应基线扫描（账户/持久化/事件日志/可疑文件，Windows） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        agent_id: string;
+                        /** @description 空 = 全部 */
+                        types?: ("accounts" | "autostart" | "events" | "suspicious_files")[];
+                    };
+                };
+            };
+            responses: {
+                /** @description 发现列表 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            findings?: components["schemas"]["IrFinding"][];
+                            error?: string | null;
+                        };
+                    };
+                };
+                400: components["responses"]["InvalidArgument"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ir/memscan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 进程内存字符串扫描（Volatility strings 简化版，需 SeDebugPrivilege） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        agent_id: string;
+                        /** @description 目标 PID；0 = 遍历全部进程（全局限额+60s 超时） */
+                        pid: number;
+                        /** @default 6 */
+                        min_len?: number;
+                        /** @description 过滤关键词（空 = 不过滤） */
+                        keyword?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 命中字符串 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            pid?: number;
+                            matches?: string[];
+                            scanned_bytes?: number;
+                            truncated?: boolean;
+                            error?: string | null;
+                            /** @description pid=0 全进程模式：枚举到的进程数 */
+                            pidsTotal?: number;
+                            /** @description 全进程模式：成功扫描的进程数 */
+                            pidsScanned?: number;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ir/memscan/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 启动流式内存扫描（返回 scanId，随后订阅 WS /ir/memscan/{id}/stream 接收增量批次） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        agent_id: string;
+                        /**
+                         * Format: uuid
+                         * @description 客户端生成，先订阅 WS 再启动
+                         */
+                        scan_id: string;
+                        /** @description 0 = 遍历全部进程 */
+                        pid: number;
+                        /** @default 6 */
+                        min_len?: number;
+                        keyword?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 扫描已启动 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            scanId?: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ir/memscan/{id}/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 内存扫描实时流（WebSocket，query 传 token） */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 升级为 WebSocket */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/exec/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 多主机批量命令下发（逐 agent 建 job，任务页跟踪） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        agent_ids: string[];
+                        command: string;
+                        args?: string[];
+                    };
+                };
+            };
+            responses: {
+                /** @description 逐 agent 结果 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            total?: number;
+                            jobs?: {
+                                agent_id?: string;
+                                job_id?: string | null;
+                                error?: string | null;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ir/evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 证据包一键收集（JSON 附件下载：进程/网络/服务/自启动/日志/可疑文件） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        agent_id: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 证据包 JSON 附件 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": Record<string, never>;
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ir/fs-timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** NTFS USN 文件时间线（按盘符 + 最近 N 小时，需管理员） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        agent_id: string;
+                        /** @default C */
+                        drive?: string;
+                        /** @default 24 */
+                        since_hours?: number;
+                        /** @default 5000 */
+                        limit?: number;
+                        keyword?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 文件活动记录 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            drive?: string;
+                            entries?: {
+                                name?: string;
+                                frn?: number;
+                                parentFrn?: number;
+                                tsUnix?: number;
+                                reason?: string;
+                            }[];
+                            totalScanned?: number;
+                            truncated?: boolean;
+                            error?: string | null;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ir/cache": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 页面缓存（最后一次扫描结果，秒开） */
+        get: {
+            parameters: {
+                query: {
+                    agent_id: string;
+                    /** @description 逗号分隔，如 autostart */
+                    types: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 缓存内容（findings 为 null = 无缓存） */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            findings?: components["schemas"]["IrFinding"][] | null;
+                            entryCount?: number;
+                            createdAt?: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ir/autorun-action": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 自启动项操作（禁用/启用/删除，AutorunsDisabled 机制） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        agent_id: string;
+                        /** @enum {string} */
+                        action: "disable" | "enable" | "delete";
+                        /** @description 扫描结果中的 opKey 操作地址 */
+                        key: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 操作结果 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok?: boolean;
+                            error?: string | null;
+                        };
+                    };
+                };
+                400: components["responses"]["InvalidArgument"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ir/file-meta": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 文件元数据按需查询（SHA256/大小/mtime） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        agent_id: string;
+                        path: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 文件元数据 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            path?: string;
+                            sha256?: string;
+                            size?: number;
+                            mtime?: string;
+                            error?: string | null;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ir/vt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** VirusTotal 查杀查询（按 SHA256，结果缓存 7 天，需 HELM_VT_API_KEY） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        sha256: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 查杀结果 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            sha256?: string;
+                            /** @description 恶意+可疑引擎数；-1 = VT 未收录 */
+                            positives?: number;
+                            total?: number;
+                            permalink?: string;
+                            cached?: boolean;
+                        };
+                    };
+                };
+                400: components["responses"]["InvalidArgument"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ir/snapshots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 快照列表 */
+        get: {
+            parameters: {
+                query: {
+                    agent_id: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 快照元数据列表 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            snapshots?: components["schemas"]["IrSnapshotMeta"][];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** 保存当前扫描为基线快照（现场扫描 autostart+registry） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        agent_id: string;
+                        label?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 快照 id */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            id?: string;
+                            entry_count?: number;
+                        };
+                    };
+                };
+                400: components["responses"]["InvalidArgument"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ir/snapshots/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 基线对比（added = 目标有基线无；removed = 基线有目标无） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        base_id: string;
+                        /**
+                         * Format: uuid
+                         * @description 与 agent_id 二选一
+                         */
+                        target_id?: string;
+                        /** @description 现场重扫作为对比目标（不入库） */
+                        agent_id?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description 对比结果 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            base?: Record<string, never>;
+                            target?: string;
+                            added?: components["schemas"]["IrFinding"][];
+                            removed?: components["schemas"]["IrFinding"][];
+                        };
+                    };
+                };
+                400: components["responses"]["InvalidArgument"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ir/snapshots/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 快照详情（含 findings 全文） */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 快照全文 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            snapshot?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        /** 删除快照 */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 删除数量 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            deleted?: number;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/proxies": {
         parameters: {
             query?: never;
@@ -2798,6 +3533,8 @@ export interface components {
             /** @description 关联 Agent 标识（最近注册的一个） */
             agent_id?: string | null;
             agent_version?: string | null;
+            /** @description 关联 Agent 是否以管理员/root 运行 */
+            agent_elevated?: boolean | null;
         };
         CreateHost: {
             hostname: string;
@@ -2820,6 +3557,8 @@ export interface components {
             platform?: string;
         };
         Agent: {
+            /** @description agent 是否以管理员/root 权限运行 */
+            elevated?: boolean;
             id?: string;
             /** Format: uuid */
             host_id?: string;
@@ -3009,6 +3748,36 @@ export interface components {
             state?: string;
             pid?: number;
             process_name?: string;
+        };
+        IrFinding: {
+            /** @description 账户 / 登录 / 服务 / 驱动 / 计划任务 / 浏览器 / 外壳 / WMI 订阅 / 映像劫持 / 认证 / 事件日志 / 可疑文件 / hosts */
+            category?: string;
+            name?: string;
+            detail?: string;
+            /** @enum {string} */
+            severity?: "info" | "warn" | "critical";
+            /** @description 关联可执行文件/DLL/脚本路径 */
+            path?: string | null;
+            /** @description 文件厂商（版本资源 CompanyName） */
+            publisher?: string | null;
+            /** @description Authenticode 签名状态（含目录签名）：verified / unsigned / invalid / unknown */
+            signState?: string | null;
+            /** @description 条目描述（服务 DisplayName / CLSID 名等） */
+            desc?: string | null;
+            /** @description 操作地址（disable/enable/delete 目标；空 = 不可操作） */
+            opKey?: string | null;
+            /** @description 是否处于 AutorunsDisabled 禁用态 */
+            disabled?: boolean | null;
+            /** @description 关联文件最后修改时间（unix 秒字符串） */
+            mtime?: string | null;
+        };
+        IrSnapshotMeta: {
+            /** Format: uuid */
+            id?: string;
+            agent_id?: string;
+            label?: string;
+            entry_count?: number;
+            created_at?: string;
         };
         ProxyView: {
             /** Format: uuid */

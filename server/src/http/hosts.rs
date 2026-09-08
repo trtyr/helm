@@ -43,6 +43,8 @@ struct HostView {
     /// 关联 Agent（最近注册的一个；无则为 null）。
     agent_id: Option<String>,
     agent_version: Option<String>,
+    /// 关联 Agent 是否以管理员/root 权限运行（无 agent 则 null）。
+    agent_elevated: Option<bool>,
 }
 
 /// 列表查询参数（可选标签过滤 + 分页）。
@@ -122,6 +124,7 @@ pub async fn list_hosts(
             stale,
             agent_id: agent.as_ref().map(|a| a.id.clone()),
             agent_version: agent.as_ref().map(|a| a.version.clone()),
+            agent_elevated: agent.as_ref().map(|a| a.elevated),
         });
     }
 

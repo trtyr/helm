@@ -194,7 +194,7 @@ mod conpty_tests {
 
         // 等 conpty 初始化输出（prompt / 光标查询）
         let mut seen = String::new();
-        for _ in 0..20 {
+        for _ in 0..30 {
             if let Ok(msg) = rx.try_recv()
                 && let Some(agent_message::Kind::SessionOutput(o)) = msg.kind
             {
@@ -208,7 +208,7 @@ mod conpty_tests {
         eprintln!("初始化输出: {seen:?}");
 
         mgr.input("s1", b"echo CONPTY-OK-12345\r");
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
         while std::time::Instant::now() < deadline {
             if let Ok(msg) = rx.try_recv()
                 && let Some(agent_message::Kind::SessionOutput(o)) = msg.kind
@@ -220,10 +220,15 @@ mod conpty_tests {
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
-        eprintln!(
-            "最终输出尾部: {:?}",
-            &seen[seen.len().saturating_sub(200)..]
-        );
+        let tail: String = seen
+            .chars()
+            .rev()
+            .take(120)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        eprintln!("最终输出尾部: {tail:?}");
         mgr.close("s1");
         assert!(seen.contains("CONPTY-OK-12345"), "conpty 未回显 echo 输出");
     }

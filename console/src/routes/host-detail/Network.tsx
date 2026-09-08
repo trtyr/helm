@@ -3,7 +3,7 @@ import { useOutletContext, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCw, Search, X } from "lucide-react";
 import type { components } from "../../api/schema";
-import { api } from "../../api/client";
+import { api, pickAgent } from "../../api/client";
 import { ifaceKind } from "../../lib/net";
 import { toast } from "../../lib/toast";
 
@@ -34,7 +34,7 @@ export default function Network() {
     queryFn: () => api<{ agents: Agent[] }>("/api/v1/agents"),
     refetchInterval: 30_000,
   });
-  const agent = (agentsQuery.data?.agents ?? []).find((a) => a.host_id === host.id);
+  const agent = pickAgent(agentsQuery.data?.agents ?? [], host.id);
 
   const netQuery = useQuery({
     queryKey: ["net-info", agent?.id],

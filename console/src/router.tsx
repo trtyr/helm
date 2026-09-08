@@ -90,6 +90,32 @@ export const router = createBrowserRouter([
                 },
               },
               {
+                path: "autostart",
+                lazy: async () => {
+                  const { default: Autostart } = await import("./routes/host-detail/Autostart");
+                  return { Component: Autostart };
+                },
+              },
+              {
+                // 注册表页已撤除（内容是自启动项页的子集），旧链接重定向
+                path: "registry",
+                element: <Navigate to="../autostart" replace />,
+              },
+              {
+                path: "syslog",
+                lazy: async () => {
+                  const { default: Syslog } = await import("./routes/host-detail/Syslog");
+                  return { Component: Syslog };
+                },
+              },
+              {
+                path: "memscan",
+                lazy: async () => {
+                  const { default: MemScan } = await import("./routes/host-detail/MemScan");
+                  return { Component: MemScan };
+                },
+              },
+              {
                 path: "proxy",
                 lazy: async () => {
                   const { default: Proxy } = await import("./routes/host-detail/Proxy");

@@ -39,6 +39,11 @@ message AgentMessage {
     ProxyConnected proxy_connected = 17;
     ProxyData proxy_data = 18;
     ProxyClose proxy_close = 19;
+    IrScanResult ir_scan_result = 20;
+    MemScanResult mem_scan_result = 21;
+    AutorunsActionResult autoruns_action_result = 24;
+    FileMetaResult file_meta_result = 25;
+    FsTimelineResult fs_timeline_result = 26;
   }
 }
 
@@ -66,6 +71,11 @@ message ServerMessage {
     ProxyConnect proxy_connect = 19;
     ProxyClose proxy_close = 20;
     ProxyData proxy_data = 21;
+    IrScan ir_scan = 22;
+    MemScan mem_scan = 23;
+    AutorunsAction autoruns_action = 24;
+    FileMetaQuery file_meta_query = 25;
+    FsTimelineQuery fs_timeline_query = 26;
   }
 }
 
@@ -393,4 +403,133 @@ message ProxyConnected {
   string conn_id = 1;
   bool ok = 2;
   optional string error = 3;
+}
+
+// ---------------------------------------------------------------------------
+// 应急响应（IR）：Agent 侧采集主机安全基线（账户/持久化/事件日志/可疑文件）。
+// ---------------------------------------------------------------------------
+
+// Server → Agent：执行应急扫描。types 空表示全部：
+// accounts | autostart | registry | events | suspicious_files
+message IrScan {
+  string request_id = 1;
+  repeated string types = 2;
+  // events 类型的可选参数：日志名（默认 System）/事件 ID 列表（逗号分隔）/条数
+  string log_name = 3;
+  string event_ids = 4;
+  uint32 event_count = 5;
+}
+
+// 单条发现：severity = info | warn | critical。
+// Autoruns 风格启动项：category = 登录/服务/驱动/计划任务/浏览器/外壳/WMI 订阅/映像劫持/认证。
+message IrFinding {
+  string category = 1;   // 账户 / 登录 / 服务 / 驱动 / 计划任务 / 浏览器 / 外壳 / WMI 订阅 / 映像劫持 / 认证 / 事件日志 / 可疑文件 / hosts / 引导执行 / 已知 DLL / Winsock / Office / 编解码器
+  string name = 2;       // 条目名（用户名/注册表值名/服务名/事件头）
+  string detail = 3;     // 详情（注册表位置/命令行/值，可多行）
+  string severity = 4;
+  optional string path = 5;        // 关联可执行文件/DLL/脚本路径
+  optional string publisher = 6;   // 文件厂商：优先证书主体，回退版本资源 CompanyName
+  optional string sign_state = 7;  // verified / unsigned / invalid / unknown
+  optional string desc = 8;        // 条目描述（如服务 DisplayName / CLSID 名）
+  optional string op_key = 9;      // 操作地址（disable/enable/delete 的目标），空 = 不可操作
+  optional bool disabled = 10;     // 当前是否已处于禁用状态（AutorunsDisabled 机制）
+  optional string mtime = 11;      // 关联文件最后修改时间（unix 秒字符串，空 = 未知）
+  optional uint64 ts_unix = 14;    // 事件发生时间（unix 秒；系统日志类条目有值）
+}
+
+// Server → Agent：NTFS USN 文件时间线（应急取证：某盘符近 N 小时的文件活动）。
+message FsTimelineQuery {
+  string request_id = 1;
+  string drive = 2;        // 盘符字母，如 "C"
+  uint32 since_hours = 3;  // 只取最近 N 小时的记录（默认 24）
+  uint32 limit = 4;        // 返回条数上限（默认 5000）
+  string keyword = 5;      // 文件名关键词过滤（空 = 不过滤）
+}
+
+// Agent → Server：USN 时间线结果。
+message FsTimelineEntry {
+  string name = 1;        // 文件名
+  uint64 frn = 2;         // 文件引用号（MFT 序号）
+  uint64 parent_frn = 3;  // 父目录引用号
+  uint64 ts_unix = 4;     // 最后更新时间（unix 秒）
+  string reason = 5;      // 变更原因（枚举串，如 file_create / data_extend）
+}
+message FsTimelineResult {
+  string request_id = 1;
+  string drive = 2;
+  repeated FsTimelineEntry entries = 3;
+  uint32 total_scanned = 4;  // 枚举到的记录总数
+  bool truncated = 5;
+  optional string error = 6;
+}
+
+// Server → Agent：启动项操作（禁用/启用/删除，Autoruns 机制）。
+message AutorunsAction {
+  string request_id = 1;
+  string action = 2;   // disable | enable | delete
+  string op_key = 3;   // 扫描结果中的 opKey 操作地址
+}
+
+// Agent → Server：启动项操作结果。
+message AutorunsActionResult {
+  string request_id = 1;
+  bool ok = 2;
+  optional string error = 3;
+}
+
+// Server → Agent：文件元数据按需查询（SHA256/大小/mtime，供 VirusTotal 查杀）。
+message FileMetaQuery {
+  string request_id = 1;
+  string path = 2;
+}
+
+// Agent → Server：文件元数据结果。
+message FileMetaResult {
+  string request_id = 1;
+  string path = 2;
+  string sha256 = 3;
+  uint64 size = 4;
+  string mtime = 5;             // unix 秒字符串
+  optional string error = 6;
+}
+
+// Agent → Server：扫描结果。
+message IrScanResult {
+  string request_id = 1;
+  repeated IrFinding findings = 2;
+  optional string error = 3;
+}
+
+// Server → Agent：进程内存字符串扫描（多关键词/超时/区域统计）。
+message MemScan {
+  string request_id = 1;
+  int32 pid = 2;
+  uint32 min_len = 3;    // 字符串最小长度（默认 6）
+  string keywords = 4;   // 逗号分隔多关键词（空 = 不过滤）
+  uint32 timeout_secs = 5; // 扫描超时（0 = 默认 30s）
+  bool stream = 6;       // 流式模式：逐进程推送部分批次（MemScanResult.finished=false），结束帧 finished=true
+}
+
+// 单条结构化命中：虚拟地址 + 编码 + 值。
+message MemMatch {
+  string addr = 1;      // 命中虚拟地址（hex）
+  string kind = 2;      // ascii | utf16
+  string value = 3;     // 字符串值（截断至 200 字符）
+}
+
+// Agent → Server：内存扫描结果。
+message MemScanResult {
+  string request_id = 1;
+  int32 pid = 2;
+  repeated string matches = 3;   // 兼容保留：纯文本命中
+  uint64 scanned_bytes = 4;
+  bool truncated = 5;            // 命中数达上限被截断
+  optional string error = 6;
+  repeated MemMatch hits = 7;    // 结构化命中
+  uint32 regions_total = 8;      // 提交区域总数
+  uint32 regions_scanned = 9;    // 实际扫描区域数
+  bool timed_out = 10;           // 扫描超时提前返回
+  uint32 pids_total = 11;        // 全进程模式（pid=0）：枚举到的进程数
+  uint32 pids_scanned = 12;      // 全进程模式：成功扫描的进程数
+  bool finished = 13;            // 流式模式：true = 最终帧（非流式恒为 true）
 }
