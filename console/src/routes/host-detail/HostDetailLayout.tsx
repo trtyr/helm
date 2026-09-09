@@ -12,17 +12,18 @@ import { toast } from "../../lib/toast";
 type HostView = components["schemas"]["HostView"];
 
 const TABS = [
-  { seg: "overview", label: "概览", ready: true },
-  { seg: "terminal", label: "终端", ready: true },
-  { seg: "files", label: "文件", ready: true },
-  { seg: "services", label: "服务", ready: true },
-  { seg: "processes", label: "进程", ready: true },
-  { seg: "network", label: "网络", ready: true },
-  { seg: "autostart", label: "自启动项", ready: true },
-  { seg: "syslog", label: "系统日志", ready: true },
-  { seg: "memscan", label: "内存扫描", ready: true },
-  { seg: "proxy", label: "代理", ready: true },
-  { seg: "tasks", label: "任务", ready: true },
+  { seg: "overview", label: "概览", ready: true, os: null },
+  { seg: "terminal", label: "终端", ready: true, os: null },
+  { seg: "files", label: "文件", ready: true, os: null },
+  { seg: "services", label: "服务", ready: true, os: null },
+  { seg: "processes", label: "进程", ready: true, os: null },
+  { seg: "network", label: "网络", ready: true, os: null },
+  // 以下为 Windows 专属 IR 能力（agent 其余平台返回「仅支持 Windows」）
+  { seg: "autostart", label: "自启动项", ready: true, os: "windows" },
+  { seg: "syslog", label: "系统日志", ready: true, os: "windows" },
+  { seg: "memscan", label: "内存扫描", ready: true, os: "windows" },
+  { seg: "proxy", label: "代理", ready: true, os: null },
+  { seg: "tasks", label: "任务", ready: true, os: null },
 ] as const;
 
 /** 受操作守卫的 tab（离线时显示通栏并禁用操作；概览/指标/任务不受限，规格 host-detail.md）。 */
@@ -173,7 +174,7 @@ export default function HostDetailLayout() {
 
       {/* 页签 */}
       <nav className="flex items-center gap-6 border-b border-gray-400">
-        {TABS.map(({ seg, label, ready }) => (
+        {TABS.filter(({ os }) => !os || os === host?.os).map(({ seg, label, ready }) => (
           <NavLink
             key={seg}
             to={seg}

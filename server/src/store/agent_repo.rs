@@ -24,6 +24,14 @@ pub struct StaleAgentRow {
     pub last_heartbeat_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+/// 注册上报的主机系统细节（proto HostInfo 扩展字段；旧版 agent 不上报时用 Default）。
+#[derive(Debug, Clone, Copy, Default)]
+pub struct HostOsDetails<'a> {
+    pub os_version: &'a str,
+    pub kernel: &'a str,
+    pub uptime_secs: u64,
+}
+
 /// Agent 注册仓储。
 #[derive(Clone)]
 pub struct AgentRepo {
@@ -68,6 +76,7 @@ impl AgentRepo {
         public_ip: &str,
         local_ips: &[String],
         elevated: bool,
+        details: HostOsDetails<'_>,
     ) -> sqlx::Result<Uuid> {
         let mut tx = self.db.pool().begin().await?;
 
@@ -83,7 +92,9 @@ impl AgentRepo {
             Some(id) => {
                 sqlx::query(
                     "UPDATE hosts SET os = $2, arch = $3, platform = $4,
-                         public_ip = $5, local_ips = $6, updated_at = now()
+                         public_ip = $5, local_ips = $6, os_version = $7, kernel = $8,
+                         boot_at = CASE WHEN $9 > 0 THEN now() - ($9 * interval '1 second') ELSE boot_at END,
+                         updated_at = now()
                      WHERE id = $1",
                 )
                 .bind(id)
@@ -92,13 +103,19 @@ impl AgentRepo {
                 .bind(platform)
                 .bind(public_ip)
                 .bind(local_ips)
+                .bind(details.os_version)
+                .bind(details.kernel)
+                .bind(details.uptime_secs as i64)
                 .execute(&mut *tx)
                 .await?;
                 id
             }
             None => sqlx::query_scalar(
-                "INSERT INTO hosts (hostname, os, arch, platform, conn_mode, public_ip, local_ips)
-                     VALUES ($1, $2, $3, $4, 'reverse', $5, $6) RETURNING id",
+                "INSERT INTO hosts (hostname, os, arch, platform, conn_mode, public_ip, local_ips,
+                                        os_version, kernel, boot_at)
+                     VALUES ($1, $2, $3, $4, 'reverse', $5, $6, $7, $8,
+                             CASE WHEN $9 > 0 THEN now() - ($9 * interval '1 second') END)
+                     RETURNING id",
             )
             .bind(hostname)
             .bind(os)
@@ -106,6 +123,9 @@ impl AgentRepo {
             .bind(platform)
             .bind(public_ip)
             .bind(local_ips)
+            .bind(details.os_version)
+            .bind(details.kernel)
+            .bind(details.uptime_secs as i64)
             .fetch_one(&mut *tx)
             .await?,
         };
@@ -141,13 +161,16 @@ impl AgentRepo {
         public_ip: &str,
         local_ips: &[String],
         elevated: bool,
+        details: HostOsDetails<'_>,
     ) -> sqlx::Result<()> {
         let mut tx = self.db.pool().begin().await?;
 
         // 更新 host 系统信息（保留 hostname/conn_mode/addr/tags 等声明字段）
         sqlx::query(
             "UPDATE hosts SET os = $2, arch = $3, platform = $4,
-                 public_ip = $5, local_ips = $6, updated_at = now()
+                 public_ip = $5, local_ips = $6, os_version = $7, kernel = $8,
+                 boot_at = CASE WHEN $9 > 0 THEN now() - ($9 * interval '1 second') ELSE boot_at END,
+                 updated_at = now()
              WHERE id = $1",
         )
         .bind(host_id)
@@ -156,6 +179,9 @@ impl AgentRepo {
         .bind(platform)
         .bind(public_ip)
         .bind(local_ips)
+        .bind(details.os_version)
+        .bind(details.kernel)
+        .bind(details.uptime_secs as i64)
         .execute(&mut *tx)
         .await?;
 

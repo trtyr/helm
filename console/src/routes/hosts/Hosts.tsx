@@ -305,7 +305,10 @@ export default function Hosts() {
                         "—"
                       )}
                     </td>
-                    <td className="px-4 py-3 text-label-13 text-gray-900" title={h.platform}>
+                    <td
+                      className="px-4 py-3 text-label-13 text-gray-900"
+                      title={[h.os_version, h.kernel].filter(Boolean).join(" · ") || h.platform}
+                    >
                       {h.os ? OS_LABEL[h.os] ?? h.os : "—"}
                       {h.arch ? ` · ${h.arch}` : ""}
                     </td>

@@ -201,6 +201,11 @@ async fn connect_once(
     // public_ip 取拨号地址的 IP 部分（forward 场景 Server 主动拨出，该地址即对外可达地址）。
     let host_info = register.host.clone().unwrap_or_default();
     let public_ip = addr.split(':').next().unwrap_or_default().to_string();
+    let details = crate::store::agent_repo::HostOsDetails {
+        os_version: &host_info.os_version,
+        kernel: &host_info.kernel,
+        uptime_secs: host_info.uptime_secs,
+    };
     AgentRepo::new(deps.db.clone())
         .register_under_host(
             host_id,
@@ -212,6 +217,7 @@ async fn connect_once(
             &public_ip,
             &host_info.local_ips,
             host_info.elevated,
+            details,
         )
         .await?;
 

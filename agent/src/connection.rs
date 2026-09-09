@@ -233,6 +233,11 @@ pub(crate) fn build_register(config: &Config) -> Register {
     let os = std::env::consts::OS.to_string();
     let arch = std::env::consts::ARCH.to_string();
 
+    // 版本细节（sysinfo 跨平台：Windows 出 10 (19045)，Linux 出 24.04.3 / 内核号）
+    let os_version = sysinfo::System::long_os_version().unwrap_or_default();
+    let kernel = sysinfo::System::kernel_version().unwrap_or_default();
+    let uptime_secs = sysinfo::System::uptime();
+
     Register {
         agent_id: config.agent_id.clone(),
         token: config.token.clone(),
@@ -244,6 +249,9 @@ pub(crate) fn build_register(config: &Config) -> Register {
             tags: Vec::new(),
             local_ips: collect_local_ips(),
             elevated: crate::privilege::is_elevated(),
+            os_version,
+            kernel,
+            uptime_secs: uptime_secs as u64,
         }),
         version: env!("CARGO_PKG_VERSION").to_string(),
     }

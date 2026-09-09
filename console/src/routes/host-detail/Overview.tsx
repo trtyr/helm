@@ -11,6 +11,13 @@ type Metric = components["schemas"]["Metric"];
 type Agent = components["schemas"]["Agent"];
 type Job = components["schemas"]["Job"];
 
+const OS_LABEL: Record<string, string> = {
+  windows: "Windows",
+  linux: "Linux",
+  macos: "macOS",
+  darwin: "macOS",
+};
+
 interface Ctx {
   host: HostView;
 }
@@ -213,7 +220,10 @@ export default function Overview() {
             <dl className="mt-3 flex flex-col">
               {(
                 [
-                  ["系统", host.os ?? "—"],
+                  ["系统", host.os ? OS_LABEL[host.os] ?? host.os : "—"],
+                  ["系统版本", host.os_version || "—"],
+                  ["内核", host.kernel || "—"],
+                  ["开机", host.boot_at ? relativeTime(host.boot_at) : "—"],
                   ["架构", host.arch ?? "—"],
                   ["平台", host.platform ?? "—"],
                   ["模式", host.conn_mode === "forward" ? "正向" : "反向"],

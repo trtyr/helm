@@ -110,6 +110,12 @@ pub struct SysServiceView {
     pub start_type: String,
     pub pid: i32,
     pub description: String,
+    /// systemd UnitFileState 原文（enabled/disabled/static/masked…）；非 systemd 为空。
+    pub enabled_state: String,
+    /// 进入当前状态的时刻（unix 秒；0 = 未知）。
+    pub since_unix: i64,
+    /// systemd 单元文件路径；非 systemd 为空。
+    pub unit_file: String,
 }
 
 impl From<SysServiceEntry> for SysServiceView {
@@ -121,6 +127,9 @@ impl From<SysServiceEntry> for SysServiceView {
             start_type: s.start_type,
             pid: s.pid,
             description: s.description,
+            enabled_state: s.enabled_state,
+            since_unix: s.since_unix as i64,
+            unit_file: s.unit_file,
         }
     }
 }

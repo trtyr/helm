@@ -100,6 +100,12 @@ export default function Services() {
   }, [servicesQuery.data]);
 
   const offline = !host.online;
+  // Linux（systemd）与 Windows（SCM）列组不同：systemd 用 自启状态/运行时长/单元文件，
+  // Windows 用 显示名/启动类型——字段语义不勉强互相解释。
+  const isSystemd = host.os === "linux";
+  const colCount = isSystemd ? 7 : 6;
+  // 秒级精度足够；0 = 数据未到（时长为负走 — 兜底），避免 render 里取 Date.now()（纯度）
+  const fetchedAt = (servicesQuery.data?.at ?? 0) / 1000;
 
   return (
     <div className="flex flex-col gap-4">
@@ -166,24 +172,38 @@ export default function Services() {
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-400 text-label-13 text-gray-900">
-              <th className="w-44 px-4 py-2.5 font-normal">服务名</th>
-              <th className="px-4 py-2.5 font-normal">显示名 / 描述</th>
-              <th className="w-24 px-4 py-2.5 font-normal">状态</th>
-              <th className="w-24 px-4 py-2.5 font-normal">启动类型</th>
-              <th className="w-20 px-4 py-2.5 font-normal">PID</th>
-              <th className="w-32 px-4 py-2.5 text-right font-normal">操作</th>
+              {isSystemd ? (
+                <>
+                  <th className="w-44 px-4 py-2.5 font-normal">单元</th>
+                  <th className="px-4 py-2.5 font-normal">描述</th>
+                  <th className="w-24 px-4 py-2.5 font-normal">状态</th>
+                  <th className="w-24 px-4 py-2.5 font-normal">自启</th>
+                  <th className="w-28 px-4 py-2.5 font-normal">运行时长</th>
+                  <th className="w-20 px-4 py-2.5 font-normal">PID</th>
+                  <th className="w-32 px-4 py-2.5 text-right font-normal">操作</th>
+                </>
+              ) : (
+                <>
+                  <th className="w-44 px-4 py-2.5 font-normal">服务名</th>
+                  <th className="px-4 py-2.5 font-normal">显示名 / 描述</th>
+                  <th className="w-24 px-4 py-2.5 font-normal">状态</th>
+                  <th className="w-24 px-4 py-2.5 font-normal">启动类型</th>
+                  <th className="w-20 px-4 py-2.5 font-normal">PID</th>
+                  <th className="w-32 px-4 py-2.5 text-right font-normal">操作</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>
             {servicesQuery.isPending ? (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-label-13 text-gray-900">
+                <td colSpan={colCount} className="px-4 py-10 text-center text-label-13 text-gray-900">
                   正在枚举系统服务…
                 </td>
               </tr>
             ) : servicesQuery.isError ? (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center">
+                <td colSpan={colCount} className="px-4 py-10 text-center">
                   <span className="text-label-13 text-red-1000">
                     获取失败：{(servicesQuery.error as Error).message}
                   </span>
@@ -198,7 +218,7 @@ export default function Services() {
               </tr>
             ) : services.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-label-13 text-gray-900">
+                <td colSpan={colCount} className="px-4 py-10 text-center text-label-13 text-gray-900">
                   {search || statusFilter !== "all" ? "没有匹配的服务" : "未发现系统服务"}
                 </td>
               </tr>
@@ -212,19 +232,45 @@ export default function Services() {
                     <span className="block truncate" title={svc.name}>
                       {svc.name}
                     </span>
+                    {isSystemd && svc.unit_file && (
+                      <span className="block truncate font-mono text-label-12 text-gray-900" title={svc.unit_file}>
+                        {svc.unit_file}
+                      </span>
+                    )}
                   </td>
-                  <td className="max-w-72 px-4 py-2">
-                    <span
-                      className="block truncate text-label-13"
-                      title={svc.display_name ? `${svc.display_name}${svc.description ? " · " + svc.description : ""}` : svc.description}
-                    >
-                      {svc.display_name || svc.description || "—"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2">
-                    <SysStatusBadge status={svc.status ?? ""} />
-                  </td>
-                  <td className="px-4 py-2 text-label-12 text-gray-900">{svc.start_type || "—"}</td>
+                  {isSystemd ? (
+                    <>
+                      <td className="max-w-72 px-4 py-2">
+                        <span className="block truncate text-label-13" title={svc.description}>
+                          {svc.description || "—"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2">
+                        <SysStatusBadge status={svc.status ?? ""} />
+                      </td>
+                      <td className="px-4 py-2 text-label-12 text-gray-900" title={svc.enabled_state || undefined}>
+                        {svc.enabled_state || "—"}
+                      </td>
+                      <td className="px-4 py-2 text-label-13 text-gray-900 tabular-nums">
+                        {svc.since_unix && fetchedAt > 0 ? formatDuration(fetchedAt - svc.since_unix) : "—"}
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="max-w-72 px-4 py-2">
+                        <span
+                          className="block truncate text-label-13"
+                          title={svc.display_name ? `${svc.display_name}${svc.description ? " · " + svc.description : ""}` : svc.description}
+                        >
+                          {svc.display_name || svc.description || "—"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2">
+                        <SysStatusBadge status={svc.status ?? ""} />
+                      </td>
+                      <td className="px-4 py-2 text-label-12 text-gray-900">{svc.start_type || "—"}</td>
+                    </>
+                  )}
                   <td className="px-4 py-2 text-right font-mono text-label-13 text-gray-900 tabular-nums">
                     {svc.pid ? svc.pid : "—"}
                   </td>
@@ -284,6 +330,18 @@ export default function Services() {
       </p>
     </div>
   );
+}
+
+/** 秒数 → 人类可读时长（分钟内精确到分，天内到小时，再往上到天）。 */
+function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "—";
+  const m = Math.floor(seconds / 60);
+  if (m < 1) return "<1 分钟";
+  if (m < 60) return `${m} 分钟`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} 小时`;
+  const d = Math.floor(h / 24);
+  return `${d} 天`;
 }
 
 function SysStatusBadge({ status }: { status: string }) {

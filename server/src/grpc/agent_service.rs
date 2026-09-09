@@ -10,6 +10,7 @@ use crate::grpc::session_registry::SessionRegistry;
 use crate::grpc::stream_registry::StreamRegistry;
 use crate::grpc::transfer_registry::TransferRegistry;
 use crate::store::{Db, agent_repo::AgentRepo};
+use crate::store::agent_repo::HostOsDetails;
 use helm_proto::pb::{
     AgentMessage, RegisterAck, SelfDestruct, ServerMessage, agent_message,
     agent_service_server::AgentService,
@@ -118,6 +119,15 @@ impl AgentService for AgentServiceImpl {
             .map(|h| h.local_ips.clone())
             .unwrap_or_default();
         let elevated = register.host.as_ref().map(|h| h.elevated).unwrap_or(false);
+        let details = register
+            .host
+            .as_ref()
+            .map(|h| HostOsDetails {
+                os_version: &h.os_version,
+                kernel: &h.kernel,
+                uptime_secs: h.uptime_secs,
+            })
+            .unwrap_or_default();
         let host_id = match AgentRepo::new(self.db.clone())
             .register(
                 &agent_id,
@@ -129,6 +139,7 @@ impl AgentService for AgentServiceImpl {
                 &public_ip,
                 &local_ips,
                 elevated,
+                details,
             )
             .await
         {

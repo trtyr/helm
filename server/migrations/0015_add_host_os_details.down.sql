@@ -1,0 +1,3 @@
+ALTER TABLE hosts DROP COLUMN boot_at;
+ALTER TABLE hosts DROP COLUMN kernel;
+ALTER TABLE hosts DROP COLUMN os_version;

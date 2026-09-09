@@ -1890,6 +1890,9 @@ components:
           type: array
           items: { type: string }
           description: Agent 注册上报的本机网卡地址（内网视角，IPv4 在前）
+        os_version: { type: string, description: 具体版本（Windows 10 22H2 / Ubuntu 24.04.3 LTS；未上报为空） }
+        kernel: { type: string, description: 内核版本（10.0.19045 / 7.0.0-31-generic） }
+        boot_at: { type: string, format: date-time, nullable: true, description: 开机时刻（由注册上报的 uptime 反推） }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     HostView:
@@ -2135,6 +2138,9 @@ components:
         start_type: { type: string }
         pid: { type: integer }
         description: { type: string }
+        enabled_state: { type: string, description: systemd UnitFileState 原文（enabled/disabled/static/masked…）；非 systemd 为空 }
+        since_unix: { type: integer, format: int64, description: 进入当前状态的时刻（unix 秒；0 = 未知） }
+        unit_file: { type: string, description: systemd 单元文件路径；非 systemd 为空 }
     Audit:
       type: object
       properties:

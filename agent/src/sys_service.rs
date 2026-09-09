@@ -108,15 +108,18 @@ fn list_windows() -> (Vec<SysServiceEntry>, Option<String>) {
     (Vec::new(), Some("unsupported platform".to_string()))
 }
 
-/// Linux：systemd（list-units 全量 + list-unit-files 取启动类型）。
+/// Linux：systemd。单次 `systemctl show` 拿全量属性（Id/ActiveState/MainPID/
+/// UnitFileState/FragmentPath/Description/ActiveEnterTimestampMonotonic），
+/// unit 之间以空行分块。since 由 monotonic 微秒 + /proc/stat 的 btime 换算
+/// 成 unix 秒（时区无关）。
 fn list_systemd() -> (Vec<SysServiceEntry>, Option<String>) {
     let out = crate::child::quiet("systemctl")
         .args([
-            "list-units",
+            "show",
             "--type=service",
             "--all",
-            "--no-legend",
             "--no-pager",
+            "--property=Id,ActiveState,MainPID,UnitFileState,FragmentPath,Description,ActiveEnterTimestampMonotonic",
         ])
         .output();
     let text = match out {
@@ -133,52 +136,79 @@ fn list_systemd() -> (Vec<SysServiceEntry>, Option<String>) {
         Err(e) => return (Vec::new(), Some(format!("systemctl spawn failed: {e}"))),
     };
 
-    // 启动类型：unit-file state（enabled→auto / disabled→disabled / static→manual）
-    let mut start_types = std::collections::HashMap::new();
-    if let Ok(o) = crate::child::quiet("systemctl")
-        .args([
-            "list-unit-files",
-            "--type=service",
-            "--no-legend",
-            "--no-pager",
-        ])
-        .output()
-        && o.status.success()
-    {
-        for line in crate::encoding::decode_console(&o.stdout).lines() {
-            let mut cols = line.split_whitespace();
-            if let (Some(unit), Some(state)) = (cols.next(), cols.next()) {
-                start_types.insert(unit.to_string(), map_unit_file_state(state));
+    let boot_unix = proc_stat_btime();
+    let services = parse_systemd_show(&text, boot_unix);
+    (services, None)
+}
+
+/// 解析 `systemctl show` 输出：Key=Value 行，unit 块以空行分隔（纯函数，便于测试）。
+fn parse_systemd_show(text: &str, boot_unix: u64) -> Vec<SysServiceEntry> {
+    let mut services = Vec::new();
+    let mut cur: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            if cur.is_empty() {
+                continue;
             }
+            services.push(systemd_entry(&cur, boot_unix));
+            cur.clear();
+            continue;
+        }
+        if let Some((k, v)) = line.split_once('=') {
+            cur.insert(k, v);
         }
     }
+    if !cur.is_empty() {
+        services.push(systemd_entry(&cur, boot_unix));
+    }
+    services
+}
 
-    let services = text
-        .lines()
-        .filter_map(|line| {
-            // UNIT LOAD ACTIVE SUB DESCRIPTION
-            let mut cols = line.split_whitespace();
-            let name = cols.next()?.to_string();
-            let _load = cols.next()?;
-            let active = cols.next().unwrap_or("");
-            cols.next(); // sub
-            let description = cols.collect::<Vec<_>>().join(" ");
-            let status = match active {
-                "active" => "running".to_string(),
-                "failed" => "failed".to_string(),
-                _ => "stopped".to_string(),
-            };
-            Some(SysServiceEntry {
-                start_type: start_types.get(&name).cloned().unwrap_or_default(),
-                name,
-                display_name: String::new(),
-                status,
-                pid: 0,
-                description,
-            })
+/// 由 systemctl show 的属性块构造条目。
+fn systemd_entry(props: &std::collections::HashMap<&str, &str>, boot_unix: u64) -> SysServiceEntry {
+    let active = props.get("ActiveState").copied().unwrap_or("");
+    let status = match active {
+        "active" => "running",
+        "failed" => "failed",
+        _ => "stopped",
+    };
+    // monotonic 微秒（进入当前状态的时刻，相对开机）→ unix 秒
+    let since_unix = props
+        .get("ActiveEnterTimestampMonotonic")
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|&us| us > 0 && boot_unix > 0)
+        .map(|us| boot_unix + us / 1_000_000)
+        .unwrap_or(0);
+    let unit_file_state = props.get("UnitFileState").copied().unwrap_or("");
+    SysServiceEntry {
+        name: props.get("Id").copied().unwrap_or_default().to_string(),
+        display_name: String::new(),
+        status: status.to_string(),
+        // 兼容旧列：enabled/indirect→auto，static→manual，disabled→disabled
+        start_type: map_unit_file_state(unit_file_state),
+        pid: props
+            .get("MainPID")
+            .and_then(|v| v.parse::<i32>().ok())
+            .unwrap_or(0),
+        description: props.get("Description").copied().unwrap_or_default().to_string(),
+        enabled_state: unit_file_state.to_string(),
+        since_unix,
+        unit_file: props.get("FragmentPath").copied().unwrap_or_default().to_string(),
+    }
+}
+
+/// /proc/stat 的 btime 行（系统启动的 unix 秒）。读取失败返回 0。
+fn proc_stat_btime() -> u64 {
+    std::fs::read_to_string("/proc/stat")
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find(|l| l.starts_with("btime "))
+                .and_then(|l| l.split_whitespace().nth(1))
+                .and_then(|v| v.parse::<u64>().ok())
         })
-        .collect();
-    (services, None)
+        .unwrap_or(0)
 }
 
 fn map_unit_file_state(state: &str) -> String {
@@ -214,6 +244,9 @@ fn list_launchctl() -> (Vec<SysServiceEntry>, Option<String>) {
                         start_type: String::new(),
                         pid,
                         description: String::new(),
+                        enabled_state: String::new(),
+                        since_unix: 0,
+                        unit_file: String::new(),
                     })
                 })
                 .collect();
@@ -232,6 +265,41 @@ fn list_launchctl() -> (Vec<SysServiceEntry>, Option<String>) {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn parse_systemd_show_blocks() {
+        let text = "\
+Id=accounts-daemon.service
+ActiveState=active
+MainPID=749
+UnitFileState=enabled
+FragmentPath=/usr/lib/systemd/system/accounts-daemon.service
+Description=Account Service
+ActiveEnterTimestampMonotonic=123807040
+
+Id=alsa-restore.service
+ActiveState=inactive
+MainPID=0
+UnitFileState=
+FragmentPath=
+Description=Save/Restore Sound Card State
+ActiveEnterTimestampMonotonic=0
+";
+        // btime=1_000_000 → since = 1_000_000 + 123807040us/1e6 = 1_000_123（秒）
+        let svcs = super::parse_systemd_show(text, 1_000_000);
+        assert_eq!(svcs.len(), 2);
+        assert_eq!(svcs[0].name, "accounts-daemon.service");
+        assert_eq!(svcs[0].status, "running");
+        assert_eq!(svcs[0].start_type, "auto");
+        assert_eq!(svcs[0].enabled_state, "enabled");
+        assert_eq!(svcs[0].pid, 749);
+        assert_eq!(svcs[0].since_unix, 1_000_123);
+        assert_eq!(svcs[0].unit_file, "/usr/lib/systemd/system/accounts-daemon.service");
+        assert_eq!(svcs[1].status, "stopped");
+        assert_eq!(svcs[1].enabled_state, "");
+        assert_eq!(svcs[1].since_unix, 0);
+        assert_eq!(svcs[1].pid, 0);
+    }
 
     #[test]
     fn netstat_windows_lines_parse() {

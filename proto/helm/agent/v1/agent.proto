@@ -347,6 +347,9 @@ message SysServiceEntry {
   string start_type = 4;    // auto / manual / disabled / boot / system（未知为空）
   int32 pid = 5;            // 运行中进程 PID（0 = 未运行）
   string description = 6;   // 描述
+  string enabled_state = 7; // systemd UnitFileState 原文（enabled/disabled/static/masked/…）；Windows/launchctl 为空
+  uint64 since_unix = 8;    // 进入当前状态的时刻（unix 秒；0 = 未知）
+  string unit_file = 9;     // systemd FragmentPath（单元文件路径）；Windows/launchctl 为空
 }
 
 // Server → Agent：枚举系统服务。

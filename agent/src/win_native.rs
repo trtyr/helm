@@ -93,6 +93,9 @@ pub fn list_services() -> anyhow::Result<Vec<SysServiceEntry>> {
             display_name,
             start_type,
             description: String::new(),
+            enabled_state: String::new(),
+            since_unix: 0,
+            unit_file: String::new(),
         });
     }
     unsafe { CloseServiceHandle(scm) };

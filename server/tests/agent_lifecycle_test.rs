@@ -4,7 +4,7 @@ mod common;
 
 use helm_server::application::agent_lifecycle_service::AgentLifecycleService;
 use helm_server::grpc::connection_registry::ConnectionRegistry;
-use helm_server::store::agent_repo::AgentRepo;
+use helm_server::store::agent_repo::{AgentRepo, HostOsDetails};
 use helm_server::store::host_repo::HostRepo;
 
 
@@ -29,6 +29,7 @@ async fn deregister_removes_agent_and_orphan_host() {
             "203.0.113.7",
             &["192.168.1.10".to_string()],
             false,
+            HostOsDetails::default(),
         )
         .await
         .expect("register");

@@ -3520,6 +3520,15 @@ export interface components {
             public_ip?: string;
             /** @description Agent 注册上报的本机网卡地址（内网视角，IPv4 在前） */
             local_ips?: string[];
+            /** @description 具体版本（Windows 10 22H2 / Ubuntu 24.04.3 LTS；未上报为空） */
+            os_version?: string;
+            /** @description 内核版本（10.0.19045 / 7.0.0-31-generic） */
+            kernel?: string;
+            /**
+             * Format: date-time
+             * @description 开机时刻（由注册上报的 uptime 反推）
+             */
+            boot_at?: string | null;
             /** Format: date-time */
             created_at?: string;
             /** Format: date-time */
@@ -3794,6 +3803,15 @@ export interface components {
             start_type?: string;
             pid?: number;
             description?: string;
+            /** @description systemd UnitFileState 原文（enabled/disabled/static/masked…）；非 systemd 为空 */
+            enabled_state?: string;
+            /**
+             * Format: int64
+             * @description 进入当前状态的时刻（unix 秒；0 = 未知）
+             */
+            since_unix?: number;
+            /** @description systemd 单元文件路径；非 systemd 为空 */
+            unit_file?: string;
         };
         Audit: {
             /** Format: uuid */

@@ -11,6 +11,9 @@ message HostInfo {
   repeated string tags = 5;
   repeated string local_ips = 6;  // 内网 IP（非回环网卡地址，IPv4 在前）
   bool elevated = 7;              // agent 是否以管理员/root 权限运行
+  string os_version = 8;          // 具体版本（Windows 10 专业版 22H2 / Ubuntu 24.04.3 LTS）
+  string kernel = 9;              // 内核版本（10.0.19045 / 7.0.0-31-generic）
+  uint64 uptime_secs = 10;        // 开机时长（秒）
 }
 
 // 单个指标点
