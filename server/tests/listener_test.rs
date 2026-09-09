@@ -1,4 +1,6 @@
-//! 监听器集成测试：连真实 Postgres 验证 listener_repo + listener_service 启停。
+//! 监听器集成测试：连专用临时库（helm_itest，见 tests/common） 验证 listener_repo + listener_service 启停。
+
+mod common;
 
 use helm_server::application::cert_service::CertService;
 use helm_server::application::listener_service::ListenerService;
@@ -9,13 +11,8 @@ use helm_server::grpc::query_registry::QueryRegistry;
 use helm_server::grpc::session_registry::SessionRegistry;
 use helm_server::grpc::stream_registry::StreamRegistry;
 use helm_server::grpc::transfer_registry::TransferRegistry;
-use helm_server::store::Db;
 use helm_server::store::listener_repo::ListenerRepo;
 
-fn test_url() -> String {
-    std::env::var("HELM_DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://helm:helm@localhost:5433/helm".to_string())
-}
 
 /// 找一个空闲端口，返回 `127.0.0.1:{port}`。
 fn free_addr() -> String {
@@ -27,8 +24,7 @@ fn free_addr() -> String {
 
 #[tokio::test]
 async fn listener_repo_create_list_set_status() {
-    let db = Db::connect(&test_url()).await.expect("connect");
-    db.migrate().await.expect("migrate");
+    let db = common::connect().await;
     let repo = ListenerRepo::new(db);
 
     let row = repo
@@ -53,8 +49,7 @@ async fn listener_repo_create_list_set_status() {
 
 #[tokio::test]
 async fn listener_service_create_start_stop() {
-    let db = Db::connect(&test_url()).await.expect("connect");
-    db.migrate().await.expect("migrate");
+    let db = common::connect().await;
 
     let registry = ConnectionRegistry::new();
     let transfers = TransferRegistry::new();

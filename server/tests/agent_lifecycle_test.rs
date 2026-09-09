@@ -1,20 +1,16 @@
 //! Agent 生命周期集成测试：注销删除 agent + 孤儿 host。
 
+mod common;
+
 use helm_server::application::agent_lifecycle_service::AgentLifecycleService;
 use helm_server::grpc::connection_registry::ConnectionRegistry;
-use helm_server::store::Db;
 use helm_server::store::agent_repo::AgentRepo;
 use helm_server::store::host_repo::HostRepo;
 
-fn test_url() -> String {
-    std::env::var("HELM_DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://helm:helm@localhost:5433/helm".to_string())
-}
 
 #[tokio::test]
 async fn deregister_removes_agent_and_orphan_host() {
-    let db = Db::connect(&test_url()).await.expect("connect");
-    db.migrate().await.expect("migrate");
+    let db = common::connect().await;
 
     let registry = ConnectionRegistry::new();
     let service = AgentLifecycleService::new(db.clone(), registry.clone());

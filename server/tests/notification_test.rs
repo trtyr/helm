@@ -1,6 +1,8 @@
-//! 通知中心集成测试：连真实 Postgres 验证 notification_repo 读写、
+//! 通知中心集成测试：连专用临时库（helm_itest，见 tests/common） 验证 notification_repo 读写、
 //! 冷却窗口合并（notify 同类型去重 / 不同类型独立）与已读未读。
-//! 需 `HELM_DATABASE_URL`（默认 docker compose 的 5433）与已启动的 Postgres。
+//! 需 Postgres（docker compose 5433），测试库自动重建。
+
+mod common;
 
 use helm_proto::pb::{AgentMessage, MetricPoint, MetricReport, agent_message};
 use helm_server::application::notification_service::{
@@ -24,10 +26,6 @@ use uuid::Uuid;
 /// 避免并行线程互相清零对方刚制造的未读行。
 static READ_STATE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
-fn test_url() -> String {
-    std::env::var("HELM_DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://helm:helm@localhost:5433/helm".to_string())
-}
 
 async fn setup_host(db: &Db, hostname: &str) -> Uuid {
     let host = NewHost {
@@ -67,8 +65,7 @@ async fn count_for(repo: &NotificationRepo, host_id: Uuid, unread_only: bool) ->
 
 #[tokio::test]
 async fn inbound_metric_over_threshold_triggers_alert_notification() {
-    let db = Db::connect(&test_url()).await.expect("connect");
-    db.migrate().await.expect("migrate");
+    let db = common::connect().await;
     let hostname = format!("itest-notif-alert-{}", std::process::id());
     let host_id = setup_host(&db, &hostname).await;
     let repo = NotificationRepo::new(db.clone());
@@ -130,8 +127,7 @@ async fn inbound_metric_over_threshold_triggers_alert_notification() {
 
 #[tokio::test]
 async fn repo_latest_of_type_is_type_independent() {
-    let db = Db::connect(&test_url()).await.expect("connect");
-    db.migrate().await.expect("migrate");
+    let db = common::connect().await;
     let hostname = format!("itest-notif-{}", std::process::id());
     let host_id = setup_host(&db, &hostname).await;
     let repo = NotificationRepo::new(db.clone());
@@ -168,8 +164,7 @@ async fn repo_latest_of_type_is_type_independent() {
 #[tokio::test]
 async fn notify_coalesces_same_kind_within_window() {
     let _serial = READ_STATE_LOCK.lock().await;
-    let db = Db::connect(&test_url()).await.expect("connect");
-    db.migrate().await.expect("migrate");
+    let db = common::connect().await;
     let hostname = format!("itest-notif-cool-{}", std::process::id());
     let host_id = setup_host(&db, &hostname).await;
     let repo = NotificationRepo::new(db.clone());
@@ -215,8 +210,7 @@ async fn notify_coalesces_same_kind_within_window() {
 #[tokio::test]
 async fn list_unread_filter_and_mark_all_read() {
     let _serial = READ_STATE_LOCK.lock().await;
-    let db = Db::connect(&test_url()).await.expect("connect");
-    db.migrate().await.expect("migrate");
+    let db = common::connect().await;
     let hostname = format!("itest-notif-read-{}", std::process::id());
     let host_id = setup_host(&db, &hostname).await;
     let repo = NotificationRepo::new(db.clone());

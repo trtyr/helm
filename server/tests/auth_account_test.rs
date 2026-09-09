@@ -1,16 +1,14 @@
-//! 单用户账号管理集成测试：连真实 Postgres 验证 /auth/me 数据源、
+//! 单用户账号管理集成测试：连专用临时库（helm_itest，见 tests/common） 验证 /auth/me 数据源、
 //! 改密（旧密拒绝/新密生效/最短长度）、改用户名（查重冲突/生效后旧名消失）。
-//! 需 `HELM_DATABASE_URL`（默认 docker compose 的 5433）与已启动的 Postgres。
+//! 需 Postgres（docker compose 5433），测试库自动重建。
+
+mod common;
 
 use helm_server::application::auth_service::AuthService;
 use helm_server::domain::Error;
 use helm_server::store::Db;
 use helm_server::store::user_repo::UserRepo;
 
-fn test_url() -> String {
-    std::env::var("HELM_DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://helm:helm@localhost:5433/helm".to_string())
-}
 
 fn hash(plain: &str) -> String {
     bcrypt::hash(plain, 4).expect("bcrypt hash")
@@ -35,8 +33,7 @@ async fn setup_user(db: &Db, username: &str, password: &str) {
 
 #[tokio::test]
 async fn account_view_reflects_db_and_stale_sub_unauthorized() {
-    let db = Db::connect(&test_url()).await.expect("connect");
-    db.migrate().await.expect("migrate");
+    let db = common::connect().await;
     let prefix = format!("itest-acct{}-me", std::process::id());
     let name = format!("{prefix}-u");
     cleanup(&db, &prefix).await;
@@ -56,8 +53,7 @@ async fn account_view_reflects_db_and_stale_sub_unauthorized() {
 
 #[tokio::test]
 async fn change_password_rejects_old_and_accepts_new() {
-    let db = Db::connect(&test_url()).await.expect("connect");
-    db.migrate().await.expect("migrate");
+    let db = common::connect().await;
     let prefix = format!("itest-acct{}-pw", std::process::id());
     let name = format!("{prefix}-u");
     cleanup(&db, &prefix).await;
@@ -90,8 +86,7 @@ async fn change_password_rejects_old_and_accepts_new() {
 
 #[tokio::test]
 async fn change_username_conflict_and_success() {
-    let db = Db::connect(&test_url()).await.expect("connect");
-    db.migrate().await.expect("migrate");
+    let db = common::connect().await;
     let prefix = format!("itest-acct{}-un", std::process::id());
     let name_a = format!("{prefix}-a");
     let name_b = format!("{prefix}-b");
