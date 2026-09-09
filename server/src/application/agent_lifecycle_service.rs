@@ -52,7 +52,10 @@ impl AgentLifecycleService {
             HostRepo::new(self.db.clone()).soft_delete(host_id).await?;
         }
 
-        self.registry.unregister(agent_id).await;
+        // 注销连接并踢其入站任务退出，旧 gRPC 流与 TCP 连接才能释放
+        if let Some(old) = self.registry.unregister(agent_id).await {
+            old.kick();
+        }
         Ok(())
     }
 

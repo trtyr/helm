@@ -79,6 +79,7 @@ async fn inbound_metric_over_threshold_triggers_alert_notification() {
         Some(host_id),
         hostname.clone(),
         ConnectionRegistry::new(),
+        tokio::sync::watch::channel(false).0,
         TransferRegistry::new(),
         SessionRegistry::new(),
         FileListRegistry::new(),

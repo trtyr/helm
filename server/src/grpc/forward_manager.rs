@@ -215,7 +215,11 @@ async fn connect_once(
         )
         .await?;
 
-    deps.registry.register(&agent_id, tx.clone()).await;
+    let registration = deps.registry.register(&agent_id, tx.clone()).await;
+    if let Some(old) = registration.replaced.as_ref() {
+        tracing::info!(agent_id = %agent_id, "duplicate registration (forward), kicking previous connection");
+        old.kick();
+    }
     tracing::info!(
         host_id = %host_id,
         agent_id = %agent_id,
@@ -224,8 +228,8 @@ async fn connect_once(
         "forward agent registered"
     );
 
-    // 上线通知（决策 009：forward 与 reverse 同构）
-    {
+    // 上线通知（决策 009：forward 与 reverse 同构；重复注册仅换连接，不通知）
+    if registration.replaced.is_none() {
         let hostname = host_info.hostname.clone();
         let svc = crate::application::notification_service::NotificationService::new(
             deps.db.clone(),
@@ -261,6 +265,7 @@ async fn connect_once(
         Some(host_id),
         register_hostname,
         deps.registry.clone(),
+        registration.kick_tx,
         deps.transfers.clone(),
         deps.sessions.clone(),
         deps.file_list.clone(),
@@ -268,9 +273,14 @@ async fn connect_once(
         deps.streams.clone(),
         deps.db.clone(),
     );
+    let mut kick_rx = registration.kick_rx;
     loop {
         tokio::select! {
             _ = stop_rx.recv() => break,
+            // 被同 id 新注册顶掉：立即退出释放流（watch::Ref 非 Send，包 async 块丢弃）
+            _ = async {
+                let _ = kick_rx.wait_for(|kicked| *kicked).await;
+            } => break,
             msg = inbound.message() => {
                 match msg {
                     Ok(Some(m)) => ctx.handle(m).await,

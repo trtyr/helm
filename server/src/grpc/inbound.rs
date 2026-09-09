@@ -13,6 +13,7 @@ use crate::store::alert_repo::AlertRepo;
 use crate::store::service_repo::ServiceRepo;
 use crate::store::{Db, agent_repo::AgentRepo, job_repo::JobRepo, metric_repo::MetricRepo};
 use helm_proto::pb::{AgentMessage, agent_message};
+use tokio::sync::watch;
 use uuid::Uuid;
 
 /// 一条 agent 连接的入站处理上下文（每连接一个）。
@@ -22,6 +23,8 @@ pub struct InboundCtx {
     /// 主机名（通知文案用，注册时上报）。
     pub hostname: String,
     pub registry: ConnectionRegistry,
+    /// 本连接身份（注册表比对用）：被顶掉的旧连接断开时不得注销新连接。
+    pub kick_tx: watch::Sender<bool>,
     pub transfers: TransferRegistry,
     pub sessions: SessionRegistry,
     pub file_list: FileListRegistry,
@@ -39,6 +42,7 @@ impl InboundCtx {
         host_id: Option<Uuid>,
         hostname: String,
         registry: ConnectionRegistry,
+        kick_tx: watch::Sender<bool>,
         transfers: TransferRegistry,
         sessions: SessionRegistry,
         file_list: FileListRegistry,
@@ -51,6 +55,7 @@ impl InboundCtx {
             host_id,
             hostname,
             registry,
+            kick_tx,
             transfers,
             sessions,
             file_list,
@@ -310,9 +315,20 @@ impl InboundCtx {
         }
     }
 
-    /// 连接结束：从注册表注销 + 下线通知（断连即发，决策 009）。
+    /// 连接结束：身份校验式注销 + 下线通知（断连即发，决策 009）。
+    /// 被顶掉的旧连接（重复注册后 kick）退出时身份不匹配：不注销、不发通知。
     pub async fn on_disconnect(&self) {
-        self.registry.unregister(&self.agent_id).await;
+        if !self
+            .registry
+            .unregister_if_current(&self.agent_id, &self.kick_tx)
+            .await
+        {
+            tracing::debug!(
+                agent_id = %self.agent_id,
+                "stale connection released; agent owned by newer registration"
+            );
+            return;
+        }
         tracing::info!(agent_id = %self.agent_id, "agent disconnected");
         if let Some(host_id) = self.host_id {
             let svc = crate::application::notification_service::NotificationService::new(

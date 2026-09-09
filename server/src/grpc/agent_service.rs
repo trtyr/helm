@@ -140,7 +140,11 @@ impl AgentService for AgentServiceImpl {
         };
 
         let (tx, rx) = mpsc::channel::<ServerMessage>(64);
-        self.registry.register(&agent_id, tx.clone()).await;
+        let registration = self.registry.register(&agent_id, tx.clone()).await;
+        if let Some(old) = registration.replaced.as_ref() {
+            tracing::info!(agent_id = %agent_id, "duplicate registration, kicking previous connection");
+            old.kick();
+        }
         tracing::info!(
             agent_id = %agent_id,
             version = %register.version,
@@ -174,9 +178,11 @@ impl AgentService for AgentServiceImpl {
             let _ = AgentRepo::new(self.db.clone()).delete(&agent_id).await;
         }
 
-        // 上线通知（决策 009：系统内小卡片；落库失败无 host_id 则跳过；挂起补执行时不通知）
+        // 上线通知（决策 009：系统内小卡片；落库失败无 host_id 则跳过；挂起补执行或
+        // 重复注册（本就在线，仅换连接）时不通知）
         if let Some(hid) = host_id
             && !deferred_offline
+            && registration.replaced.is_none()
         {
             let svc = crate::application::notification_service::NotificationService::new(
                 self.db.clone(),
@@ -205,20 +211,28 @@ impl AgentService for AgentServiceImpl {
         let agent_id_inner = agent_id.clone();
         let hostname_inner = hostname.to_string();
         tokio::spawn(async move {
-            let mut ctx = InboundCtx::new(
-                agent_id_inner.clone(),
-                host_id,
-                hostname_inner,
-                registry,
-                transfers,
-                sessions,
-                file_list,
-                query,
-                streams,
-                db,
-            );
-            loop {
-                match inbound.message().await {
+        let mut ctx = InboundCtx::new(
+            agent_id_inner.clone(),
+            host_id,
+            hostname_inner,
+            registry,
+            registration.kick_tx,
+            transfers,
+            sessions,
+            file_list,
+            query,
+            streams,
+            db,
+        );
+        let mut kick_rx = registration.kick_rx;
+        loop {
+            tokio::select! {
+                // 被同 id 新注册顶掉：立即退出并释放流（不入流则旧 HTTP/2 流复位不了，TCP 泄漏）
+                // （wait_for 的 watch::Ref 非 Send，包一层 async 块在内部丢弃）
+                _ = async {
+                    let _ = kick_rx.wait_for(|kicked| *kicked).await;
+                } => break,
+                msg = inbound.message() => match msg {
                     Ok(Some(msg)) => ctx.handle(msg).await,
                     Ok(None) => break,
                     Err(e) => {
@@ -227,7 +241,8 @@ impl AgentService for AgentServiceImpl {
                     }
                 }
             }
-            ctx.on_disconnect().await;
+        }
+        ctx.on_disconnect().await;
         });
 
         let outbound = ReceiverStream::new(rx).map(Ok);
