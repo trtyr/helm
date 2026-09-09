@@ -96,6 +96,10 @@ pub fn ir_scan(request_id: &str, types: &[String]) -> AgentMessage {
             publisher: None,
             sign_state: None,
             desc: None,
+            op_key: None,
+            disabled: None,
+            mtime: None,
+            ts_unix: None,
         }]
     };
 
