@@ -551,6 +551,15 @@ pub static OPS: &[OpDef] = &[
         "VirusTotal 按 SHA256 查杀",
         &[("agent_id", "agent_id"), ("path", "文件路径")]
     ),
+    op!(
+        "ir.file_meta",
+        "ir",
+        Os::Windows,
+        "POST",
+        "/api/v1/ir/file-meta",
+        "文件元数据（SHA256，取证速查）",
+        &[("agent_id", "agent_id"), ("path", "文件路径")]
+    ),
     // -- agent-gen 域 --
     op!(
         "agent_gen.create",
