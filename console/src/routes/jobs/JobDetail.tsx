@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { copyText } from "../../lib/clipboard";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Copy, Maximize2 } from "lucide-react";
@@ -87,8 +88,8 @@ export default function JobDetail() {
   }
 
   async function copyOutput() {
-    await navigator.clipboard.writeText(output);
-    toast(`已复制 ${output.length.toLocaleString()} 字节`);
+    const ok = await copyText(output);
+    ok ? toast(`已复制 ${output.length.toLocaleString()} 字节`) : toast("复制失败", "warn");
   }
 
   function fullscreen() {
@@ -136,8 +137,7 @@ export default function JobDetail() {
       <button
         type="button"
         onClick={() => {
-          navigator.clipboard.writeText(job.id ?? "");
-          toast("已复制任务 ID");
+          copyText(job.id ?? "").then((ok) => toast(ok ? "已复制任务 ID" : "复制失败", ok ? undefined : "warn"));
         }}
         className="self-start font-mono text-label-13 text-gray-900 transition-colors duration-150 hover:text-gray-1000"
         title="点击复制全值"

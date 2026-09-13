@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { copyText } from "../lib/clipboard";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Plus, Trash2 } from "lucide-react";
 import type { components } from "../api/schema";
@@ -262,9 +263,8 @@ export function ApiKeysPanel() {
                 aria-label="复制凭证"
                 title="复制"
                 onClick={() => {
-                  navigator.clipboard.writeText(plaintext).then(
-                    () => toast("已复制", "success"),
-                    () => toast("复制失败，请手动选择复制", "warn"),
+                  copyText(plaintext).then(
+                    (ok) => toast(ok ? "已复制" : "复制失败，请手动选择复制", ok ? "success" : "warn"),
                   );
                 }}
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-gray-400 hover:bg-gray-200"

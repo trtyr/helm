@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { copyText } from "../../lib/clipboard";
 import { useOutletContext, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCw, Search, X } from "lucide-react";
@@ -59,8 +60,8 @@ export default function Network() {
   });
 
   async function copy(text: string) {
-    await navigator.clipboard.writeText(text);
-    toast(`已复制 ${text}`);
+    const ok = await copyText(text);
+    ok ? toast(`已复制 ${text}`) : toast("复制失败", "warn");
   }
 
   function setTab(next: Tab) {
@@ -324,8 +325,8 @@ function ConnectionsView({
   }, [netQuery.data]);
 
   async function copy(text: string) {
-    await navigator.clipboard.writeText(text);
-    toast(`已复制 ${text}`);
+    const ok = await copyText(text);
+    ok ? toast(`已复制 ${text}`) : toast("复制失败", "warn");
   }
 
   return (

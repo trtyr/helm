@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { copyText } from "../../lib/clipboard";
 import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Copy } from "lucide-react";
@@ -155,7 +156,7 @@ export default function HostDetailLayout() {
             </button>
             <button
               type="button"
-              onClick={() => navigator.clipboard?.writeText(host.id ?? "").then(() => toast("已复制 host_id"))}
+              onClick={() => copyText(host.id ?? "").then((ok) => toast(ok ? "已复制 host_id" : "复制失败", ok ? undefined : "warn"))}
               aria-label="复制 host_id"
               className="flex h-8 w-8 items-center justify-center rounded-md border border-gray-500 text-gray-900 transition-colors duration-150 hover:bg-gray-200 hover:text-gray-1000"
             >

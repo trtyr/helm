@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { copyText } from "../lib/clipboard";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Play, Square, Trash2 } from "lucide-react";
 import type { components } from "../api/schema";
@@ -127,8 +128,7 @@ export default function Listeners() {
                       <button
                         type="button"
                         onClick={() => {
-                          navigator.clipboard.writeText(l.addr ?? "");
-                          toast("已复制地址");
+                          copyText(l.addr ?? "").then((ok) => toast(ok ? "已复制地址" : "复制失败", ok ? undefined : "warn"));
                         }}
                         title={`${l.addr}（点击复制）`}
                         className="block w-full truncate text-left font-mono text-label-13 text-blue-1000 hover:underline"

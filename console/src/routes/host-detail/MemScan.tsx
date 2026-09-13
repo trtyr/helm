@@ -4,6 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useQuery } from "@tanstack/react-query";
 import { Play } from "lucide-react";
 import { toast } from "../../lib/toast";
+import { copyText } from "../../lib/clipboard";
 import type { components } from "../../api/schema";
 import { api, pickAgent } from "../../api/client";
 import { useWsStream } from "../../api/ws";
@@ -38,7 +39,6 @@ interface ScanState {
 }
 
 const MAX_MATCHES = 5000;
-const RENDER_CAP = 300;
 
 export function newScanId(): string {
   // crypto.randomUUID 仅存在于安全上下文（HTTPS / localhost）；经局域网 IP 访问
@@ -61,6 +61,7 @@ export default function MemScan() {
   const [keyword, setKeyword] = useState("");
   const [scanId, setScanId] = useState<string | null>(null);
   const [scan, setScan] = useState<ScanState | null>(null);
+  const [filter, setFilter] = useState("");
 
   const agentsQuery = useQuery({
     queryKey: ["agents"],
@@ -125,6 +126,13 @@ export default function MemScan() {
   const offline = !host.online;
   const scanning = scanId !== null;
   const result = scan;
+  // 全量展示：仅做客户端子串过滤，不做条数截断
+  const filtered = useMemo(() => {
+    const list = result?.matches ?? [];
+    const q = filter.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((m) => m.toLowerCase().includes(q));
+  }, [result, filter]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -158,10 +166,54 @@ export default function MemScan() {
               ? `错误: ${result.error}`
               : `${result.finished ? "完成" : "扫描中"} · 命中 ${result.matches.length} 条 · 扫描 ${((result.scannedBytes ?? 0) / 1024 / 1024).toFixed(0)}MB · 进程 ${result.pidsScanned}/${result.pidsTotal}${result.truncated ? " · 已截断" : ""}${result.timedOut ? " · 超时截止" : ""}`}
           </p>
-          <pre className="max-h-96 overflow-y-auto rounded-md border border-gray-400 bg-gray-100 p-3 font-mono text-label-12 text-gray-900">
-            {result.matches.slice(0, RENDER_CAP).join("\n") || "（等待命中…）"}
-            {result.matches.length > RENDER_CAP && `\n…（仅显示前 ${RENDER_CAP} 条，共 ${result.matches.length} 条）`}
-          </pre>
+          {result.matches.length > 0 && (
+            <div className="flex items-center gap-2">
+              <input
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="结果内过滤（子串，大小写不敏感）"
+                className="h-8 w-64 rounded-md border border-gray-400 bg-gray-100 px-3 text-label-13 outline-none hover:border-gray-500"
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  copyText(filtered.join("\n")).then((ok) =>
+                    toast(ok ? `已复制 ${filtered.length} 条` : "复制失败", ok ? "success" : "warn"),
+                  )
+                }
+                className="h-8 rounded-md border border-gray-400 px-3 text-label-13 text-gray-900 hover:bg-gray-100"
+              >
+                复制全部（{filtered.length}）
+              </button>
+            </div>
+          )}
+          <div className="max-h-[28rem] overflow-y-auto rounded-md border border-gray-400">
+            <table className="w-full text-left">
+              <thead className="sticky top-0 bg-gray-100">
+                <tr className="border-b border-gray-400 text-label-13 text-gray-900">
+                  <th className="w-16 px-3 py-2 font-normal">#</th>
+                  <th className="px-3 py-2 font-normal">命中内容</th>
+                  <th className="w-20 px-3 py-2 text-right font-normal">长度</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((m, i) => (
+                  <tr key={`${i}-${m.slice(0, 24)}`} className="border-b border-gray-400/60 last:border-0">
+                    <td className="px-3 py-1 font-mono text-label-12 text-gray-900 tabular-nums">{i + 1}</td>
+                    <td className="px-3 py-1 font-mono text-label-12 break-all">{m}</td>
+                    <td className="px-3 py-1 text-right font-mono text-label-12 text-gray-900 tabular-nums">{m.length}</td>
+                  </tr>
+                ))}
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="px-3 py-6 text-center text-label-13 text-gray-900">
+                      {result.matches.length === 0 ? "（等待命中…）" : "没有匹配当前过滤条件的命中"}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
       <p className="text-label-12 text-gray-900">

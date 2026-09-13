@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { copyText } from "../lib/clipboard";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Copy } from "lucide-react";
@@ -353,8 +354,7 @@ export default function Settings() {
                 type="button"
                 aria-label="复制后端地址"
                 onClick={() => {
-                  navigator.clipboard.writeText(apiBase);
-                  toast("已复制");
+                  copyText(apiBase).then((ok) => toast(ok ? "已复制" : "复制失败", ok ? undefined : "warn"));
                 }}
                 className="text-gray-900 transition-colors duration-150 hover:text-gray-1000"
               >
@@ -419,8 +419,7 @@ export default function Settings() {
                 type="button"
                 aria-label="复制安装命令"
                 onClick={() => {
-                  navigator.clipboard.writeText(installCmd);
-                  toast("已复制完整命令");
+                  copyText(installCmd).then((ok) => toast(ok ? "已复制完整命令" : "复制失败", ok ? undefined : "warn"));
                 }}
                 className="absolute right-2 top-2 text-gray-900 transition-colors duration-150 hover:text-gray-1000"
                 title="复制真实命令（含 token）"
