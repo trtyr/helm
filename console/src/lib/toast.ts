@@ -1,5 +1,5 @@
 /** 全局 toast 队列（非组件文件，供任意处调用）。 */
-export type ToastKind = "ok" | "warn" | "error";
+export type ToastKind = "ok" | "success" | "warn" | "error";
 
 export interface ToastItem {
   id: number;

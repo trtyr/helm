@@ -3570,13 +3570,16 @@ export interface components {
         Agent: {
             /** @description agent 是否以管理员/root 权限运行 */
             elevated?: boolean;
-            id?: string;
+            id: string;
             /** Format: uuid */
-            host_id?: string;
-            version?: string;
+            host_id: string;
+            version: string;
             hostname?: string;
             /** Format: date-time */
+            registered_at?: string;
+            /** Format: date-time */
             last_heartbeat_at?: string | null;
+            online: boolean;
         };
         CreateAgentGen: {
             /** @enum {string} */

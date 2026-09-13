@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { useQuery } from "@tanstack/react-query";
@@ -43,13 +43,14 @@ const MAX_MATCHES = 5000;
 export function newScanId(): string {
   // crypto.randomUUID 仅存在于安全上下文（HTTPS / localhost）；经局域网 IP 访问
   // 控制台时该 API 不存在，降级用 getRandomValues（不受限）手拼 UUID v4。
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
+  const c = crypto as Crypto & { randomUUID?: () => string };
+  if (typeof c.randomUUID === "function") {
+    return c.randomUUID();
   }
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  const bytes = c.getRandomValues(new Uint8Array(16));
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  const hex = Array.from(bytes, (b: number) => b.toString(16).padStart(2, "0")).join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 

@@ -136,7 +136,7 @@ export default function HostDetailLayout() {
             {host.online ? "在线" : host.stale ? "心跳超时" : "离线"} · {host.os || "—"}
             {host.arch ? ` · ${host.arch}` : ""} · {host.conn_mode === "forward" ? "正向" : "反向"}
           </span>
-          <AgentPrivilegeBadge hostId={host.id} />
+          <AgentPrivilegeBadge hostId={host.id ?? ""} />
           <span className="ml-auto flex items-center gap-2">
             <button
               type="button"

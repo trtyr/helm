@@ -309,7 +309,7 @@ export function ApiKeysPanel() {
               </button>
               <button
                 type="button"
-                onClick={() => revokeMutation.mutate(deleting.id)}
+                onClick={() => deleting.id && revokeMutation.mutate(deleting.id)}
                 className="h-8 rounded-md bg-red-1000 px-4 text-label-13 text-white hover:opacity-90"
               >
                 吊销

@@ -122,7 +122,7 @@ export function buildTreeRows(procs: ProcessInfo[], collapsed: Set<number>, keep
         if (path.has(pid)) return;
         path.add(pid);
         visited.add(pid);
-        for (const k of children.get(pid) ?? []) markSubtree(k.pid, path);
+        for (const k of children.get(pid) ?? []) if (k.pid !== undefined) markSubtree(k.pid, path);
       };
       markSubtree(p.pid!, new Set());
     }
@@ -283,7 +283,6 @@ export default function Processes() {
   const memPercent = latestMetric("mem.percent") ?? (memUsed && memTotalSys ? (memUsed / memTotalSys) * 100 : undefined);
   const cpuTotal = all.reduce((sum, p) => sum + (p.cpu_percent ?? 0), 0);
   const memRssSum = all.reduce((sum, p) => sum + (p.mem_bytes ?? 0), 0);
-  const now = listQuery.data?.at ?? 0;
   const offline = !host.online;
   const isTree = view === "tree";
   const displayRows: TreeRow[] | null = isTree ? treeRows : null;

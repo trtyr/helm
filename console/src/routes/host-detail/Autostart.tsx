@@ -221,14 +221,6 @@ export default function Autostart() {
     onError: (e: Error) => toast(e.message, "error"),
   });
 
-  const deleteSnapshot = useMutation({
-    mutationFn: (id: string) =>
-      api<{ deleted: number }>(`/api/v1/ir/snapshots/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      setBaseId("");
-      queryClient.invalidateQueries({ queryKey: ["ir-snapshots", agent?.id] });
-    },
-  });
 
   // ---- 过滤与排序 ----
   const findings = useMemo(

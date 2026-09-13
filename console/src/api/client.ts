@@ -91,9 +91,9 @@ export async function apiBlob(path: string, fallbackName: string): Promise<{ blo
 
 /** 主机上可能有多个 agent 档案：优先取在线的，退回第一个。 */
 export function pickAgent(
-  agents: { id: string; host_id: string; online?: boolean }[],
-  hostId: string,
-): { id: string; host_id: string; online?: boolean } | undefined {
+  agents: { id?: string; host_id?: string; online?: boolean }[],
+  hostId: string | undefined,
+): { id?: string; host_id?: string; online?: boolean } | undefined {
   const same = agents.filter((a) => a.host_id === hostId);
   return same.find((a) => a.online) ?? same[0];
 }

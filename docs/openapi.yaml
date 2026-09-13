@@ -1931,13 +1931,16 @@ components:
         platform: { type: string }
     Agent:
       type: object
+      required: [id, host_id, version, online]
       properties:
         elevated: { type: boolean, description: agent 是否以管理员/root 权限运行 }
         id: { type: string }
         host_id: { type: string, format: uuid }
         version: { type: string }
         hostname: { type: string }
+        registered_at: { type: string, format: date-time }
         last_heartbeat_at: { type: string, format: date-time, nullable: true }
+        online: { type: boolean }
     CreateAgentGen:
       type: object
       required: [os, arch, listener_id]

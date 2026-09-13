@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Pencil, RotateCw, Trash2, Wand2 } from "lucide-react";
 import type { components } from "../../api/schema";
 import { api } from "../../api/client";
+import { toast } from "../../lib/toast";
 import { relativeTime } from "../../lib/format";
 import { SkeletonRows, StatusDot, ErrorCard } from "../../components/ui";
 import { HostFormDrawer, type HostFormValues } from "../../components/HostFormDrawer";
