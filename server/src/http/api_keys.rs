@@ -25,6 +25,8 @@ pub struct ApiKeyView {
     pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
     pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 功能域 scope；空 = 全功能。
+    pub scopes: Vec<String>,
 }
 
 impl From<ApiKeyRow> for ApiKeyView {
@@ -37,6 +39,7 @@ impl From<ApiKeyRow> for ApiKeyView {
             last_used_at: r.last_used_at,
             expires_at: r.expires_at,
             revoked_at: r.revoked_at,
+            scopes: r.scopes,
         }
     }
 }
@@ -46,6 +49,9 @@ pub struct CreateBody {
     pub name: String,
     /// RFC 3339 过期时间（如 2026-12-31T23:59:59Z），空则永不过期。
     pub expires_at: Option<String>,
+    /// 功能域 scope 列表（hosts/exec/files/…，见 application::scopes）；空 = 全功能。
+    #[serde(default)]
+    pub scopes: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -96,7 +102,7 @@ pub async fn create(
     };
 
     let (row, raw) = ApiKeyService::new(state.db.clone())
-        .create(name, expires_at)
+        .create(name, expires_at, body.scopes)
         .await?;
 
     let _ = AuditService::new(state.db.clone())
@@ -104,7 +110,7 @@ pub async fn create(
             &claims.sub,
             "api_key_create",
             &row.id.to_string(),
-            json!({ "name": row.name, "prefix": row.prefix }),
+            json!({ "name": row.name, "prefix": row.prefix, "scopes": row.scopes }),
         )
         .await;
 

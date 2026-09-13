@@ -1,15 +1,18 @@
 //! SOCKS 代理管理端点：为 agent 开启/停止/列出 SOCKS5 监听。
 
+use crate::application::audit_service::AuditService;
+use crate::application::auth_service::Claims;
 use crate::domain::Error;
 use crate::http::AppState;
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Extension, Path, State};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
 /// 为 agent 开启 SOCKS5 代理：POST /api/v1/proxies
 pub async fn create_proxy(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, Error> {
     let agent_id = body
@@ -27,6 +30,14 @@ pub async fn create_proxy(
         .proxy_service
         .start(&agent_id, &listen_addr, state.conn_registry.clone())
         .await?;
+    let _ = AuditService::new(state.db.clone())
+        .record(
+            &claims.sub,
+            "proxy_create",
+            &agent_id,
+            json!({ "listen_addr": actual }),
+        )
+        .await;
     Ok(Json(json!({
         "id": id,
         "agent_id": agent_id,
@@ -52,8 +63,12 @@ pub async fn list_proxies(State(state): State<AppState>) -> Result<Json<Value>, 
 /// 停止代理：DELETE /api/v1/proxies/{id}
 pub async fn stop_proxy(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, Error> {
     state.proxy_service.stop(id).await?;
+    let _ = AuditService::new(state.db.clone())
+        .record(&claims.sub, "proxy_stop", &id.to_string(), json!({}))
+        .await;
     Ok(Json(json!({ "ok": true })))
 }

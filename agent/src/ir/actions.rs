@@ -8,9 +8,8 @@
 //! - `task\u{1f}<任务名>` — 计划任务；schtasks /change | /delete
 
 use super::util::{
-    AUTORUNS_DISABLED_SUBKEY, child_cmd, hive_from_str, reg_delete_value, reg_get_raw,
-    reg_get_value, reg_move_value_to_disabled, reg_restore_value_from_disabled,
-    reg_set_raw, hkey_local,
+    AUTORUNS_DISABLED_SUBKEY, child_cmd, hive_from_str, hkey_local, reg_delete_value, reg_get_raw,
+    reg_get_value, reg_move_value_to_disabled, reg_restore_value_from_disabled, reg_set_raw,
 };
 use helm_proto::pb::{AgentMessage, AutorunsActionResult, agent_message};
 use windows_sys::Win32::System::Registry::HKEY;
@@ -26,11 +25,13 @@ pub fn autoruns_action(request_id: &str, action: &str, op_key: &str) -> AgentMes
         }
     };
     AgentMessage {
-        kind: Some(agent_message::Kind::AutorunsActionResult(AutorunsActionResult {
-            request_id: request_id.to_string(),
-            ok,
-            error,
-        })),
+        kind: Some(agent_message::Kind::AutorunsActionResult(
+            AutorunsActionResult {
+                request_id: request_id.to_string(),
+                ok,
+                error,
+            },
+        )),
     }
 }
 
@@ -99,8 +100,15 @@ fn file_action(action: &str, path: &str) -> Result<(), String> {
     let p = std::path::Path::new(path);
     match action {
         "disable" => {
-            let Some(parent) = p.parent() else { return Err("无父目录".into()) };
-            if p.parent().unwrap().file_name().map(|n| n == AUTORUNS_DISABLED_SUBKEY).unwrap_or(false) {
+            let Some(parent) = p.parent() else {
+                return Err("无父目录".into());
+            };
+            if p.parent()
+                .unwrap()
+                .file_name()
+                .map(|n| n == AUTORUNS_DISABLED_SUBKEY)
+                .unwrap_or(false)
+            {
                 return Err("该条目已处于禁用状态".into());
             }
             let target_dir = parent.join(AUTORUNS_DISABLED_SUBKEY);
@@ -112,8 +120,12 @@ fn file_action(action: &str, path: &str) -> Result<(), String> {
             std::fs::rename(p, &target).map_err(|e| format!("移动失败: {e}"))
         }
         "enable" => {
-            let Some(parent) = p.parent() else { return Err("无父目录".into()) };
-            let Some(real_parent) = parent.parent() else { return Err("无祖父目录".into()) };
+            let Some(parent) = p.parent() else {
+                return Err("无父目录".into());
+            };
+            let Some(real_parent) = parent.parent() else {
+                return Err("无祖父目录".into());
+            };
             let target = real_parent.join(p.file_name().ok_or("无文件名")?);
             if target.exists() {
                 return Err(format!("目标已存在: {}", target.display()));
@@ -151,7 +163,13 @@ fn svc_action(action: &str, name: &str) -> Result<(), String> {
                 return Err("该服务已处于禁用状态".into());
             }
             // 保存原始 Start（DWORD）
-            reg_set_raw(hive, &key, AUTORUNS_DISABLED_SUBKEY, 4, &start.to_le_bytes())?;
+            reg_set_raw(
+                hive,
+                &key,
+                AUTORUNS_DISABLED_SUBKEY,
+                4,
+                &start.to_le_bytes(),
+            )?;
             reg_set_raw(hive, &key, "Start", 4, &4u32.to_le_bytes())
         }
         "enable" => {

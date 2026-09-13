@@ -1,10 +1,12 @@
 //! 进程管理 + 网络信息 + 系统服务端点。
 
+use crate::application::audit_service::AuditService;
+use crate::application::auth_service::Claims;
 use crate::application::process_service::ProcessService;
 use crate::domain::Error;
 use crate::http::AppState;
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Extension, State};
 use helm_proto::pb::{NetConnection, NetInterface, ProcessInfo, SysServiceEntry};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -155,9 +157,18 @@ pub async fn list_processes(
 /// 终止进程：POST /api/v1/processes/kill
 pub async fn kill_process(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(body): Json<KillBody>,
 ) -> Result<Json<Value>, Error> {
     let ok = service(&state).kill(&body.agent_id, body.pid).await?;
+    let _ = AuditService::new(state.db.clone())
+        .record(
+            &claims.sub,
+            "process_kill",
+            &body.agent_id,
+            json!({ "pid": body.pid, "ok": ok }),
+        )
+        .await;
     Ok(Json(json!({ "pid": body.pid, "ok": ok })))
 }
 
@@ -211,11 +222,20 @@ pub async fn list_sys_services(
 /// 系统服务操作：POST /api/v1/sys-services/action
 pub async fn sys_service_action(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(body): Json<SysServiceActionBody>,
 ) -> Result<Json<Value>, Error> {
     let (ok, error) = service(&state)
         .sys_service_action(&body.agent_id, &body.name, &body.action)
         .await?;
+    let _ = AuditService::new(state.db.clone())
+        .record(
+            &claims.sub,
+            "sys_service_action",
+            &body.agent_id,
+            json!({ "name": body.name, "action": body.action, "ok": ok }),
+        )
+        .await;
     Ok(Json(
         json!({ "name": body.name, "action": body.action, "ok": ok, "error": error }),
     ))

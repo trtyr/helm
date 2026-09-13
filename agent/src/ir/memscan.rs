@@ -2,7 +2,7 @@
 //! （Volatility strings 简化版）。pid=0 时遍历全部进程（全局限额 + 超时），
 //! 流式模式下逐进程推送部分批次。
 
-use helm_proto::pb::{AgentMessage, MemScanResult, MemMatch, agent_message};
+use helm_proto::pb::{AgentMessage, MemMatch, MemScanResult, agent_message};
 
 /// 全进程模式的全局限额（无截止时间，扫完为止；进度经流式实时可见）。
 const ALL_MAX_MATCHES: usize = 5000;
@@ -13,17 +13,28 @@ const PER_PROCESS_MATCH_CAP: usize = 100;
 fn enable_debug_privilege() -> bool {
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
     use windows_sys::Win32::Security::{
-        AdjustTokenPrivileges, LookupPrivilegeValueW, SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES,
-        TOKEN_PRIVILEGES, TOKEN_QUERY,
+        AdjustTokenPrivileges, LookupPrivilegeValueW, SE_PRIVILEGE_ENABLED,
+        TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES, TOKEN_QUERY,
     };
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
     unsafe {
         let mut token: HANDLE = std::ptr::null_mut();
-        if OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &mut token) == 0 {
+        if OpenProcessToken(
+            GetCurrentProcess(),
+            TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+            &mut token,
+        ) == 0
+        {
             return false;
         }
-        let name: Vec<u16> = "SeDebugPrivilege".encode_utf16().chain(std::iter::once(0)).collect();
-        let mut luid = windows_sys::Win32::Foundation::LUID { LowPart: 0, HighPart: 0 };
+        let name: Vec<u16> = "SeDebugPrivilege"
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let mut luid = windows_sys::Win32::Foundation::LUID {
+            LowPart: 0,
+            HighPart: 0,
+        };
         if LookupPrivilegeValueW(std::ptr::null(), name.as_ptr(), &mut luid) == 0 {
             CloseHandle(token);
             return false;
@@ -31,13 +42,17 @@ fn enable_debug_privilege() -> bool {
         let mut tp = TOKEN_PRIVILEGES {
             PrivilegeCount: 1,
             Privileges: [windows_sys::Win32::Security::LUID_AND_ATTRIBUTES {
-                Luid: windows_sys::Win32::Foundation::LUID { LowPart: 0, HighPart: 0 },
+                Luid: windows_sys::Win32::Foundation::LUID {
+                    LowPart: 0,
+                    HighPart: 0,
+                },
                 Attributes: 0,
             }],
         };
         tp.Privileges[0].Luid = luid;
         tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-        let ok = AdjustTokenPrivileges(token, 0, &tp, 0, std::ptr::null_mut(), std::ptr::null_mut());
+        let ok =
+            AdjustTokenPrivileges(token, 0, &tp, 0, std::ptr::null_mut(), std::ptr::null_mut());
         CloseHandle(token);
         ok != 0
     }
@@ -122,7 +137,15 @@ async fn mem_scan_all_inner(
         TH32CS_SNAPPROCESS,
     };
 
-    let frame = |finished: bool, pid: i32, matches: Vec<String>, hits: Vec<MemMatch>, scanned: u64, truncated: bool, timed_out: bool, total: u32, scanned_n: u32| {
+    let frame = |finished: bool,
+                 pid: i32,
+                 matches: Vec<String>,
+                 hits: Vec<MemMatch>,
+                 scanned: u64,
+                 truncated: bool,
+                 timed_out: bool,
+                 total: u32,
+                 scanned_n: u32| {
         AgentMessage {
             kind: Some(agent_message::Kind::MemScanResult(MemScanResult {
                 request_id: request_id.to_string(),
@@ -168,11 +191,7 @@ async fn mem_scan_all_inner(
             loop {
                 let pid = entry.th32ProcessID;
                 if pid != 0 && pid != std::process::id() {
-                    let end = entry
-                        .szExeFile
-                        .iter()
-                        .position(|&c| c == 0)
-                        .unwrap_or(260);
+                    let end = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(260);
                     procs.push((pid, String::from_utf16_lossy(&entry.szExeFile[..end])));
                 }
                 if Process32NextW(snap, &mut entry) == 0 {
@@ -248,11 +267,37 @@ async fn mem_scan_all_inner(
             // OpenProcess 失败（受保护/系统进程）直接跳过，不计失败
         }
 
-        tracing::info!(pids_scanned = scanned_n, total, truncated, timed_out, "mem_scan_all: sweep done, sending final frame");
+        tracing::info!(
+            pids_scanned = scanned_n,
+            total,
+            truncated,
+            timed_out,
+            "mem_scan_all: sweep done, sending final frame"
+        );
         let final_msg = if partial.is_some() {
-            frame(true, 0, vec![], vec![], scanned_bytes, truncated, timed_out, total, scanned_n)
+            frame(
+                true,
+                0,
+                vec![],
+                vec![],
+                scanned_bytes,
+                truncated,
+                timed_out,
+                total,
+                scanned_n,
+            )
         } else {
-            frame(true, 0, all_matches, all_hits, scanned_bytes, truncated, timed_out, total, scanned_n)
+            frame(
+                true,
+                0,
+                all_matches,
+                all_hits,
+                scanned_bytes,
+                truncated,
+                timed_out,
+                total,
+                scanned_n,
+            )
         };
         if let Some(tx) = partial {
             match tx.send(final_msg).await {
@@ -325,7 +370,11 @@ fn truncate_utf8(s: &str, max_bytes: usize) -> String {
     s[..end].to_string()
 }
 
-fn mem_scan_impl(pid: i32, min_len: usize, keyword: &str) -> Result<(Vec<String>, Vec<MemMatch>, u64, bool), String> {
+fn mem_scan_impl(
+    pid: i32,
+    min_len: usize,
+    keyword: &str,
+) -> Result<(Vec<String>, Vec<MemMatch>, u64, bool), String> {
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::System::Diagnostics::Debug::ReadProcessMemory;
     use windows_sys::Win32::System::Memory::VirtualQueryEx;
@@ -375,7 +424,8 @@ fn mem_scan_impl(pid: i32, min_len: usize, keyword: &str) -> Result<(Vec<String>
                         .chain(extract_utf16_strings(&chunk[..nread], min_len))
                     {
                         // 有关键词时 matches 只收命中（前端展示口径 = 过滤后）
-                        let hit = !kw_lower.is_empty() && s.to_ascii_lowercase().contains(&kw_lower);
+                        let hit =
+                            !kw_lower.is_empty() && s.to_ascii_lowercase().contains(&kw_lower);
                         if kw_lower.is_empty() {
                             if matches.len() < 5000 {
                                 matches.push(s.clone());
@@ -406,7 +456,13 @@ fn mem_scan_impl(pid: i32, min_len: usize, keyword: &str) -> Result<(Vec<String>
     }
 
     unsafe { CloseHandle(handle) };
-    tracing::debug!(pid, matches = matches.len(), hits = hits.len(), scanned, "mem_scan_impl: done");
+    tracing::debug!(
+        pid,
+        matches = matches.len(),
+        hits = hits.len(),
+        scanned,
+        "mem_scan_impl: done"
+    );
     let truncated = hits.len() >= 5000;
     Ok((matches, hits, scanned, truncated))
 }
@@ -443,7 +499,11 @@ mod tests {
                     n += 1;
                     if n <= 3 {
                         let end = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(260);
-                        println!("  pid={} name={}", entry.th32ProcessID, String::from_utf16_lossy(&entry.szExeFile[..end]));
+                        println!(
+                            "  pid={} name={}",
+                            entry.th32ProcessID,
+                            String::from_utf16_lossy(&entry.szExeFile[..end])
+                        );
                     }
                     if Process32NextW(snap, &mut entry) == 0 {
                         break;
@@ -471,13 +531,23 @@ mod stream_tests {
         while let Some(msg) = rx.recv().await {
             if let Some(agent_message::Kind::MemScanResult(r)) = msg.kind {
                 n += 1;
-                if !r.matches.is_empty() { with_content += 1; }
+                if !r.matches.is_empty() {
+                    with_content += 1;
+                }
                 if n <= 3 || r.finished {
-                    println!("frame pid={} matches={} scanned={}MB fin={} err={:?}",
-                        r.pid, r.matches.len(), r.scanned_bytes / 1048576, r.finished, r.error);
+                    println!(
+                        "frame pid={} matches={} scanned={}MB fin={} err={:?}",
+                        r.pid,
+                        r.matches.len(),
+                        r.scanned_bytes / 1048576,
+                        r.finished,
+                        r.error
+                    );
                 }
             }
-            if n >= 60 { break; }
+            if n >= 60 {
+                break;
+            }
         }
         handle.abort();
         println!("frames={n} with_content={with_content}");

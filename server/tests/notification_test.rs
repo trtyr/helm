@@ -26,7 +26,6 @@ use uuid::Uuid;
 /// 避免并行线程互相清零对方刚制造的未读行。
 static READ_STATE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
-
 async fn setup_host(db: &Db, hostname: &str) -> Uuid {
     let host = NewHost {
         hostname: hostname.into(),

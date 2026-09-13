@@ -6,17 +6,15 @@ use std::io::Read;
 
 /// 计算并回包。
 pub fn file_meta(request_id: &str, path: &str) -> AgentMessage {
-    let reply = |sha256: String, size: u64, mtime: String, error: Option<String>| {
-        AgentMessage {
-            kind: Some(agent_message::Kind::FileMetaResult(FileMetaResult {
-                request_id: request_id.to_string(),
-                path: path.to_string(),
-                sha256,
-                size,
-                mtime,
-                error,
-            })),
-        }
+    let reply = |sha256: String, size: u64, mtime: String, error: Option<String>| AgentMessage {
+        kind: Some(agent_message::Kind::FileMetaResult(FileMetaResult {
+            request_id: request_id.to_string(),
+            path: path.to_string(),
+            sha256,
+            size,
+            mtime,
+            error,
+        })),
     };
 
     match std::fs::metadata(path) {
@@ -33,7 +31,12 @@ pub fn file_meta(request_id: &str, path: &str) -> AgentMessage {
                 Err(e) => reply(String::new(), size, mtime, Some(e)),
             }
         }
-        Err(e) => reply(String::new(), 0, String::new(), Some(format!("文件不可读: {e}"))),
+        Err(e) => reply(
+            String::new(),
+            0,
+            String::new(),
+            Some(format!("文件不可读: {e}")),
+        ),
     }
 }
 

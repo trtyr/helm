@@ -1,8 +1,9 @@
 //! 交互终端 WebSocket 端点：GET /api/v1/agents/{id}/terminal?token=...
 
+use crate::application::scopes;
 use crate::domain::Error;
 use crate::http::AppState;
-use crate::http::auth::verify_bearer_token;
+use crate::http::auth::verify_scoped_token;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
@@ -33,7 +34,7 @@ pub async fn terminal(
     Query(query): Query<TerminalQuery>,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, Error> {
-    verify_bearer_token(&state, &query.token).await?;
+    verify_scoped_token(&state, &query.token, scopes::EXEC).await?;
 
     if !state.registry.is_online(&agent_id).await {
         return Err(Error::NotConnected(agent_id));

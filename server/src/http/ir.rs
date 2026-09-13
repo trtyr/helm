@@ -42,7 +42,14 @@ pub async fn ir_scan(
     let kind = sorted_types.join(",");
     let findings_json = serde_json::json!(result.findings);
     let count = findings_json.as_array().map(|a| a.len()).unwrap_or(0) as i32;
-    let _ = crate::store::ir_repo::upsert_page_cache(state.db.pool(), &body.agent_id, &kind, &findings_json, count).await;
+    let _ = crate::store::ir_repo::upsert_page_cache(
+        state.db.pool(),
+        &body.agent_id,
+        &kind,
+        &findings_json,
+        count,
+    )
+    .await;
 
     Ok(Json(json!({
         "findings": result.findings,
@@ -61,7 +68,11 @@ pub async fn get_cache(
     let Some(types) = q.get("types") else {
         return Err(Error::InvalidArgument("缺少 types".into()));
     };
-    let mut parts: Vec<&str> = types.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+    let mut parts: Vec<&str> = types
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
     parts.sort_unstable();
     let kind = parts.join(",");
     match crate::store::ir_repo::get_page_cache(state.db.pool(), agent_id, &kind).await {

@@ -6,7 +6,6 @@ use helm_server::application::exec_service::ExecService;
 use helm_server::domain::Error;
 use helm_server::grpc::connection_registry::ConnectionRegistry;
 
-
 #[tokio::test]
 async fn exec_unknown_agent_returns_not_found() {
     let db = common::connect().await;

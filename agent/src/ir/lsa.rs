@@ -2,7 +2,9 @@
 //! LSA 认证包、安全包、通知包、SecurityProviders、凭据提供程序、打印监视器、网络提供程序。
 //! 这些 DLL 在登录/系统服务加载期运行——绕过杀软自启检测的经典落点。
 
-use super::util::{Scanner, clsid_server, expand_env, hkey_local, reg_get_value, reg_subkeys, resolve_pe_path};
+use super::util::{
+    Scanner, clsid_server, expand_env, hkey_local, reg_get_value, reg_subkeys, resolve_pe_path,
+};
 
 const LSA_ROOT: &str = r"SYSTEM\CurrentControlSet\Control\Lsa";
 const CC_ROOT: &str = r"SYSTEM\CurrentControlSet\Control";
@@ -44,11 +46,26 @@ fn lsa_packages(sc: &mut Scanner) {
         }
     }
     // LSA\OSConfig\Security Packages（Win8+）
-    if let Some(v) = reg_get_value(hkey_local(), &format!("{LSA_ROOT}\\OSConfig\\Security Packages"), "") {
+    if let Some(v) = reg_get_value(
+        hkey_local(),
+        &format!("{LSA_ROOT}\\OSConfig\\Security Packages"),
+        "",
+    ) {
         for dll in v.lines().filter(|s| !s.trim().is_empty()) {
             let path = format!(r"C:\Windows\System32\{}", dll.trim().to_ascii_lowercase());
-            let path = if path.ends_with(".dll") { path } else { format!("{path}.dll") };
-            sc.push("认证", dll.trim(), format!("[LSA 安全包(OSConfig)] {path}"), "info", Some(path), None);
+            let path = if path.ends_with(".dll") {
+                path
+            } else {
+                format!("{path}.dll")
+            };
+            sc.push(
+                "认证",
+                dll.trim(),
+                format!("[LSA 安全包(OSConfig)] {path}"),
+                "info",
+                Some(path),
+                None,
+            );
         }
     }
 }
@@ -106,7 +123,10 @@ fn print_monitors(sc: &mut Scanner) {
             let path = if driver.contains('\\') {
                 expand_env(driver.trim())
             } else {
-                format!(r"C:\Windows\System32\{}", driver.trim().to_ascii_lowercase())
+                format!(
+                    r"C:\Windows\System32\{}",
+                    driver.trim().to_ascii_lowercase()
+                )
             };
             sc.push(
                 "认证",

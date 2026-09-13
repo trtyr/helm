@@ -24,11 +24,11 @@ mod browser;
 #[cfg(windows)]
 mod events;
 #[cfg(windows)]
+mod filemeta;
+#[cfg(windows)]
 mod files;
 #[cfg(windows)]
 mod fs_timeline;
-#[cfg(windows)]
-mod filemeta;
 #[cfg(windows)]
 mod hijacks;
 #[cfg(windows)]
@@ -132,21 +132,23 @@ pub async fn mem_scan(request_id: &str, pid: i32, min_len: u32, keyword: &str) -
     {
         let _ = (pid, min_len, keyword);
         AgentMessage {
-            kind: Some(agent_message::Kind::MemScanResult(helm_proto::pb::MemScanResult {
-                request_id: request_id.to_string(),
-                pid,
-                matches: vec![],
-                hits: vec![],
-                scanned_bytes: 0,
-                truncated: false,
-                regions_total: 0,
-                regions_scanned: 0,
-                timed_out: false,
-                error: Some("内存扫描当前仅支持 Windows 主机".into()),
-                pids_total: 1,
-                pids_scanned: 0,
-                finished: true,
-            })),
+            kind: Some(agent_message::Kind::MemScanResult(
+                helm_proto::pb::MemScanResult {
+                    request_id: request_id.to_string(),
+                    pid,
+                    matches: vec![],
+                    hits: vec![],
+                    scanned_bytes: 0,
+                    truncated: false,
+                    regions_total: 0,
+                    regions_scanned: 0,
+                    timed_out: false,
+                    error: Some("内存扫描当前仅支持 Windows 主机".into()),
+                    pids_total: 1,
+                    pids_scanned: 0,
+                    finished: true,
+                },
+            )),
         }
     }
 }
@@ -200,20 +202,28 @@ pub fn file_meta(request_id: &str, path: &str) -> AgentMessage {
     {
         let _ = path;
         AgentMessage {
-            kind: Some(agent_message::Kind::FileMetaResult(helm_proto::pb::FileMetaResult {
-                request_id: request_id.to_string(),
-                path: path.to_string(),
-                sha256: String::new(),
-                size: 0,
-                mtime: String::new(),
-                error: Some("仅支持 Windows 主机".into()),
-            })),
+            kind: Some(agent_message::Kind::FileMetaResult(
+                helm_proto::pb::FileMetaResult {
+                    request_id: request_id.to_string(),
+                    path: path.to_string(),
+                    sha256: String::new(),
+                    size: 0,
+                    mtime: String::new(),
+                    error: Some("仅支持 Windows 主机".into()),
+                },
+            )),
         }
     }
 }
 
 /// NTFS USN 文件时间线。
-pub fn fs_timeline(request_id: &str, drive: &str, since_hours: u32, limit: u32, keyword: &str) -> AgentMessage {
+pub fn fs_timeline(
+    request_id: &str,
+    drive: &str,
+    since_hours: u32,
+    limit: u32,
+    keyword: &str,
+) -> AgentMessage {
     #[cfg(windows)]
     {
         fs_timeline::fs_timeline(request_id, drive, since_hours, limit, keyword)
@@ -222,14 +232,16 @@ pub fn fs_timeline(request_id: &str, drive: &str, since_hours: u32, limit: u32, 
     {
         let _ = (drive, since_hours, limit, keyword);
         AgentMessage {
-            kind: Some(agent_message::Kind::FsTimelineResult(helm_proto::pb::FsTimelineResult {
-                request_id: request_id.to_string(),
-                drive: drive.to_string(),
-                entries: vec![],
-                total_scanned: 0,
-                truncated: false,
-                error: Some("仅支持 Windows 主机".into()),
-            })),
+            kind: Some(agent_message::Kind::FsTimelineResult(
+                helm_proto::pb::FsTimelineResult {
+                    request_id: request_id.to_string(),
+                    drive: drive.to_string(),
+                    entries: vec![],
+                    total_scanned: 0,
+                    truncated: false,
+                    error: Some("仅支持 Windows 主机".into()),
+                },
+            )),
         }
     }
 }

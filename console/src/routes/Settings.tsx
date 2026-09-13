@@ -5,6 +5,7 @@ import { ChevronRight, Copy } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { getToken, clearToken } from "../api/token";
 import { useTheme } from "../hooks/useTheme";
+import { ApiKeysPanel } from "../components/ApiKeysPanel";
 import { toast } from "../lib/toast";
 
 /** JWT exp 本地解码（atob payload；无效 token 返回 null）。 */
@@ -273,6 +274,9 @@ export default function Settings() {
           <p className="mt-2 text-label-12 text-gray-900">修改后需用新密码重新登录</p>
         </form>
       </section>
+
+      {/* API 凭证（scope 化，供 AI / 脚本） */}
+      <ApiKeysPanel />
 
       {/* 外观 */}
       <section className="rounded-lg border border-gray-400 p-6">

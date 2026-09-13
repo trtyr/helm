@@ -15,6 +15,7 @@ pub mod ir;
 pub mod ir_ops;
 pub mod jobs;
 pub mod listeners;
+pub mod mcp;
 pub mod metrics;
 pub mod notifications;
 pub mod p2;
@@ -60,6 +61,8 @@ pub struct AppState {
     pub proxy_service: crate::application::proxy_service::ProxyService,
     pub conn_registry: ConnectionRegistry,
     pub vt_api_key: String,
+    /// HTTP 监听端口（MCP loopback 自调用用）。
+    pub http_port: u16,
 }
 
 /// 启动 HTTP 服务（控制台 API + health）。
@@ -96,6 +99,12 @@ pub async fn serve(
         proxy_service: crate::application::proxy_service::ProxyService::new(),
         conn_registry: registry,
         vt_api_key: config.vt_api_key.clone(),
+        http_port: config
+            .http_addr
+            .rsplit(':')
+            .next()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(8080),
     };
 
     // 受保护路由（需 JWT）
@@ -166,9 +175,15 @@ pub async fn serve(
         .route("/ir/autorun-action", post(ir_ops::autorun_action))
         .route("/ir/file-meta", post(ir_ops::file_meta))
         .route("/ir/vt", post(ir_ops::vt_lookup))
-        .route("/ir/snapshots", post(ir_ops::create_snapshot).get(ir_ops::list_snapshots))
+        .route(
+            "/ir/snapshots",
+            post(ir_ops::create_snapshot).get(ir_ops::list_snapshots),
+        )
         .route("/ir/snapshots/compare", post(ir_ops::compare_snapshots))
-        .route("/ir/snapshots/{id}", get(ir_ops::get_snapshot).delete(ir_ops::delete_snapshot))
+        .route(
+            "/ir/snapshots/{id}",
+            get(ir_ops::get_snapshot).delete(ir_ops::delete_snapshot),
+        )
         .route(
             "/proxies",
             get(proxies::list_proxies).post(proxies::create_proxy),
@@ -203,6 +218,7 @@ pub async fn serve(
 
     let app = Router::new()
         .route("/healthz", get(health::healthz))
+        .route("/mcp", post(mcp::mcp))
         .route("/api/v1/auth/login", post(auth::login))
         .route("/api/v1/agents/{id}/terminal", get(terminal::terminal))
         .route(

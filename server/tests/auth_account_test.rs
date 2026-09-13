@@ -9,7 +9,6 @@ use helm_server::domain::Error;
 use helm_server::store::Db;
 use helm_server::store::user_repo::UserRepo;
 
-
 fn hash(plain: &str) -> String {
     bcrypt::hash(plain, 4).expect("bcrypt hash")
 }

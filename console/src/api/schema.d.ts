@@ -3326,6 +3326,8 @@ export interface paths {
                          * @description RFC 3339 过期时间，空则永不过期
                          */
                         expires_at?: string;
+                        /** @description 功能域 scope；空 = 全功能（兼容存量 key） */
+                        scopes?: components["schemas"]["ApiKeyScope"][];
                     };
                 };
             };
@@ -3864,7 +3866,14 @@ export interface components {
             expires_at?: string | null;
             /** Format: date-time */
             revoked_at?: string | null;
+            /** @description 功能域 scope；空 = 全功能 */
+            scopes?: components["schemas"]["ApiKeyScope"][];
         };
+        /**
+         * @description 功能域 scope（api-keys/账号管理永远 JWT-only，不设 scope）
+         * @enum {string}
+         */
+        ApiKeyScope: "hosts" | "exec" | "files" | "services" | "processes" | "metrics" | "notifications" | "listeners" | "forward" | "proxy" | "ir" | "agent-gen" | "audit" | "skill";
         Account: {
             username?: string;
             /** @enum {string} */

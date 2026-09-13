@@ -6,7 +6,12 @@ pub fn scan(sc: &mut Scanner) {
     // Security 4624/4625/4720/1102（需管理员）
     let sec = wevt_events("Security", "4624 or 4625 or 4720 or 1102", 40);
     if sec.is_empty() {
-        sc.push_raw("事件日志", "Security 日志", "不可读（需管理员）或无事件", "warn");
+        sc.push_raw(
+            "事件日志",
+            "Security 日志",
+            "不可读（需管理员）或无事件",
+            "warn",
+        );
     }
     for (id, time, msg) in &sec {
         let sev = match id.as_str() {
@@ -50,8 +55,12 @@ pub fn scan(sc: &mut Scanner) {
 /// 手写天序算法（Hinnant），避免为单一解析引入 chrono。
 pub fn iso_to_unix(s: &str) -> i64 {
     let num = |a: usize, b: usize| s.get(a..b).and_then(|x| x.parse::<i64>().ok());
-    let (Some(y), Some(mo), Some(d)) = (num(0, 4), num(5, 7), num(8, 10)) else { return 0 };
-    let (Some(h), Some(mi), Some(sec)) = (num(11, 13), num(14, 16), num(17, 19)) else { return 0 };
+    let (Some(y), Some(mo), Some(d)) = (num(0, 4), num(5, 7), num(8, 10)) else {
+        return 0;
+    };
+    let (Some(h), Some(mi), Some(sec)) = (num(11, 13), num(14, 16), num(17, 19)) else {
+        return 0;
+    };
     let y2 = if mo <= 2 { y - 1 } else { y };
     let era = y2.div_euclid(400);
     let yoe = y2 - era * 400;

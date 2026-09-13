@@ -9,12 +9,11 @@ use crate::grpc::query_registry::QueryRegistry;
 use crate::grpc::session_registry::SessionRegistry;
 use crate::grpc::stream_registry::StreamRegistry;
 use crate::grpc::transfer_registry::TransferRegistry;
-use crate::store::{Db, agent_repo::AgentRepo};
 use crate::store::agent_repo::HostOsDetails;
+use crate::store::{Db, agent_repo::AgentRepo};
 use helm_proto::pb::{
     AgentMessage, RegisterAck, SelfDestruct, ServerMessage, agent_message,
-    agent_service_server::AgentService,
-    server_message,
+    agent_service_server::AgentService, server_message,
 };
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
@@ -183,9 +182,13 @@ impl AgentService for AgentServiceImpl {
             deferred_offline = true;
             tracing::info!(agent_id = %agent_id, %action, "deferred offline command executed on reconnect");
             let remove_binary = action == "uninstall";
-            let _ = tx.send(ServerMessage {
-                kind: Some(server_message::Kind::SelfDestruct(SelfDestruct { remove_binary })),
-            }).await;
+            let _ = tx
+                .send(ServerMessage {
+                    kind: Some(server_message::Kind::SelfDestruct(SelfDestruct {
+                        remove_binary,
+                    })),
+                })
+                .await;
             let _ = AgentRepo::new(self.db.clone()).delete(&agent_id).await;
         }
 
@@ -222,38 +225,38 @@ impl AgentService for AgentServiceImpl {
         let agent_id_inner = agent_id.clone();
         let hostname_inner = hostname.to_string();
         tokio::spawn(async move {
-        let mut ctx = InboundCtx::new(
-            agent_id_inner.clone(),
-            host_id,
-            hostname_inner,
-            registry,
-            registration.kick_tx,
-            transfers,
-            sessions,
-            file_list,
-            query,
-            streams,
-            db,
-        );
-        let mut kick_rx = registration.kick_rx;
-        loop {
-            tokio::select! {
-                // 被同 id 新注册顶掉：立即退出并释放流（不入流则旧 HTTP/2 流复位不了，TCP 泄漏）
-                // （wait_for 的 watch::Ref 非 Send，包一层 async 块在内部丢弃）
-                _ = async {
-                    let _ = kick_rx.wait_for(|kicked| *kicked).await;
-                } => break,
-                msg = inbound.message() => match msg {
-                    Ok(Some(msg)) => ctx.handle(msg).await,
-                    Ok(None) => break,
-                    Err(e) => {
-                        tracing::warn!(agent_id = %agent_id_inner, error = %e, "inbound stream error");
-                        break;
+            let mut ctx = InboundCtx::new(
+                agent_id_inner.clone(),
+                host_id,
+                hostname_inner,
+                registry,
+                registration.kick_tx,
+                transfers,
+                sessions,
+                file_list,
+                query,
+                streams,
+                db,
+            );
+            let mut kick_rx = registration.kick_rx;
+            loop {
+                tokio::select! {
+                    // 被同 id 新注册顶掉：立即退出并释放流（不入流则旧 HTTP/2 流复位不了，TCP 泄漏）
+                    // （wait_for 的 watch::Ref 非 Send，包一层 async 块在内部丢弃）
+                    _ = async {
+                        let _ = kick_rx.wait_for(|kicked| *kicked).await;
+                    } => break,
+                    msg = inbound.message() => match msg {
+                        Ok(Some(msg)) => ctx.handle(msg).await,
+                        Ok(None) => break,
+                        Err(e) => {
+                            tracing::warn!(agent_id = %agent_id_inner, error = %e, "inbound stream error");
+                            break;
+                        }
                     }
                 }
             }
-        }
-        ctx.on_disconnect().await;
+            ctx.on_disconnect().await;
         });
 
         let outbound = ReceiverStream::new(rx).map(Ok);

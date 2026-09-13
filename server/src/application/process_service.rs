@@ -5,9 +5,8 @@ use crate::grpc::connection_registry::ConnectionRegistry;
 use crate::grpc::query_registry::{QueryRegistry, QueryResponse};
 use helm_proto::pb::{
     AutorunsAction, FileMetaQuery, FileMetaResult, FsTimelineQuery, IrScan, MemScan, NetInfo,
-    NetInfoResult, ProcessInfo, ProcessKill,
-    ProcessList, ServerMessage, SysServiceAction, SysServiceList, SysServiceListResult,
-    server_message,
+    NetInfoResult, ProcessInfo, ProcessKill, ProcessList, ServerMessage, SysServiceAction,
+    SysServiceList, SysServiceListResult, server_message,
 };
 use uuid::Uuid;
 
@@ -289,11 +288,7 @@ impl ProcessService {
     }
 
     /// 文件元数据按需查询（SHA256/大小/mtime）。
-    pub async fn file_meta(
-        &self,
-        agent_id: &str,
-        path: &str,
-    ) -> Result<FileMetaResult> {
+    pub async fn file_meta(&self, agent_id: &str, path: &str) -> Result<FileMetaResult> {
         let request_id = Uuid::new_v4().to_string();
         let resp = self
             .request(

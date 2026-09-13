@@ -56,18 +56,17 @@ fn chromium_extensions(sc: &mut Scanner, label: &str, roots: &[(HKEY, &str)]) {
             let name = reg_get_value(*hive, &full, "name")
                 .filter(|s| !s.trim().is_empty())
                 .unwrap_or_else(|| id.clone());
-            let path = if path_val.trim().is_empty()
-                || std::path::Path::new(path_val.trim()).is_file()
-            {
-                if path_val.trim().is_empty() {
-                    None
+            let path =
+                if path_val.trim().is_empty() || std::path::Path::new(path_val.trim()).is_file() {
+                    if path_val.trim().is_empty() {
+                        None
+                    } else {
+                        Some(path_val.trim().to_string())
+                    }
                 } else {
+                    // 相对路径（相对扩展安装目录）——展示原样
                     Some(path_val.trim().to_string())
-                }
-            } else {
-                // 相对路径（相对扩展安装目录）——展示原样
-                Some(path_val.trim().to_string())
-            };
+                };
             let update_url = reg_get_value(*hive, &full, "update_url").unwrap_or_default();
             sc.push(
                 "浏览器",
@@ -83,9 +82,13 @@ fn chromium_extensions(sc: &mut Scanner, label: &str, roots: &[(HKEY, &str)]) {
 
 /// Firefox 扩展：解析 profiles.ini + 各 profile 的 extensions.json。
 fn firefox_extensions(sc: &mut Scanner) {
-    let Some(appdata) = std::env::var("APPDATA").ok() else { return };
+    let Some(appdata) = std::env::var("APPDATA").ok() else {
+        return;
+    };
     let ini = std::path::PathBuf::from(format!(r"{appdata}\Mozilla\Firefox\profiles.ini"));
-    let Ok(ini_text) = std::fs::read_to_string(ini) else { return };
+    let Ok(ini_text) = std::fs::read_to_string(ini) else {
+        return;
+    };
     let mut profiles: Vec<String> = Vec::new();
     for line in ini_text.lines() {
         let t = line.trim();
@@ -94,10 +97,18 @@ fn firefox_extensions(sc: &mut Scanner) {
         }
     }
     for profile in profiles {
-        let ext_json = std::path::PathBuf::from(format!(r"{appdata}\Mozilla\Firefox\{profile}\extensions.json"));
-        let Ok(text) = std::fs::read_to_string(ext_json) else { continue };
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
-        let Some(addons) = v["addons"].as_array() else { continue };
+        let ext_json = std::path::PathBuf::from(format!(
+            r"{appdata}\Mozilla\Firefox\{profile}\extensions.json"
+        ));
+        let Ok(text) = std::fs::read_to_string(ext_json) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        let Some(addons) = v["addons"].as_array() else {
+            continue;
+        };
         for a in addons {
             let name = a["defaultLocale"]["name"]
                 .as_str()
@@ -109,7 +120,11 @@ fn firefox_extensions(sc: &mut Scanner) {
             sc.push(
                 "浏览器",
                 &name,
-                format!("[Firefox 扩展] {} ({})", a["id"].as_str().unwrap_or("?"), loc),
+                format!(
+                    "[Firefox 扩展] {} ({})",
+                    a["id"].as_str().unwrap_or("?"),
+                    loc
+                ),
                 "info",
                 path,
                 None,
@@ -119,7 +134,10 @@ fn firefox_extensions(sc: &mut Scanner) {
 }
 
 fn clsid_name(clsid: &str) -> Option<String> {
-    for root in [r"SOFTWARE\Classes\CLSID", r"SOFTWARE\Classes\Wow6432Node\CLSID"] {
+    for root in [
+        r"SOFTWARE\Classes\CLSID",
+        r"SOFTWARE\Classes\Wow6432Node\CLSID",
+    ] {
         if let Some(n) = reg_get_value(HKEY_LOCAL_MACHINE, &format!("{root}\\{clsid}"), "")
             && !n.trim().is_empty()
         {

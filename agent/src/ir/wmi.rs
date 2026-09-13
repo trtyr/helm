@@ -11,7 +11,14 @@ pub fn scan(sc: &mut Scanner) {
         "$_.Consumer.CimClass.CimClassName, $_.Consumer.CommandLineTemplate }"
     );
     let output = child_cmd("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script])
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ])
         .output();
     let Ok(o) = output else { return };
     if !o.status.success() {

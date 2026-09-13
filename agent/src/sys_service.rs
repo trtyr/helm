@@ -191,10 +191,18 @@ fn systemd_entry(props: &std::collections::HashMap<&str, &str>, boot_unix: u64) 
             .get("MainPID")
             .and_then(|v| v.parse::<i32>().ok())
             .unwrap_or(0),
-        description: props.get("Description").copied().unwrap_or_default().to_string(),
+        description: props
+            .get("Description")
+            .copied()
+            .unwrap_or_default()
+            .to_string(),
         enabled_state: unit_file_state.to_string(),
         since_unix,
-        unit_file: props.get("FragmentPath").copied().unwrap_or_default().to_string(),
+        unit_file: props
+            .get("FragmentPath")
+            .copied()
+            .unwrap_or_default()
+            .to_string(),
     }
 }
 
@@ -294,7 +302,10 @@ ActiveEnterTimestampMonotonic=0
         assert_eq!(svcs[0].enabled_state, "enabled");
         assert_eq!(svcs[0].pid, 749);
         assert_eq!(svcs[0].since_unix, 1_000_123);
-        assert_eq!(svcs[0].unit_file, "/usr/lib/systemd/system/accounts-daemon.service");
+        assert_eq!(
+            svcs[0].unit_file,
+            "/usr/lib/systemd/system/accounts-daemon.service"
+        );
         assert_eq!(svcs[1].status, "stopped");
         assert_eq!(svcs[1].enabled_state, "");
         assert_eq!(svcs[1].since_unix, 0);

@@ -7,7 +7,6 @@ use helm_server::store::alert_repo::AlertRepo;
 use helm_server::store::audit_repo::AuditRepo;
 use helm_server::store::host_repo::{HostRepo, NewHost};
 
-
 #[tokio::test]
 async fn host_repo_insert_list_soft_delete() {
     let db = common::connect().await;

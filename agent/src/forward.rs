@@ -193,32 +193,52 @@ impl ForwardAgentService for ForwardAgentServiceImpl {
                         let _ = tx.send(msg).await;
                     }
                     Some(server_message::Kind::AutorunsAction(req)) => {
-                let msg = crate::ir::autoruns_action(&req.request_id, &req.action, &req.op_key);
-                let _ = tx.send(msg).await;
-            }
-            Some(server_message::Kind::FileMetaQuery(req)) => {
-                let msg = crate::ir::file_meta(&req.request_id, &req.path);
-                let _ = tx.send(msg).await;
-            }
-            Some(server_message::Kind::IrScan(req)) => {
+                        let msg =
+                            crate::ir::autoruns_action(&req.request_id, &req.action, &req.op_key);
+                        let _ = tx.send(msg).await;
+                    }
+                    Some(server_message::Kind::FileMetaQuery(req)) => {
+                        let msg = crate::ir::file_meta(&req.request_id, &req.path);
+                        let _ = tx.send(msg).await;
+                    }
+                    Some(server_message::Kind::IrScan(req)) => {
                         let msg = crate::ir::ir_scan(&req.request_id, &req.types);
                         let _ = tx.send(msg).await;
                     }
-                                                            Some(server_message::Kind::FsTimelineQuery(req)) => {
-                let msg = crate::ir::fs_timeline(&req.request_id, &req.drive, req.since_hours, req.limit, &req.keyword);
-                let _ = tx.send(msg).await;
-            }
-            Some(server_message::Kind::MemScan(req)) => {
-                                                                                if req.stream {
-                                                                                                    let tx = tx.clone();
-                                                                                                    tokio::spawn(async move {
-                                                                                                                        crate::ir::mem_scan_stream(req.request_id, req.pid, req.min_len, req.keywords, tx).await;
-                                                                                                    });
-                                                                                } else {
-                                                                                                    let msg = crate::ir::mem_scan(&req.request_id, req.pid, req.min_len, &req.keywords).await;
-                                                                                                    let _ = tx.send(msg).await;
-                                                                                }
-                                                            }
+                    Some(server_message::Kind::FsTimelineQuery(req)) => {
+                        let msg = crate::ir::fs_timeline(
+                            &req.request_id,
+                            &req.drive,
+                            req.since_hours,
+                            req.limit,
+                            &req.keyword,
+                        );
+                        let _ = tx.send(msg).await;
+                    }
+                    Some(server_message::Kind::MemScan(req)) => {
+                        if req.stream {
+                            let tx = tx.clone();
+                            tokio::spawn(async move {
+                                crate::ir::mem_scan_stream(
+                                    req.request_id,
+                                    req.pid,
+                                    req.min_len,
+                                    req.keywords,
+                                    tx,
+                                )
+                                .await;
+                            });
+                        } else {
+                            let msg = crate::ir::mem_scan(
+                                &req.request_id,
+                                req.pid,
+                                req.min_len,
+                                &req.keywords,
+                            )
+                            .await;
+                            let _ = tx.send(msg).await;
+                        }
+                    }
 
                     Some(server_message::Kind::ProxyConnect(req)) => {
                         proxies.connect(&req.conn_id, &req.target, &tx).await;

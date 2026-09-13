@@ -12,6 +12,16 @@ pub struct Claims {
     pub sub: String,
     pub role: String,
     pub exp: usize,
+    /// API key 的 scope 列表；空 = 全功能（JWT 即此形态，serde default 兼容旧 token）。
+    #[serde(default)]
+    pub scopes: Vec<String>,
+}
+
+impl Claims {
+    /// 是否持有某 scope：空列表 = 不受限（存量 key 与 JWT 均为此形态）。
+    pub fn has_scope(&self, scope: &str) -> bool {
+        self.scopes.is_empty() || self.scopes.iter().any(|s| s == scope)
+    }
 }
 
 /// 账号视图（/auth/me；不含密码哈希）。
@@ -151,6 +161,7 @@ impl AuthService {
 pub fn issue_jwt(secret: &str, username: &str, role: &str, ttl_secs: usize) -> Result<String> {
     let exp = chrono::Utc::now().timestamp() as usize + ttl_secs;
     let claims = Claims {
+        scopes: Vec::new(),
         sub: username.to_string(),
         role: role.to_string(),
         exp,

@@ -16,6 +16,8 @@ pub struct ApiKeyRow {
     pub last_used_at: Option<DateTime<Utc>>,
     pub expires_at: Option<DateTime<Utc>>,
     pub revoked_at: Option<DateTime<Utc>>,
+    /// 功能域 scope；空 = 全功能（兼容 0016 之前的存量 key）。
+    pub scopes: Vec<String>,
 }
 
 /// api_keys 表仓储。
@@ -36,16 +38,18 @@ impl ApiKeyRepo {
         key_hash: &str,
         prefix: &str,
         expires_at: Option<DateTime<Utc>>,
+        scopes: &[String],
     ) -> sqlx::Result<ApiKeyRow> {
         sqlx::query_as::<_, ApiKeyRow>(
-            "INSERT INTO api_keys (name, key_hash, prefix, expires_at)
-             VALUES ($1, $2, $3, $4)
-             RETURNING id, name, key_hash, prefix, created_at, last_used_at, expires_at, revoked_at",
+            "INSERT INTO api_keys (name, key_hash, prefix, expires_at, scopes)
+             VALUES ($1, $2, $3, $4, $5)
+             RETURNING id, name, key_hash, prefix, created_at, last_used_at, expires_at, revoked_at, scopes",
         )
         .bind(name)
         .bind(key_hash)
         .bind(prefix)
         .bind(expires_at)
+        .bind(scopes)
         .fetch_one(self.db.pool())
         .await
     }
@@ -53,7 +57,7 @@ impl ApiKeyRepo {
     /// 按哈希查有效 key：未吊销且未过期才算命中。
     pub async fn find_valid_by_hash(&self, key_hash: &str) -> sqlx::Result<Option<ApiKeyRow>> {
         sqlx::query_as::<_, ApiKeyRow>(
-            "SELECT id, name, key_hash, prefix, created_at, last_used_at, expires_at, revoked_at
+            "SELECT id, name, key_hash, prefix, created_at, last_used_at, expires_at, revoked_at, scopes
              FROM api_keys
              WHERE key_hash = $1
                AND revoked_at IS NULL
@@ -67,7 +71,7 @@ impl ApiKeyRepo {
     /// 按 id 查（含已吊销，供管理端点展示）。
     pub async fn get(&self, id: Uuid) -> sqlx::Result<Option<ApiKeyRow>> {
         sqlx::query_as::<_, ApiKeyRow>(
-            "SELECT id, name, key_hash, prefix, created_at, last_used_at, expires_at, revoked_at
+            "SELECT id, name, key_hash, prefix, created_at, last_used_at, expires_at, revoked_at, scopes
              FROM api_keys WHERE id = $1",
         )
         .bind(id)
@@ -78,7 +82,7 @@ impl ApiKeyRepo {
     /// 分页列出（按创建时间倒序）。
     pub async fn list_paged(&self, limit: i64, offset: i64) -> sqlx::Result<Vec<ApiKeyRow>> {
         sqlx::query_as::<_, ApiKeyRow>(
-            "SELECT id, name, key_hash, prefix, created_at, last_used_at, expires_at, revoked_at
+            "SELECT id, name, key_hash, prefix, created_at, last_used_at, expires_at, revoked_at, scopes
              FROM api_keys
              ORDER BY created_at DESC LIMIT $1 OFFSET $2",
         )

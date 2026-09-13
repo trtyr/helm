@@ -8,7 +8,6 @@ use helm_server::application::api_key_service::ApiKeyService;
 use helm_server::store::Db;
 use std::time::Duration;
 
-
 /// 清理本测试创建的 key（按名称前缀）。
 async fn cleanup(db: &Db, name_prefix: &str) {
     sqlx::query("DELETE FROM api_keys WHERE name LIKE $1")
@@ -25,7 +24,7 @@ async fn create_verify_roundtrip() {
     cleanup(&db, &name).await;
 
     let svc = ApiKeyService::new(db.clone());
-    let (row, raw) = svc.create(&name, None).await.expect("create");
+    let (row, raw) = svc.create(&name, None, Vec::new()).await.expect("create");
 
     // 明文格式与落库形态
     assert!(raw.starts_with("helm_"));
@@ -33,9 +32,10 @@ async fn create_verify_roundtrip() {
     assert_eq!(row.prefix.len(), 12);
     assert!(row.prefix.starts_with("helm_"));
 
-    // 正确 key → 命中并返回 key 名
-    let verified = svc.verify(&raw).await.expect("verify ok");
-    assert_eq!(verified.as_deref(), Some(name.as_str()));
+    // 正确 key → 命中并返回（key 名, scopes）
+    let (verified_name, scopes) = svc.verify(&raw).await.expect("verify ok").expect("hit");
+    assert_eq!(verified_name, name);
+    assert!(scopes.is_empty(), "默认创建 = 空 scopes = 全功能");
 
     // 错误 key / 乱前缀 → 拒绝
     assert_eq!(svc.verify("helm_deadbeef").await.unwrap(), None);
@@ -51,11 +51,8 @@ async fn revoked_key_rejected_and_idempotent() {
     cleanup(&db, &name).await;
 
     let svc = ApiKeyService::new(db.clone());
-    let (row, raw) = svc.create(&name, None).await.expect("create");
-    assert_eq!(
-        svc.verify(&raw).await.unwrap().as_deref(),
-        Some(name.as_str())
-    );
+    let (row, raw) = svc.create(&name, None, Vec::new()).await.expect("create");
+    assert!(svc.verify(&raw).await.unwrap().is_some());
 
     // 吊销后立即失效
     svc.revoke(row.id).await.expect("revoke");
@@ -79,9 +76,37 @@ async fn expired_key_rejected() {
 
     let svc = ApiKeyService::new(db.clone());
     let expired = chrono::Utc::now() - chrono::Duration::seconds(1);
-    let (_row, raw) = svc.create(&name, Some(expired)).await.expect("create");
+    let (_row, raw) = svc
+        .create(&name, Some(expired), Vec::new())
+        .await
+        .expect("create");
 
     assert_eq!(svc.verify(&raw).await.unwrap(), None, "expired must fail");
+
+    cleanup(&db, &name).await;
+}
+
+#[tokio::test]
+async fn scoped_key_roundtrip_and_validation() {
+    let db = common::connect().await;
+    let name = format!("itest-scoped-{}", std::process::id());
+    cleanup(&db, &name).await;
+
+    let svc = ApiKeyService::new(db.clone());
+    // 限定 scope 的 key：verify 带回 scopes
+    let (_row, raw) = svc
+        .create(&name, None, vec!["exec".into(), "metrics".into()])
+        .await
+        .expect("create scoped");
+    let (_, scopes) = svc.verify(&raw).await.unwrap().expect("hit");
+    assert_eq!(scopes, vec!["exec".to_string(), "metrics".to_string()]);
+
+    // 未知 scope → 创建被拒绝
+    let err = svc
+        .create(&format!("{name}-bad"), None, vec!["nope".into()])
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("nope"), "err: {err}");
 
     cleanup(&db, &name).await;
 }
@@ -94,10 +119,10 @@ async fn list_paged_and_touch_last_used() {
 
     let svc = ApiKeyService::new(db.clone());
     let (_r1, raw1) = svc
-        .create(&format!("{name}-a"), None)
+        .create(&format!("{name}-a"), None, Vec::new())
         .await
         .expect("create a");
-    svc.create(&format!("{name}-b"), None)
+    svc.create(&format!("{name}-b"), None, Vec::new())
         .await
         .expect("create b");
 

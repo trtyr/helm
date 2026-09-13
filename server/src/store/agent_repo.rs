@@ -285,27 +285,27 @@ impl AgentRepo {
 }
 
 impl AgentRepo {
-/// 掉线期间挂起的下线/注销操作。
-pub async fn mark_pending_offline(&self, agent_id: &str, action: &str) -> sqlx::Result<()> {
-    sqlx::query(
-        "INSERT INTO agent_pending_offline (agent_id, action) VALUES ($1, $2)
+    /// 掉线期间挂起的下线/注销操作。
+    pub async fn mark_pending_offline(&self, agent_id: &str, action: &str) -> sqlx::Result<()> {
+        sqlx::query(
+            "INSERT INTO agent_pending_offline (agent_id, action) VALUES ($1, $2)
          ON CONFLICT (agent_id) DO UPDATE SET action = EXCLUDED.action, created_at = now()",
-    )
-    .bind(agent_id)
-    .bind(action)
-    .execute(self.db.pool())
-    .await?;
-    Ok(())
-}
+        )
+        .bind(agent_id)
+        .bind(action)
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
 
-/// 取出并清除挂起操作（重连瞬间调用）。
-pub async fn take_pending_offline(&self, agent_id: &str) -> sqlx::Result<Option<String>> {
-    let row: Option<(String,)> = sqlx::query_as(
-        "DELETE FROM agent_pending_offline WHERE agent_id = $1 RETURNING action",
-    )
-    .bind(agent_id)
-    .fetch_optional(self.db.pool())
-    .await?;
-    Ok(row.map(|r| r.0))
-}
+    /// 取出并清除挂起操作（重连瞬间调用）。
+    pub async fn take_pending_offline(&self, agent_id: &str) -> sqlx::Result<Option<String>> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "DELETE FROM agent_pending_offline WHERE agent_id = $1 RETURNING action",
+        )
+        .bind(agent_id)
+        .fetch_optional(self.db.pool())
+        .await?;
+        Ok(row.map(|r| r.0))
+    }
 }

@@ -3,8 +3,8 @@
 //! Active Setup、启动文件夹、全量外壳扩展（各类 shellex 处理器 + 服务对象 + 执行钩子）。
 
 use super::util::{
-    Entry, Scanner, clsid_server, extract_exe, hkey_local, reg_get_value, reg_subkeys, reg_values,
-    resolve_pe_path, AUTORUNS_DISABLED_SUBKEY,
+    AUTORUNS_DISABLED_SUBKEY, Entry, Scanner, clsid_server, extract_exe, hkey_local, reg_get_value,
+    reg_subkeys, reg_values, resolve_pe_path,
 };
 use windows_sys::Win32::System::Registry::{HKEY, HKEY_CURRENT_USER, HKEY_USERS};
 
@@ -23,10 +23,22 @@ pub fn scan(sc: &mut Scanner) {
 const RUN_KEYS: &[(&str, &str)] = &[
     (r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", "HKLM"),
     (r"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce", "HKLM"),
-    (r"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnceEx", "HKLM"),
-    (r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run", "HKLM"),
-    (r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce", "HKLM"),
-    (r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run", "HKLM 策略"),
+    (
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnceEx",
+        "HKLM",
+    ),
+    (
+        r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run",
+        "HKLM",
+    ),
+    (
+        r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce",
+        "HKLM",
+    ),
+    (
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run",
+        "HKLM 策略",
+    ),
 ];
 
 fn logon_run(sc: &mut Scanner) {
@@ -63,8 +75,14 @@ fn scan_run_key(sc: &mut Scanner, hive: HKEY, hive_tag: &str, label: &str, path:
     for (name, val) in reg_values(hive, path) {
         let exe = extract_exe(&val);
         sc.push_entry(
-            Entry::new("登录", &name, format!("[{label}\\{path}] {val}"), "info", exe)
-                .op_key(format!("reg\u{1f}{hive_tag}\u{1f}{path}\u{1f}{name}")),
+            Entry::new(
+                "登录",
+                &name,
+                format!("[{label}\\{path}] {val}"),
+                "info",
+                exe,
+            )
+            .op_key(format!("reg\u{1f}{hive_tag}\u{1f}{path}\u{1f}{name}")),
         );
     }
     // 禁用区
@@ -79,7 +97,9 @@ fn scan_run_key(sc: &mut Scanner, hive: HKEY, hive_tag: &str, label: &str, path:
                 "info",
                 exe,
             )
-            .op_key(format!("reg\u{1f}{hive_tag}\u{1f}{disabled_path}\u{1f}{name}"))
+            .op_key(format!(
+                "reg\u{1f}{hive_tag}\u{1f}{disabled_path}\u{1f}{name}"
+            ))
             .disabled(),
         );
     }
@@ -100,7 +120,10 @@ fn other_users_run(sc: &mut Scanner) {
         let user = sid_to_username(&sid).unwrap_or_else(|| sid.clone());
         for (rel, label) in [
             (r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", "Run"),
-            (r"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce", "RunOnce"),
+            (
+                r"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce",
+                "RunOnce",
+            ),
         ] {
             let full = format!("{sid}\\{rel}");
             for (name, val) in reg_values(HKEY_USERS, &full) {
@@ -134,7 +157,8 @@ fn current_user_sid() -> Option<String> {
     let profile = std::env::var("USERPROFILE").ok()?;
     let root = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList";
     for sid in reg_subkeys(hkey_local(), root) {
-        if let Some(img) = reg_get_value(hkey_local(), &format!("{root}\\{sid}"), "ProfileImagePath")
+        if let Some(img) =
+            reg_get_value(hkey_local(), &format!("{root}\\{sid}"), "ProfileImagePath")
             && std::path::Path::new(&img) == std::path::Path::new(&profile)
         {
             return Some(sid);
@@ -164,9 +188,15 @@ fn logon_active_setup(sc: &mut Scanner) {
                 .unwrap_or(sub.clone());
             let exe = extract_exe(&stub);
             sc.push_entry(
-                Entry::new("登录", &title, format!("[Active Setup] {stub}"), "info", exe)
-                    .op_key(format!("reg\u{1f}HKLM\u{1f}{full}\u{1f}StubPath"))
-                    .desc(sub),
+                Entry::new(
+                    "登录",
+                    &title,
+                    format!("[Active Setup] {stub}"),
+                    "info",
+                    exe,
+                )
+                .op_key(format!("reg\u{1f}HKLM\u{1f}{full}\u{1f}StubPath"))
+                .desc(sub),
             );
         }
     }
@@ -194,9 +224,15 @@ fn logon_gpextensions(sc: &mut Scanner) {
                 .unwrap_or(sub.clone());
             let path = resolve_pe_path(&dll);
             sc.push_entry(
-                Entry::new("登录", &title, format!("[GPExtension] {path}"), "info", Some(path))
-                    .op_key(format!("reg\u{1f}HKLM\u{1f}{full}\u{1f}DllName"))
-                    .desc(sub),
+                Entry::new(
+                    "登录",
+                    &title,
+                    format!("[GPExtension] {path}"),
+                    "info",
+                    Some(path),
+                )
+                .op_key(format!("reg\u{1f}HKLM\u{1f}{full}\u{1f}DllName"))
+                .desc(sub),
             );
         }
     }
@@ -211,7 +247,9 @@ const ALL_USERS_STARTUP: &str = r"C:\ProgramData\Microsoft\Windows\Start Menu\Pr
 fn startup_folders(sc: &mut Scanner) {
     let mut dirs = vec![ALL_USERS_STARTUP.to_string()];
     if let Ok(appdata) = std::env::var("APPDATA") {
-        dirs.push(format!(r"{appdata}\Microsoft\Windows\Start Menu\Programs\Startup"));
+        dirs.push(format!(
+            r"{appdata}\Microsoft\Windows\Start Menu\Programs\Startup"
+        ));
     }
     if let Ok(users) = std::fs::read_dir(r"C:\Users") {
         for u in users.flatten() {
@@ -224,14 +262,18 @@ fn startup_folders(sc: &mut Scanner) {
         }
     }
     for dir in dirs {
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for e in rd.flatten() {
             let path = e.path().to_string_lossy().into_owned();
             let file_name = e.file_name().to_string_lossy().into_owned();
             let is_dir = e.path().is_dir();
             // AutorunsDisabled 禁用子文件夹
             if is_dir && file_name == AUTORUNS_DISABLED_SUBKEY {
-                let Ok(disabled) = std::fs::read_dir(&path) else { continue };
+                let Ok(disabled) = std::fs::read_dir(&path) else {
+                    continue;
+                };
                 for f in disabled.flatten() {
                     let fpath = f.path().to_string_lossy().into_owned();
                     sc.push_entry(
@@ -300,7 +342,11 @@ fn explorer_shell(sc: &mut Scanner) {
                         .filter(|s| !s.trim().is_empty())
                         .unwrap_or(name.clone());
                     let path = clsid_server(clsid.trim());
-                    let tag = if classes.contains("Wow6432Node") { "(32)" } else { "" };
+                    let tag = if classes.contains("Wow6432Node") {
+                        "(32)"
+                    } else {
+                        ""
+                    };
                     sc.push_entry(
                         Entry::new(
                             "外壳",
@@ -325,9 +371,13 @@ fn explorer_shell(sc: &mut Scanner) {
             let clsid = reg_get_value(hkey_local(), &format!("{root}\\{name}"), "")
                 .unwrap_or_else(|| name.clone());
             let path = clsid_server(clsid.trim());
-            sc.push_entry(
-                Entry::new("外壳", &name, format!("[图标覆盖] CLSID {clsid}"), "info", path),
-            );
+            sc.push_entry(Entry::new(
+                "外壳",
+                &name,
+                format!("[图标覆盖] CLSID {clsid}"),
+                "info",
+                path,
+            ));
         }
     }
 
@@ -369,7 +419,10 @@ fn explorer_shell(sc: &mut Scanner) {
 }
 
 fn clsid_friendly_name(clsid: &str) -> Option<String> {
-    for root in [r"SOFTWARE\Classes\CLSID", r"SOFTWARE\Classes\Wow6432Node\CLSID"] {
+    for root in [
+        r"SOFTWARE\Classes\CLSID",
+        r"SOFTWARE\Classes\Wow6432Node\CLSID",
+    ] {
         let name = reg_get_value(hkey_local(), &format!("{root}\\{clsid}"), "");
         if let Some(n) = name
             && !n.trim().is_empty()

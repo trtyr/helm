@@ -2,7 +2,9 @@
 //! 注册表 Services 全量枚举（比 SCM 更快、可读 Description/svchost ServiceDll）。
 //! 禁用态检测：Start=4 且存在 AutorunsDisabled 值（Autoruns 的服务禁用标记）。
 
-use super::util::{Entry, Scanner, expand_env, extract_exe, reg_get_value, reg_subkeys, resolve_pe_path};
+use super::util::{
+    Entry, Scanner, expand_env, extract_exe, reg_get_value, reg_subkeys, resolve_pe_path,
+};
 use windows_sys::Win32::System::Registry::HKEY_LOCAL_MACHINE;
 
 const SERVICES: &str = r"SYSTEM\CurrentControlSet\Services";

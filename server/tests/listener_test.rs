@@ -13,7 +13,6 @@ use helm_server::grpc::stream_registry::StreamRegistry;
 use helm_server::grpc::transfer_registry::TransferRegistry;
 use helm_server::store::listener_repo::ListenerRepo;
 
-
 /// 找一个空闲端口，返回 `127.0.0.1:{port}`。
 fn free_addr() -> String {
     let l = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");

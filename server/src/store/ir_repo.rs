@@ -75,18 +75,19 @@ pub async fn get_snapshot(pool: &PgPool, id: Uuid) -> sqlx::Result<Option<IrSnap
 }
 
 pub async fn delete_snapshot(pool: &PgPool, id: Uuid) -> sqlx::Result<u64> {
-    let r = sqlx::query("DELETE FROM ir_snapshots WHERE id = $1").bind(id).execute(pool).await?;
+    let r = sqlx::query("DELETE FROM ir_snapshots WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await?;
     Ok(r.rows_affected())
 }
 
 /// 读取 VT 缓存（7 天过期由调用方判断）。
 pub async fn get_vt_cache(pool: &PgPool, sha256: &str) -> sqlx::Result<Option<IrVtCacheRow>> {
-    sqlx::query_as(
-        "SELECT sha256, positives, total, checked_at FROM ir_vt_cache WHERE sha256 = $1",
-    )
-    .bind(sha256)
-    .fetch_optional(pool)
-    .await
+    sqlx::query_as("SELECT sha256, positives, total, checked_at FROM ir_vt_cache WHERE sha256 = $1")
+        .bind(sha256)
+        .fetch_optional(pool)
+        .await
 }
 
 pub async fn upsert_vt_cache(
@@ -139,7 +140,11 @@ pub async fn upsert_page_cache(
 }
 
 /// 读取页面缓存。
-pub async fn get_page_cache(pool: &PgPool, agent_id: &str, kind: &str) -> sqlx::Result<Option<IrPageCacheRow>> {
+pub async fn get_page_cache(
+    pool: &PgPool,
+    agent_id: &str,
+    kind: &str,
+) -> sqlx::Result<Option<IrPageCacheRow>> {
     sqlx::query_as(
         "SELECT agent_id, kind, findings, entry_count, created_at FROM ir_page_cache WHERE agent_id = $1 AND kind = $2",
     )

@@ -1,15 +1,17 @@
 //! P2 运维能力端点：多主机批量执行 + 证据包一键收集 + NTFS 文件时间线。
 
+use crate::application::audit_service::AuditService;
+use crate::application::auth_service::Claims;
 use crate::application::exec_service::ExecService;
 use crate::application::process_service::{IrScanResultView, ProcessService};
-use crate::http::process::{NetInterfaceView, NetConnectionView, ProcessView, SysServiceView};
 use crate::domain::Error;
 use crate::http::AppState;
-use axum::extract::State;
-use axum::http::header;
+use crate::http::process::{NetConnectionView, NetInterfaceView, ProcessView, SysServiceView};
 use axum::Json;
+use axum::extract::{Extension, State};
+use axum::http::header;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn process_service(state: &AppState) -> ProcessService {
     ProcessService::new(state.conn_registry.clone(), state.query.clone())
@@ -31,6 +33,7 @@ pub struct BatchExecBody {
 /// 逐 agent 建立 job（离线 agent 记 error），进度统一在任务页跟踪。
 pub async fn batch_exec(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(body): Json<BatchExecBody>,
 ) -> std::result::Result<Json<Value>, Error> {
     if body.agent_ids.is_empty() {
@@ -47,6 +50,14 @@ pub async fn batch_exec(
             Err(e) => jobs.push(json!({ "agent_id": agent_id, "error": e.to_string() })),
         }
     }
+    let _ = AuditService::new(state.db.clone())
+        .record(
+            &claims.sub,
+            "batch_exec",
+            &format!("{} hosts", body.agent_ids.len()),
+            json!({ "command": body.command, "args": body.args }),
+        )
+        .await;
     Ok(Json(json!({
         "total": jobs.len(),
         "jobs": jobs,
@@ -89,12 +100,27 @@ pub async fn evidence(
         pack.insert("processes".into(), json!(views));
     }
     if let Ok(net) = svc.net(&agent_id).await {
-        let ifaces: Vec<NetInterfaceView> = net.interfaces.into_iter().map(NetInterfaceView::from).collect();
-        let conns: Vec<NetConnectionView> = net.connections.into_iter().map(NetConnectionView::from).collect();
-        pack.insert("network".into(), json!({ "interfaces": ifaces, "connections": conns }));
+        let ifaces: Vec<NetInterfaceView> = net
+            .interfaces
+            .into_iter()
+            .map(NetInterfaceView::from)
+            .collect();
+        let conns: Vec<NetConnectionView> = net
+            .connections
+            .into_iter()
+            .map(NetConnectionView::from)
+            .collect();
+        pack.insert(
+            "network".into(),
+            json!({ "interfaces": ifaces, "connections": conns }),
+        );
     }
     if let Ok(services) = svc.sys_services(&agent_id).await {
-        let views: Vec<SysServiceView> = services.services.into_iter().map(SysServiceView::from).collect();
+        let views: Vec<SysServiceView> = services
+            .services
+            .into_iter()
+            .map(SysServiceView::from)
+            .collect();
         pack.insert("services".into(), json!(views));
     }
     let scan_types: [&[&str]; 4] = [
@@ -171,7 +197,13 @@ pub async fn fs_timeline(
     Json(body): Json<FsTimelineBody>,
 ) -> std::result::Result<Json<Value>, Error> {
     let r = process_service(&state)
-        .fs_timeline(&body.agent_id, &body.drive, body.since_hours, body.limit, &body.keyword)
+        .fs_timeline(
+            &body.agent_id,
+            &body.drive,
+            body.since_hours,
+            body.limit,
+            &body.keyword,
+        )
         .await?;
     Ok(Json(json!({
         "drive": r.drive,

@@ -30,26 +30,41 @@ impl ApiKeyService {
     }
 
     /// 创建 key：生成明文 + 落库哈希，返回（行, 明文）。明文仅此一次可见。
+    /// scopes 为空 = 全功能；含未知 scope 拒绝创建。
     pub async fn create(
         &self,
         name: &str,
         expires_at: Option<DateTime<Utc>>,
+        scopes: Vec<String>,
     ) -> Result<(ApiKeyRow, String)> {
+        let bad = crate::application::scopes::invalid_ones(&scopes);
+        if !bad.is_empty() {
+            return Err(crate::domain::Error::InvalidArgument(format!(
+                "unknown scopes: {}",
+                bad.join(", ")
+            )));
+        }
         let raw = generate_raw_key();
         let row = ApiKeyRepo::new(self.db.clone())
-            .insert(name, &hash_key(&raw), &display_prefix(&raw), expires_at)
+            .insert(
+                name,
+                &hash_key(&raw),
+                &display_prefix(&raw),
+                expires_at,
+                &scopes,
+            )
             .await?;
         Ok((row, raw))
     }
 
-    /// 校验明文 key：有效（存在 + 未吊销 + 未过期）则返回 key 名，并尽力刷新 last_used_at。
-    pub async fn verify(&self, raw: &str) -> Result<Option<String>> {
+    /// 校验明文 key：有效（存在 + 未吊销 + 未过期）则返回（key 名, scopes），并尽力刷新 last_used_at。
+    pub async fn verify(&self, raw: &str) -> Result<Option<(String, Vec<String>)>> {
         let repo = ApiKeyRepo::new(self.db.clone());
         let Some(row) = repo.find_valid_by_hash(&hash_key(raw)).await? else {
             return Ok(None);
         };
         let _ = repo.touch_last_used(row.id).await;
-        Ok(Some(row.name))
+        Ok(Some((row.name, row.scopes)))
     }
 
     /// 按 id 查（含已吊销，管理端点用）。
@@ -91,12 +106,13 @@ pub fn display_prefix(raw: &str) -> String {
 }
 
 /// API key 命中后合成的 Claims：`sub` 作为审计 actor（`api-key:<name>`），
-/// `role` 标记来源，api-keys 管理端点据此只放行 JWT。
-pub fn claims_for(name: &str) -> Claims {
+/// `role` 标记来源，api-keys 管理端点据此只放行 JWT；scopes 供路由级授权。
+pub fn claims_for(name: &str, scopes: Vec<String>) -> Claims {
     Claims {
         sub: format!("api-key:{name}"),
         role: ROLE_API_KEY.to_string(),
         exp: chrono::Utc::now().timestamp() as usize,
+        scopes,
     }
 }
 
@@ -142,8 +158,17 @@ mod tests {
 
     #[test]
     fn claims_mark_api_key_role() {
-        let claims = claims_for("ci-bot");
+        let claims = claims_for("ci-bot", vec!["exec".into()]);
         assert_eq!(claims.sub, "api-key:ci-bot");
         assert_eq!(claims.role, ROLE_API_KEY);
+        assert!(claims.has_scope("exec"));
+        assert!(!claims.has_scope("files"));
+    }
+
+    #[test]
+    fn empty_scopes_mean_full_access() {
+        let claims = claims_for("legacy", Vec::new());
+        assert!(claims.has_scope("files"));
+        assert!(claims.has_scope("ir"));
     }
 }

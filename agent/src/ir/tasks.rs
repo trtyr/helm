@@ -5,7 +5,8 @@ use super::util::{Entry, Scanner, child_cmd, decode_console, extract_exe, split_
 
 /// 在表头行里找列号：中英文系统各给一组候选关键词。
 fn find_col(cols: &[String], candidates: &[&str]) -> Option<usize> {
-    cols.iter().position(|c| candidates.iter().any(|kw| c.contains(kw)))
+    cols.iter()
+        .position(|c| candidates.iter().any(|kw| c.contains(kw)))
 }
 
 pub fn scan(sc: &mut Scanner) {
@@ -21,8 +22,12 @@ pub fn scan(sc: &mut Scanner) {
     let Some(header) = lines.next() else { return };
     let cols = split_csv_line(header);
     // 中文系统：任务名 / 要运行的任务 / 作为用户运行 / 计划任务状态
-    let Some(ti_task) = find_col(&cols, &["任务名", "TaskName"]) else { return };
-    let Some(ti_run) = find_col(&cols, &["要运行的任务", "Task To Run"]) else { return };
+    let Some(ti_task) = find_col(&cols, &["任务名", "TaskName"]) else {
+        return;
+    };
+    let Some(ti_run) = find_col(&cols, &["要运行的任务", "Task To Run"]) else {
+        return;
+    };
     let ti_user = find_col(&cols, &["作为用户运行", "Run As User"]).unwrap_or(usize::MAX);
     let ti_state = find_col(&cols, &["计划任务状态", "Scheduled Task State"]);
     for line in lines {

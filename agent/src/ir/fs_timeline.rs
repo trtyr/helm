@@ -34,7 +34,11 @@ pub fn fs_timeline(
         return reply(vec![], 0, false, Some(format!("无效盘符: {drive}")), drive);
     }
     let _since_hours = since_hours;
-    let limit = if limit == 0 { 5000 } else { (limit as usize).min(20_000) };
+    let limit = if limit == 0 {
+        5000
+    } else {
+        (limit as usize).min(20_000)
+    };
     let kw_lower = keyword.to_ascii_lowercase();
 
     use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ, INVALID_HANDLE_VALUE};
@@ -249,7 +253,11 @@ mod tests {
                 std::ptr::null_mut(),
             );
             assert!(handle != INVALID_HANDLE_VALUE, "open volume fail");
-            let mut med = MFT_ENUM_DATA_V0 { StartFileReferenceNumber: 0, LowUsn: 0, HighUsn: i64::MAX };
+            let mut med = MFT_ENUM_DATA_V0 {
+                StartFileReferenceNumber: 0,
+                LowUsn: 0,
+                HighUsn: i64::MAX,
+            };
             let mut buf = vec![0u8; 16 * 1024 * 1024];
             let mut printed = 0;
             for _round in 0..50 {
@@ -268,21 +276,34 @@ mod tests {
                     &mut returned,
                     std::ptr::null_mut(),
                 );
-                if ok == 0 || returned < 8 { println!("end: ok={ok} returned={returned}"); break; }
+                if ok == 0 || returned < 8 {
+                    println!("end: ok={ok} returned={returned}");
+                    break;
+                }
                 let next = u64::from_le_bytes(buf[0..8].try_into().unwrap());
                 med.StartFileReferenceNumber = next;
                 let mut off = 8;
                 while off + 8 <= returned as usize {
                     let rec = &buf[off..returned as usize];
                     let len = u32::from_le_bytes(rec[0..4].try_into().unwrap()) as usize;
-                    if len == 0 || off + len > returned as usize { break; }
+                    if len == 0 || off + len > returned as usize {
+                        break;
+                    }
                     let ts = u64::from_le_bytes(rec[32..40].try_into().unwrap());
                     let nl = u16::from_le_bytes(rec[56..58].try_into().unwrap()) as usize;
                     let no = u16::from_le_bytes(rec[58..60].try_into().unwrap()) as usize;
                     if printed < 8 {
                         let name_raw = &rec[no..no + nl];
-                        let u16s: Vec<u16> = name_raw.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
-                        println!("rec: len={len} ts_ft={} ts_unix={} name={}", ts, (ts / 10_000_000) as i64 - 11_644_473_600, String::from_utf16_lossy(&u16s));
+                        let u16s: Vec<u16> = name_raw
+                            .chunks_exact(2)
+                            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                            .collect();
+                        println!(
+                            "rec: len={len} ts_ft={} ts_unix={} name={}",
+                            ts,
+                            (ts / 10_000_000) as i64 - 11_644_473_600,
+                            String::from_utf16_lossy(&u16s)
+                        );
                         printed += 1;
                     }
                     off += len;

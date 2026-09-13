@@ -100,7 +100,12 @@ pub fn scan(sc: &mut Scanner) {
                     "critical",
                 );
             } else if *rid < 1000 && *rid != 500 && *rid != 501 && *rid != 0 {
-                sc.push_raw("账户", name, format!("低 RID {rid}——疑似克隆账户"), "critical");
+                sc.push_raw(
+                    "账户",
+                    name,
+                    format!("低 RID {rid}——疑似克隆账户"),
+                    "critical",
+                );
             } else if !display.is_empty() {
                 sc.push_raw("账户", name, format!("{}（{}）", name, display), "info");
             }

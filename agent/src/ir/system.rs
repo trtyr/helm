@@ -1,7 +1,9 @@
 //! 系统级持久化（Autoruns "Boot Execute / KnownDLLs / Winsock / Codecs" 标签页）：
 //! 引导执行（Session Manager）、已知 DLL、Winsock LSP/命名空间/网络提供程序、编解码器（Drivers32）。
 
-use super::util::{Entry, Scanner, expand_env, hkey_local, reg_get_value, reg_subkeys, reg_values, resolve_pe_path};
+use super::util::{
+    Entry, Scanner, expand_env, hkey_local, reg_get_value, reg_subkeys, reg_values, resolve_pe_path,
+};
 
 pub fn scan(sc: &mut Scanner) {
     boot_execute(sc);
@@ -57,11 +59,17 @@ fn known_dlls(sc: &mut Scanner) {
 /// Winsock：协议目录（LSP）/ 命名空间提供程序 / 网络提供程序。
 fn winsock(sc: &mut Scanner) {
     const WS2: &str = r"SYSTEM\CurrentControlSet\Services\WinSock2\Parameters";
-    for cat in ["Protocol_Catalog9\\Catalog_Entries", "Protocol_Catalog9\\Catalog_Entries64", "NameSpace_Catalog5\\Catalog_Entries", "NameSpace_Catalog5\\Catalog_Entries64"] {
+    for cat in [
+        "Protocol_Catalog9\\Catalog_Entries",
+        "Protocol_Catalog9\\Catalog_Entries64",
+        "NameSpace_Catalog5\\Catalog_Entries",
+        "NameSpace_Catalog5\\Catalog_Entries64",
+    ] {
         let base = format!("{WS2}\\{cat}");
         for sub in reg_subkeys(hkey_local(), &base) {
             let full = format!("{base}\\{sub}");
-            let get = |k: &str| reg_get_value(hkey_local(), &full, k).filter(|s| !s.trim().is_empty());
+            let get =
+                |k: &str| reg_get_value(hkey_local(), &full, k).filter(|s| !s.trim().is_empty());
             let proto = get("ProtocolName");
             let lib = get("LibraryPath")
                 .or_else(|| get("PackerLibraryName"))
@@ -104,7 +112,11 @@ fn codecs(sc: &mut Scanner) {
         r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Drivers32",
         r"SOFTWARE\WOW6432Node\Microsoft\Windows NT\CurrentVersion\Drivers32",
     ] {
-        let tag = if root.contains("Wow6432Node") { "(32)" } else { "" };
+        let tag = if root.contains("Wow6432Node") {
+            "(32)"
+        } else {
+            ""
+        };
         for (dev, dll) in reg_values(hkey_local(), root) {
             if dll.trim().is_empty() {
                 continue;

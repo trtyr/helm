@@ -65,7 +65,11 @@ impl Entry {
 
 impl Scanner {
     pub fn new() -> Self {
-        Self { findings: Vec::new(), cache: HashMap::new(), seen: std::collections::HashSet::new() }
+        Self {
+            findings: Vec::new(),
+            cache: HashMap::new(),
+            seen: std::collections::HashSet::new(),
+        }
     }
 
     /// 条目去重键（同类别同名同详情视为同一条）。
@@ -80,14 +84,25 @@ impl Scanner {
                 .cache
                 .entry(p.to_string())
                 // 厂商优先证书主体（Autoruns Publisher 语义），回退版本资源 CompanyName
-                .or_insert_with(|| (file_signer(p).or_else(|| file_publisher(p)), file_sign_state(p)))
+                .or_insert_with(|| {
+                    (
+                        file_signer(p).or_else(|| file_publisher(p)),
+                        file_sign_state(p),
+                    )
+                })
                 .clone(),
             None => (None, String::new()),
         }
     }
 
     /// 推送一条原始发现（账户/事件/文件类，无文件富化）。
-    pub fn push_raw(&mut self, category: &str, name: &str, detail: impl Into<String>, severity: &str) {
+    pub fn push_raw(
+        &mut self,
+        category: &str,
+        name: &str,
+        detail: impl Into<String>,
+        severity: &str,
+    ) {
         let detail = detail.into();
         let key = Self::dedup_key(category, name, &detail);
         if !self.seen.insert(key) {
@@ -300,19 +315,21 @@ pub fn extract_exe(cmdline: &str) -> Option<String> {
         .unwrap_or("")
         .to_string();
     const LOADERS: &[&str] = &[
-        "rundll32.exe", "regsvr32.exe", "mshta.exe", "wscript.exe", "cscript.exe",
-        "cmd.exe", "powershell.exe", "pwsh.exe",
+        "rundll32.exe",
+        "regsvr32.exe",
+        "mshta.exe",
+        "wscript.exe",
+        "cscript.exe",
+        "cmd.exe",
+        "powershell.exe",
+        "pwsh.exe",
     ];
     if LOADERS.contains(&base.as_str()) && !rest.is_empty() {
         let rest_trim = rest.trim_start_matches('@');
         let tok = if let Some(r2) = rest_trim.strip_prefix('"') {
             r2.split('"').next().unwrap_or("").to_string()
         } else {
-            rest_trim
-                .split([' ', ','])
-                .next()
-                .unwrap_or("")
-                .to_string()
+            rest_trim.split([' ', ',']).next().unwrap_or("").to_string()
         };
         let tok = resolve_pe_path(&expand_env(&tok));
         if file_exists(&tok) {
@@ -354,7 +371,9 @@ pub fn resolve_pe_path(raw: &str) -> String {
     if raw.is_empty() {
         return String::new();
     }
-    let p = raw.replace("\\SystemRoot\\", "C:\\Windows\\").replace("\\SystemRoot", "C:\\Windows");
+    let p = raw
+        .replace("\\SystemRoot\\", "C:\\Windows\\")
+        .replace("\\SystemRoot", "C:\\Windows");
     let p = p.strip_prefix("\\??\\").map(|s| s.to_string()).unwrap_or(p);
     let p = expand_env(&p);
     let lower = p.to_ascii_lowercase();
@@ -366,7 +385,11 @@ pub fn resolve_pe_path(raw: &str) -> String {
     }
     if !p.contains(':') && !p.starts_with('\\') {
         // 裸文件名或相对路径：按 System32 → drivers → Windows 顺序探测
-        for prefix in [r"C:\Windows\System32\", r"C:\Windows\System32\drivers\", r"C:\Windows\"] {
+        for prefix in [
+            r"C:\Windows\System32\",
+            r"C:\Windows\System32\drivers\",
+            r"C:\Windows\",
+        ] {
             let cand = format!("{prefix}{p}");
             if file_exists(&cand) {
                 return cand;
@@ -462,7 +485,9 @@ fn wintrust_data() -> windows_sys::Win32::Security::WinTrust::WINTRUST_DATA {
         dwUIChoice: WTD_UI_NONE,
         fdwRevocationChecks: WTD_REVOKE_NONE,
         dwUnionChoice: 0,
-        Anonymous: WINTRUST_DATA_0 { pFile: std::ptr::null_mut() },
+        Anonymous: WINTRUST_DATA_0 {
+            pFile: std::ptr::null_mut(),
+        },
         dwStateAction: WTD_STATEACTION_VERIFY,
         hWVTStateData: std::ptr::null_mut(),
         pwszURLReference: std::ptr::null_mut(),
@@ -506,7 +531,11 @@ fn catalog_verify(pcwsz: *const u16, driver_first: bool) -> bool {
 
     let driver = windows_sys::Win32::Security::WinTrust::DRIVER_ACTION_VERIFY;
     let generic = windows_sys::Win32::Security::WinTrust::WINTRUST_ACTION_GENERIC_VERIFY_V2;
-    let policies: &[windows_sys::core::GUID] = if driver_first { &[driver, generic] } else { &[generic, driver] };
+    let policies: &[windows_sys::core::GUID] = if driver_first {
+        &[driver, generic]
+    } else {
+        &[generic, driver]
+    };
 
     unsafe {
         // Win10+ 目录多为 SHA256；老目录 SHA1，逐一尝试
@@ -514,106 +543,120 @@ fn catalog_verify(pcwsz: *const u16, driver_first: bool) -> bool {
             let mut action = *policy;
             let mut td = wintrust_data();
             td.dwUnionChoice = WTD_CHOICE_CATALOG;
-        for alg in ["SHA256", "SHA1"] {
-            let alg_w: Vec<u16> = alg.encode_utf16().chain(std::iter::once(0)).collect();
-            let mut admin: isize = 0;
-            let ok = CryptCATAdminAcquireContext2(
-                &mut admin,
-                policy,
-                alg_w.as_ptr(),
-                std::ptr::null(),
-                0,
-            );
-            if ok == 0 && CryptCATAdminAcquireContext(&mut admin, policy, 0) == 0 {
-                continue; // 该策略/算法组合不可用，换下一个
-            }
-            let hfile = CreateFileW(
-                pcwsz,
-                windows_sys::Win32::Foundation::GENERIC_READ,
-                FILE_SHARE_READ | FILE_SHARE_DELETE,
-                std::ptr::null(),
-                OPEN_EXISTING,
-                0,
-                std::ptr::null_mut(),
-            );
-            let mut verified = false;
-            if hfile != INVALID_HANDLE_VALUE {
-                let mut hash = [0u8; 128];
-                let mut hash_len = hash.len() as u32;
-                if CryptCATAdminCalcHashFromFileHandle2(admin, hfile, &mut hash_len, hash.as_mut_ptr(), 0) != 0
-                    && hash_len > 0
-                {
-                    let hash = &hash[..hash_len as usize];
-                    let member_tag: Vec<u16> = hash
-                        .iter()
-                        .map(|b| format!("{b:02X}"))
-                        .collect::<String>()
-                        .encode_utf16()
-                        .chain(std::iter::once(0))
-                        .collect();
-                    let mut prev: isize = 0;
-                    let mut hcat = CryptCATAdminEnumCatalogFromHash(
-                        admin, hash.as_ptr(), hash_len, 0, &mut prev,
-                    );
-                    while hcat != 0 {
-                        let mut cat_info = CATALOG_INFO {
-                            cbStruct: std::mem::size_of::<CATALOG_INFO>() as u32,
-                            wszCatalogFile: [0; 260],
-                        };
-                        if CryptCATCatalogInfoFromContext(hcat, &mut cat_info, 0) != 0 {
-                            let cat_path: Vec<u16> = {
-                                let end = cat_info
-                                    .wszCatalogFile
-                                    .iter()
-                                    .position(|&c| c == 0)
-                                    .unwrap_or(260);
-                                cat_info.wszCatalogFile[..end].to_vec()
-                            };
-                            let cat_path: Vec<u16> =
-                                cat_path.into_iter().chain(std::iter::once(0)).collect();
-                            let mut wci = WINTRUST_CATALOG_INFO {
-                                cbStruct: std::mem::size_of::<WINTRUST_CATALOG_INFO>() as u32,
-                                dwCatalogVersion: 0,
-                                pcwszCatalogFilePath: cat_path.as_ptr(),
-                                pcwszMemberTag: member_tag.as_ptr(),
-                                pcwszMemberFilePath: pcwsz,
-                                hMemberFile: std::ptr::null_mut(),
-                                pbCalculatedFileHash: hash.as_ptr() as *mut u8,
-                                cbCalculatedFileHash: hash.len() as u32,
-                                pcCatalogContext: std::ptr::null_mut(),
-                                hCatAdmin: admin,
-                            };
-                            td.Anonymous.pCatalog = &mut wci;
-                            let rc = WinVerifyTrust(
-                                std::ptr::null_mut(),
-                                &mut action,
-                                &td as *const _ as *mut _,
-                            );
-                            td.dwStateAction = WTD_STATEACTION_CLOSE;
-                            let _ = WinVerifyTrust(
-                                std::ptr::null_mut(),
-                                &mut action,
-                                &td as *const _ as *mut _,
-                            );
-                            td.dwStateAction = WTD_STATEACTION_VERIFY;
-                            if rc == 0 {
-                                verified = true;
-                                break;
-                            }
-                        }
-                        prev = hcat;
-                        hcat = CryptCATAdminEnumCatalogFromHash(
-                            admin, hash.as_ptr(), hash_len, 0, &mut prev,
-                        );
-                    }
+            for alg in ["SHA256", "SHA1"] {
+                let alg_w: Vec<u16> = alg.encode_utf16().chain(std::iter::once(0)).collect();
+                let mut admin: isize = 0;
+                let ok = CryptCATAdminAcquireContext2(
+                    &mut admin,
+                    policy,
+                    alg_w.as_ptr(),
+                    std::ptr::null(),
+                    0,
+                );
+                if ok == 0 && CryptCATAdminAcquireContext(&mut admin, policy, 0) == 0 {
+                    continue; // 该策略/算法组合不可用，换下一个
                 }
-                CloseHandle(hfile);
+                let hfile = CreateFileW(
+                    pcwsz,
+                    windows_sys::Win32::Foundation::GENERIC_READ,
+                    FILE_SHARE_READ | FILE_SHARE_DELETE,
+                    std::ptr::null(),
+                    OPEN_EXISTING,
+                    0,
+                    std::ptr::null_mut(),
+                );
+                let mut verified = false;
+                if hfile != INVALID_HANDLE_VALUE {
+                    let mut hash = [0u8; 128];
+                    let mut hash_len = hash.len() as u32;
+                    if CryptCATAdminCalcHashFromFileHandle2(
+                        admin,
+                        hfile,
+                        &mut hash_len,
+                        hash.as_mut_ptr(),
+                        0,
+                    ) != 0
+                        && hash_len > 0
+                    {
+                        let hash = &hash[..hash_len as usize];
+                        let member_tag: Vec<u16> = hash
+                            .iter()
+                            .map(|b| format!("{b:02X}"))
+                            .collect::<String>()
+                            .encode_utf16()
+                            .chain(std::iter::once(0))
+                            .collect();
+                        let mut prev: isize = 0;
+                        let mut hcat = CryptCATAdminEnumCatalogFromHash(
+                            admin,
+                            hash.as_ptr(),
+                            hash_len,
+                            0,
+                            &mut prev,
+                        );
+                        while hcat != 0 {
+                            let mut cat_info = CATALOG_INFO {
+                                cbStruct: std::mem::size_of::<CATALOG_INFO>() as u32,
+                                wszCatalogFile: [0; 260],
+                            };
+                            if CryptCATCatalogInfoFromContext(hcat, &mut cat_info, 0) != 0 {
+                                let cat_path: Vec<u16> = {
+                                    let end = cat_info
+                                        .wszCatalogFile
+                                        .iter()
+                                        .position(|&c| c == 0)
+                                        .unwrap_or(260);
+                                    cat_info.wszCatalogFile[..end].to_vec()
+                                };
+                                let cat_path: Vec<u16> =
+                                    cat_path.into_iter().chain(std::iter::once(0)).collect();
+                                let mut wci = WINTRUST_CATALOG_INFO {
+                                    cbStruct: std::mem::size_of::<WINTRUST_CATALOG_INFO>() as u32,
+                                    dwCatalogVersion: 0,
+                                    pcwszCatalogFilePath: cat_path.as_ptr(),
+                                    pcwszMemberTag: member_tag.as_ptr(),
+                                    pcwszMemberFilePath: pcwsz,
+                                    hMemberFile: std::ptr::null_mut(),
+                                    pbCalculatedFileHash: hash.as_ptr() as *mut u8,
+                                    cbCalculatedFileHash: hash.len() as u32,
+                                    pcCatalogContext: std::ptr::null_mut(),
+                                    hCatAdmin: admin,
+                                };
+                                td.Anonymous.pCatalog = &mut wci;
+                                let rc = WinVerifyTrust(
+                                    std::ptr::null_mut(),
+                                    &mut action,
+                                    &td as *const _ as *mut _,
+                                );
+                                td.dwStateAction = WTD_STATEACTION_CLOSE;
+                                let _ = WinVerifyTrust(
+                                    std::ptr::null_mut(),
+                                    &mut action,
+                                    &td as *const _ as *mut _,
+                                );
+                                td.dwStateAction = WTD_STATEACTION_VERIFY;
+                                if rc == 0 {
+                                    verified = true;
+                                    break;
+                                }
+                            }
+                            prev = hcat;
+                            hcat = CryptCATAdminEnumCatalogFromHash(
+                                admin,
+                                hash.as_ptr(),
+                                hash_len,
+                                0,
+                                &mut prev,
+                            );
+                        }
+                    }
+                    CloseHandle(hfile);
+                }
+                CryptCATAdminReleaseContext(admin, 0);
+                if verified {
+                    return true;
+                }
             }
-            CryptCATAdminReleaseContext(admin, 0);
-            if verified {
-                return true;
-            }
-        }
         }
     }
     false
@@ -678,7 +721,14 @@ pub fn reg_get_value(hive: HKEY, path: &str, name: &str) -> Option<String> {
     let mut data_len = data.len() as u32;
     let mut vtype = 0u32;
     let rc = unsafe {
-        RegQueryValueExW(hkey, wname.as_ptr(), std::ptr::null(), &mut vtype, data.as_mut_ptr(), &mut data_len)
+        RegQueryValueExW(
+            hkey,
+            wname.as_ptr(),
+            std::ptr::null(),
+            &mut vtype,
+            data.as_mut_ptr(),
+            &mut data_len,
+        )
     };
     unsafe { RegCloseKey(hkey) };
     if rc != 0 {
@@ -698,15 +748,16 @@ fn decode_reg_data(vtype: u32, data: &[u8]) -> String {
                 .trim_end_matches('\0')
                 .to_string()
         }
-        4 if data.len() >= 4 => u32::from_le_bytes([data[0], data[1], data[2], data[3]]).to_string(),
+        4 if data.len() >= 4 => {
+            u32::from_le_bytes([data[0], data[1], data[2], data[3]]).to_string()
+        }
         7 => {
             // REG_MULTI_SZ
             let u16s: Vec<u16> = data[..(data.len() / 2) * 2]
                 .chunks_exact(2)
                 .map(|c| u16::from_le_bytes([c[0], c[1]]))
                 .collect();
-            u16s
-                .split(|&c| c == 0)
+            u16s.split(|&c| c == 0)
                 .filter(|s| !s.is_empty())
                 .map(String::from_utf16_lossy)
                 .collect::<Vec<_>>()
@@ -858,7 +909,14 @@ pub fn reg_get_raw(hive: HKEY, path: &str, name: &str) -> Option<(u32, Vec<u8>)>
     let mut data_len = data.len() as u32;
     let mut vtype = 0u32;
     let rc = unsafe {
-        RegQueryValueExW(hkey, wname.as_ptr(), std::ptr::null(), &mut vtype, data.as_mut_ptr(), &mut data_len)
+        RegQueryValueExW(
+            hkey,
+            wname.as_ptr(),
+            std::ptr::null(),
+            &mut vtype,
+            data.as_mut_ptr(),
+            &mut data_len,
+        )
     };
     unsafe { RegCloseKey(hkey) };
     if rc != 0 {
@@ -869,7 +927,13 @@ pub fn reg_get_raw(hive: HKEY, path: &str, name: &str) -> Option<(u32, Vec<u8>)>
 }
 
 /// 写入值的原始数据 + 类型。
-pub fn reg_set_raw(hive: HKEY, path: &str, name: &str, vtype: u32, data: &[u8]) -> Result<(), String> {
+pub fn reg_set_raw(
+    hive: HKEY,
+    path: &str,
+    name: &str,
+    vtype: u32,
+    data: &[u8],
+) -> Result<(), String> {
     use windows_sys::Win32::System::Registry::{
         KEY_WRITE, RegCloseKey, RegCreateKeyExW, RegSetValueExW,
     };
@@ -877,13 +941,30 @@ pub fn reg_set_raw(hive: HKEY, path: &str, name: &str, vtype: u32, data: &[u8]) 
     let wname: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
     let mut hkey = std::ptr::null_mut();
     let rc = unsafe {
-        RegCreateKeyExW(hive, wpath.as_ptr(), 0, std::ptr::null(), 0, KEY_WRITE, std::ptr::null(), &mut hkey, std::ptr::null_mut())
+        RegCreateKeyExW(
+            hive,
+            wpath.as_ptr(),
+            0,
+            std::ptr::null(),
+            0,
+            KEY_WRITE,
+            std::ptr::null(),
+            &mut hkey,
+            std::ptr::null_mut(),
+        )
     };
     if rc != 0 {
         return Err(format!("打开/创建键失败: {path} (rc={rc})"));
     }
     let rc = unsafe {
-        RegSetValueExW(hkey, wname.as_ptr(), 0, vtype, data.as_ptr(), data.len() as u32)
+        RegSetValueExW(
+            hkey,
+            wname.as_ptr(),
+            0,
+            vtype,
+            data.as_ptr(),
+            data.len() as u32,
+        )
     };
     unsafe { RegCloseKey(hkey) };
     if rc != 0 {
@@ -936,10 +1017,11 @@ pub fn reg_restore_value_from_disabled(hive: HKEY, subkey: &str, name: &str) -> 
 /// 取嵌入式签名的签名者主体名（如 "Microsoft Windows"）；无嵌入签名返回 None。
 pub fn file_signer(path: &str) -> Option<String> {
     use windows_sys::Win32::Security::Cryptography::{
-        CERT_FIND_SUBJECT_CERT, CERT_NAME_SIMPLE_DISPLAY_TYPE, CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
-        CERT_QUERY_FORMAT_FLAG_ALL, CERT_QUERY_OBJECT_FILE, CertCloseStore, CertFindCertificateInStore,
+        CERT_CONTEXT, CERT_FIND_SUBJECT_CERT, CERT_NAME_SIMPLE_DISPLAY_TYPE,
+        CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED, CERT_QUERY_FORMAT_FLAG_ALL,
+        CERT_QUERY_OBJECT_FILE, CertCloseStore, CertFindCertificateInStore,
         CertFreeCertificateContext, CertGetNameStringW, CryptMsgClose, CryptMsgGetParam,
-        CryptQueryObject, PKCS_7_ASN_ENCODING, X509_ASN_ENCODING, CERT_CONTEXT,
+        CryptQueryObject, PKCS_7_ASN_ENCODING, X509_ASN_ENCODING,
     };
     let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
     unsafe {

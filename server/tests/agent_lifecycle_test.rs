@@ -7,7 +7,6 @@ use helm_server::grpc::connection_registry::ConnectionRegistry;
 use helm_server::store::agent_repo::{AgentRepo, HostOsDetails};
 use helm_server::store::host_repo::HostRepo;
 
-
 #[tokio::test]
 async fn deregister_removes_agent_and_orphan_host() {
     let db = common::connect().await;

@@ -199,11 +199,7 @@ mod tests {
         assert!(rx1.try_recv().is_err());
 
         // 旧连接断开：身份不匹配，不得注销新连接
-        assert!(
-            !reg
-                .unregister_if_current("a1", &conn1.kick_tx)
-                .await
-        );
+        assert!(!reg.unregister_if_current("a1", &conn1.kick_tx).await);
         assert!(reg.is_online("a1").await);
 
         // 当前连接断开：注销成功

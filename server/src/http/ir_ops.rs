@@ -1,10 +1,12 @@
 //! IR 操作端点：启动项操作（禁用/启用/删除）+ 快照基线对比 + VirusTotal 查杀 + 文件元数据。
 
+use crate::application::audit_service::AuditService;
+use crate::application::auth_service::Claims;
 use crate::application::process_service::{IrScanResultView, ProcessService};
 use crate::domain::Error;
 use crate::http::AppState;
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -29,6 +31,7 @@ pub struct AutorunsActionBody {
 /// 启动项操作：POST /api/v1/ir/autorun-action
 pub async fn autorun_action(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(body): Json<AutorunsActionBody>,
 ) -> Result<Json<Value>, Error> {
     if !matches!(body.action.as_str(), "disable" | "enable" | "delete") {
@@ -37,6 +40,14 @@ pub async fn autorun_action(
     let (ok, error) = service(&state)
         .autoruns_action(&body.agent_id, &body.action, &body.key)
         .await?;
+    let _ = AuditService::new(state.db.clone())
+        .record(
+            &claims.sub,
+            "autorun_action",
+            &body.agent_id,
+            json!({ "action": body.action, "key": body.key, "ok": ok }),
+        )
+        .await;
     Ok(Json(json!({ "ok": ok, "error": error })))
 }
 
@@ -55,7 +66,9 @@ pub async fn file_meta(
     State(state): State<AppState>,
     Json(body): Json<FileMetaBody>,
 ) -> Result<Json<Value>, Error> {
-    let r = service(&state).file_meta(&body.agent_id, &body.path).await?;
+    let r = service(&state)
+        .file_meta(&body.agent_id, &body.path)
+        .await?;
     Ok(Json(json!({
         "path": r.path,
         "sha256": r.sha256,
@@ -181,7 +194,9 @@ pub async fn compare_snapshots(
             .await?;
         (json!(result.findings), "live".to_string())
     } else {
-        return Err(Error::InvalidArgument("target_id 与 agent_id 至少给一个".into()));
+        return Err(Error::InvalidArgument(
+            "target_id 与 agent_id 至少给一个".into(),
+        ));
     };
 
     let (added, removed) = diff_findings(base.findings.clone(), target_findings.clone());
@@ -200,7 +215,12 @@ fn finding_identity(f: &Value) -> String {
     if !op.is_empty() {
         return format!("op:{op}");
     }
-    format!("n:{}|{}|{}", s(&f["category"]), s(&f["name"]), s(&f["path"]))
+    format!(
+        "n:{}|{}|{}",
+        s(&f["category"]),
+        s(&f["name"]),
+        s(&f["path"])
+    )
 }
 
 fn diff_findings(base: Value, target: Value) -> (Vec<Value>, Vec<Value>) {
@@ -305,8 +325,13 @@ pub async fn vt_lookup(
     let undetected = stats["undetected"].as_i64().unwrap_or(0);
     let total = malicious + suspicious + undetected;
     let positives = malicious + suspicious;
-    let _ = crate::store::ir_repo::upsert_vt_cache(state.db.pool(), &sha, positives as i32, total as i32)
-        .await;
+    let _ = crate::store::ir_repo::upsert_vt_cache(
+        state.db.pool(),
+        &sha,
+        positives as i32,
+        total as i32,
+    )
+    .await;
     Ok(Json(json!({
         "sha256": sha, "positives": positives, "total": total,
         "permalink": permalink, "cached": false,
@@ -341,7 +366,13 @@ pub async fn memscan_stream_start(
         .map_err(|_| Error::InvalidArgument("scan_id 需为 UUID".into()))?
         .to_string();
     service(&state)
-        .mem_scan_start(&body.agent_id, &scan_id, body.pid, body.min_len, &body.keyword)
+        .mem_scan_start(
+            &body.agent_id,
+            &scan_id,
+            body.pid,
+            body.min_len,
+            &body.keyword,
+        )
         .await?;
     Ok(Json(json!({ "scanId": scan_id })))
 }

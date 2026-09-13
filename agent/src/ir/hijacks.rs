@@ -2,7 +2,9 @@
 //! IFEO Debugger / SilentProcessExit、AppInit_DLLs、Winlogon Shell/Userinit/GinaDLL 异常。
 //! 正常系统应零发现——任何一条都是高价值 IR 信号。
 
-use super::util::{Scanner, extract_exe, hkey_local, reg_get_value, reg_subkeys, reg_values, resolve_pe_path};
+use super::util::{
+    Scanner, extract_exe, hkey_local, reg_get_value, reg_subkeys, reg_values, resolve_pe_path,
+};
 use windows_sys::Win32::System::Registry::HKEY_CURRENT_USER;
 
 pub fn scan(sc: &mut Scanner) {
@@ -18,7 +20,11 @@ fn ifeo(sc: &mut Scanner) {
         r"SOFTWARE\WOW6432Node\Microsoft\Windows NT\CurrentVersion\Image File Execution Options",
     ];
     for root in ROOTS {
-        let label = if root.contains("WOW6432Node") { "IFEO(32)" } else { "IFEO" };
+        let label = if root.contains("WOW6432Node") {
+            "IFEO(32)"
+        } else {
+            "IFEO"
+        };
         for sub in reg_subkeys(hkey_local(), root) {
             let full = format!("{root}\\{sub}");
             if let Some(dbg) = reg_get_value(hkey_local(), &full, "Debugger")
@@ -76,7 +82,14 @@ fn appinit(sc: &mut Scanner) {
         if let Some(v) = reg_get_value(hkey_local(), root, "AppInit_DLLs")
             && !v.trim().is_empty()
         {
-            sc.push("映像劫持", label, format!("全局 DLL 注入: {v}"), "critical", None, None);
+            sc.push(
+                "映像劫持",
+                label,
+                format!("全局 DLL 注入: {v}"),
+                "critical",
+                None,
+                None,
+            );
         }
     }
     if let Some(v) = reg_get_value(
@@ -85,7 +98,14 @@ fn appinit(sc: &mut Scanner) {
         "AppInit_DLLs",
     ) && !v.trim().is_empty()
     {
-        sc.push("映像劫持", "AppInit_DLLs(HKCU)", format!("全局 DLL 注入: {v}"), "critical", None, None);
+        sc.push(
+            "映像劫持",
+            "AppInit_DLLs(HKCU)",
+            format!("全局 DLL 注入: {v}"),
+            "critical",
+            None,
+            None,
+        );
     }
 }
 

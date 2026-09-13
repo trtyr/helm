@@ -16,8 +16,7 @@ pub fn is_elevated() -> bool {
 fn is_elevated_windows() -> bool {
     use windows_sys::Win32::Foundation::BOOL;
     use windows_sys::Win32::Security::{
-        AllocateAndInitializeSid, CheckTokenMembership, FreeSid, PSID,
-        SECURITY_NT_AUTHORITY,
+        AllocateAndInitializeSid, CheckTokenMembership, FreeSid, PSID, SECURITY_NT_AUTHORITY,
     };
     const SECURITY_BUILTIN_DOMAIN_RID: u32 = 0x20; // 32
     const DOMAIN_ALIAS_RID_ADMINS: u32 = 0x220; // 544
@@ -57,7 +56,9 @@ fn is_elevated_unix() -> bool {
         .ok()
         .and_then(|s| {
             s.lines().find(|l| l.starts_with("Uid:")).and_then(|l| {
-                l.split_whitespace().nth(1).and_then(|uid| uid.parse::<u32>().ok())
+                l.split_whitespace()
+                    .nth(1)
+                    .and_then(|uid| uid.parse::<u32>().ok())
             })
         })
         .map(|uid| uid == 0)

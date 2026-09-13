@@ -1,8 +1,9 @@
 //! 实时流 WebSocket 端点：服务日志 tail-f / job 输出流 / 指标流。
 
+use crate::application::scopes;
 use crate::domain::Error;
 use crate::http::AppState;
-use crate::http::auth::verify_bearer_token;
+use crate::http::auth::verify_scoped_token;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
@@ -14,9 +15,10 @@ pub struct StreamQuery {
     pub token: String,
 }
 
-/// 校验 WS token（握手无法带 Authorization header，走 query param；JWT 或 API key 均可）。
-async fn verify_token(state: &AppState, token: &str) -> Result<(), Error> {
-    verify_bearer_token(state, token).await.map(|_| ())
+/// 校验 WS token（握手无法带 Authorization header，走 query param；JWT 或 API key 均可，
+/// API key 需持有对应 scope）。
+async fn verify_token(state: &AppState, token: &str, scope: &'static str) -> Result<(), Error> {
+    verify_scoped_token(state, token, scope).await.map(|_| ())
 }
 
 /// 桥接：订阅 key 的增量 → 推送 WS；WS 关闭即退出。
@@ -51,7 +53,7 @@ pub async fn service_logs_stream(
     Query(q): Query<StreamQuery>,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, Error> {
-    verify_token(&state, &q.token).await?;
+    verify_token(&state, &q.token, scopes::SERVICES).await?;
     Ok(ws.on_upgrade(move |socket| handle_stream(socket, state, format!("service:{id}"))))
 }
 
@@ -62,7 +64,7 @@ pub async fn job_stream(
     Query(q): Query<StreamQuery>,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, Error> {
-    verify_token(&state, &q.token).await?;
+    verify_token(&state, &q.token, scopes::EXEC).await?;
     Ok(ws.on_upgrade(move |socket| handle_stream(socket, state, format!("job:{id}"))))
 }
 
@@ -72,7 +74,7 @@ pub async fn metrics_stream(
     Query(q): Query<StreamQuery>,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, Error> {
-    verify_token(&state, &q.token).await?;
+    verify_token(&state, &q.token, scopes::METRICS).await?;
     Ok(ws.on_upgrade(move |socket| handle_stream(socket, state, "metrics".to_string())))
 }
 
@@ -83,7 +85,7 @@ pub async fn memscan_stream(
     Query(q): Query<StreamQuery>,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, Error> {
-    verify_token(&state, &q.token).await?;
+    verify_token(&state, &q.token, scopes::IR).await?;
     Ok(ws.on_upgrade(move |socket| handle_stream(socket, state, format!("memscan:{id}"))))
 }
 
@@ -93,6 +95,6 @@ pub async fn notifications_stream(
     Query(q): Query<StreamQuery>,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, Error> {
-    verify_token(&state, &q.token).await?;
+    verify_token(&state, &q.token, scopes::NOTIFICATIONS).await?;
     Ok(ws.on_upgrade(move |socket| handle_stream(socket, state, "notifications".to_string())))
 }
