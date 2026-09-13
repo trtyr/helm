@@ -40,8 +40,17 @@ interface ScanState {
 const MAX_MATCHES = 5000;
 const RENDER_CAP = 300;
 
-function newScanId(): string {
-  return crypto.randomUUID();
+export function newScanId(): string {
+  // crypto.randomUUID 仅存在于安全上下文（HTTPS / localhost）；经局域网 IP 访问
+  // 控制台时该 API 不存在，降级用 getRandomValues（不受限）手拼 UUID v4。
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 /** 内存字符串扫描：读取目标进程内存，提取可打印字符串（Volatility strings 简化版）。
