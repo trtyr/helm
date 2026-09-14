@@ -188,6 +188,13 @@ export const router = createBrowserRouter([
             },
           },
           {
+            path: "mcp",
+            lazy: async () => {
+              const { default: Mcp } = await import("./routes/Mcp");
+              return { Component: Mcp };
+            },
+          },
+          {
             path: "settings",
             lazy: async () => {
               const { default: Settings } = await import("./routes/Settings");

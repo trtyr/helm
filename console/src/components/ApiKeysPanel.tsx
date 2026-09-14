@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { copyText } from "../lib/clipboard";
+import { SCOPES, scopeLabel } from "../lib/scopes";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Plus, Trash2 } from "lucide-react";
 import type { components } from "../api/schema";
@@ -7,29 +8,6 @@ import { api } from "../api/client";
 import { toast } from "../lib/toast";
 
 type ApiKey = components["schemas"]["ApiKey"];
-type ApiKeyScope = components["schemas"]["ApiKeyScope"];
-
-/** scope 中文说明（与 server application::scopes 对应）。 */
-const SCOPES: { id: ApiKeyScope; label: string }[] = [
-  { id: "hosts", label: "主机 / Agent 档案" },
-  { id: "exec", label: "命令执行 / 终端" },
-  { id: "files", label: "文件传输" },
-  { id: "services", label: "服务管理" },
-  { id: "processes", label: "进程 / 网络" },
-  { id: "metrics", label: "指标 / 告警" },
-  { id: "notifications", label: "通知" },
-  { id: "listeners", label: "监听器" },
-  { id: "forward", label: "正向连接" },
-  { id: "proxy", label: "SOCKS 代理" },
-  { id: "ir", label: "应急响应 IR（Windows）" },
-  { id: "agent-gen", label: "Agent 生成" },
-  { id: "audit", label: "审计" },
-  { id: "skill", label: "技能包" },
-];
-
-function scopeLabel(id: string): string {
-  return SCOPES.find((s) => s.id === id)?.label ?? id;
-}
 
 /** /settings 的「API 凭证」块：scope 化 key 的创建 / 列表 / 吊销。
  *  明文 key 仅创建响应出现一次；api-keys 端点仅 JWT 可调（后端强制）。 */

@@ -23,6 +23,12 @@ export default defineConfig({
         target: BACKEND,
         changeOrigin: true,
       },
+      // MCP 连接测试（不能用 /mcp：那会劫持同名 SPA 前端路由的页面导航 → 405）
+      '/mcp-test': {
+        target: BACKEND,
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/mcp-test/, '/mcp'),
+      },
     },
   },
 })
