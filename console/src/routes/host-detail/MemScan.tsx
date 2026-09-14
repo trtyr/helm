@@ -152,11 +152,13 @@ export default function MemScan() {
           onClick={() => startMutation.mutate()}
           className="flex h-8 items-center gap-1.5 rounded-md bg-gray-700 px-3 text-label-13 hover:bg-gray-800 disabled:opacity-40">
           <Play size={14} strokeWidth={1.5} />
-          {scanning ? "扫描中…" : startMutation.isPending ? "启动中…" : "扫描"}
+          {scanning ? <span className="animate-pulse">扫描中…</span> : startMutation.isPending ? "启动中…" : "扫描"}
         </button>
         {scanning && (
-          <span className="text-label-12 text-gray-900/60">
-            {result ? `已扫 ${result.pidsScanned}/${result.pidsTotal} 进程` : "等待首批数据…"} · 边扫边显示
+          <span className="animate-pulse text-label-12 text-gray-900/60">
+            {result
+              ? `已扫 ${result.pidsScanned}/${result.pidsTotal} 进程（大内存进程上进度可能长时间停留，属正常）`
+              : "等待首批数据（遍历进程需要数十秒，边扫边显示）…"}
           </span>
         )}
       </div>
