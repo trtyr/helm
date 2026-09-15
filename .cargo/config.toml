@@ -1,7 +1,0 @@
-# 构建缓存与工具状态一律落内置 APFS：exFAT 卷（/Volumes/trtyr）上任何写入都会
-# 再生 AppleDouble（._*），污染仓库终态。此配置使 cargo 在默认环境（含 CI 外的
-# 他人克隆）也把 target 放到本机 APFS；换机器时按需修改路径。
-# 同类治理：.git → gitdir 指针（/Users/trtyr/.helm-repo-state/git）、
-#           .pi/.codegraph → 软链（/Users/trtyr/.helm-repo-state/{pi,codegraph}）。
-[build]
-target-dir = "/Users/trtyr/.helm-repo-state/target"
