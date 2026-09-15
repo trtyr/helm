@@ -8,7 +8,7 @@
 环境变量：
   HELM_TEST_AGENT     目标 agent_id（必填）
   HELM_TEST_PLATFORM  win | linux（决定命令语法，默认 linux）
-  HELM_E2E_HTTP_ADDR  Server HTTP 地址（默认 127.0.0.1:18080）
+  HELM_E2E_HTTP_ADDR  Server HTTP 地址（默认 127.0.0.1:8080）
 """
 
 import asyncio

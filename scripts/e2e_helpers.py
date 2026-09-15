@@ -11,7 +11,7 @@ import sys
 import time
 import urllib.request
 
-HTTP_ADDR = os.environ.get("HELM_E2E_HTTP_ADDR", "127.0.0.1:18080")
+HTTP_ADDR = os.environ.get("HELM_E2E_HTTP_ADDR", "127.0.0.1:8080")
 GRPC_ADDR = os.environ.get("HELM_E2E_GRPC_ADDR", "127.0.0.1:50051")
 BASE = f"http://{HTTP_ADDR}/api/v1"
 

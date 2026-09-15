@@ -10,7 +10,7 @@ info:
     api-keys 管理端点仅接受 JWT（key 不可自管）。
   version: 1.0.0
 servers:
-  - url: http://127.0.0.1:18080
+  - url: http://127.0.0.1:8080
     description: 本地开发（端口可用 HELM_HTTP_ADDR 覆盖）
 tags:
   - name: auth
