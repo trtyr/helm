@@ -25,8 +25,7 @@
 - **反向**（默认）：Agent 主动连 Server，穿透 NAT/防火墙。
 - **正向**：Agent 监听，Server 主动拨号（同区域内网）。
 
-两种模式复用同一套信令协议（gRPC 双向流），见
-[docs/plantree](docs/plantree/README.md) 中的架构决策。
+两种模式复用同一套信令协议（gRPC 双向流），见 engram「规划」分类中的架构决策（原 docs/plantree，决策 001–011）。
 
 ## IR 应急响应能力
 
@@ -47,7 +46,7 @@
 | **VirusTotal** | 按文件 SHA256 查杀（待 HELM_VT_API_KEY 配置） |
 | **页面缓存** | 自启动项/系统日志秒开（ir_page_cache 服务端缓存） |
 
-详见 [docs/ir-capabilities.md](docs/ir-capabilities.md)。
+详见 engram「应急响应」分类（原 docs/ir-capabilities.md）。
 
 ## 目录结构
 
@@ -60,15 +59,15 @@ server/               # Server 控制端（axum + tonic + sqlx）
   src/grpc            #   gRPC 适配层（Agent 连入）
   src/http            #   HTTP API 适配层（控制台）
   src/store           #   持久化层（sqlx + Postgres）
-  migrations/         #   数据库迁移（14 个版本）
+  migrations/         #   数据库迁移（16 个版本）
 agent/                # Agent 被控端（tokio，跨平台）
-  src/ir/             #   IR 应急响应模块（自启动/内存扫描/文件时间线/操作等 14 个子模块）
+  src/ir/             #   IR 应急响应模块（自启动/内存扫描/文件时间线/操作等 17 个模块）
   src/privilege.rs    #   权限检测（SeDebugPrivilege / Administrators 组）
 console/              # 前端控制台（Vite + React；pnpm 独立工作流）
 skill/                # 运维 skill 包源（Server 内嵌分发：SKILL.md + Python 脚本 + references）
 deploy/               # 部署模板（systemd unit + Windows nssm 脚本）
 scripts/              # e2e 脚本（Python）+ OpenAPI 校验
-docs/                 # 文档归档 + openapi.yaml + plantree 规划树
+docs/                 # openapi.yaml（机器契约）+ README.md（engram 文档指针索引）；归档正文已迁 engram
 docker-compose.yml    # 本地 Postgres
 ```
 
@@ -154,6 +153,7 @@ Bearer 值为 JWT 或 `helm_` 前缀 API key（决策 010）均可认证；WebSo
 | POST | `/api/v1/files/list` | 列目录 |
 | POST | `/api/v1/tasks/script` | 脚本执行 |
 | POST | `/api/v1/tasks/schedule` | 定时任务 |
+| POST | `/api/v1/mcp` | MCP JSON-RPC 端点（AI 单工具 `helm` 接入，50 op，scope 授权；见 engram「接口契约/mcp」） |
 | POST | `/api/v1/forward/exec` | 正向连接执行命令 |
 | GET/POST | `/api/v1/listeners` | 列出 / 创建监听器 |
 | PUT/DELETE | `/api/v1/listeners/{id}` | 更新 / 删除监听器 |
@@ -197,6 +197,8 @@ Bearer 值为 JWT 或 `helm_` 前缀 API key（决策 010）均可认证；WebSo
 | `HELM_ISSUE_CERT` | 关 | 离线签发 agent 证书三件套后退出（`--issue-cert`，forward 预置用） |
 | `HELM_ISSUE_AGENT_ID` / `HELM_ISSUE_SAN` / `HELM_ISSUE_OUT_DIR` | 空 | issue-cert 参数：agent 标识 / SAN 列表 / 输出目录 |
 | `HELM_AGENT_SOURCE_DIR` | `.` | Agent 源码工作区目录（「生成 Agent」现场编译用；须能在此目录执行 cargo） |
+| `HELM_VT_API_KEY` | 空 | VirusTotal API key（`/api/v1/ir/vt` 查杀；结果缓存 7 天） |
+| `HELM_CROSS_TOOLS_DIR` | 未设 | musl 交叉工具链目录（缺省 `<源码工作区>/.cargo-musl/bin`） |
 
 ### Agent
 
@@ -211,7 +213,9 @@ Bearer 值为 JWT 或 `helm_` 前缀 API key（决策 010）均可认证；WebSo
 | `HELM_LOG_DIR` | 空 | 日志目录（非空按天滚动落文件） |
 | `HELM_TLS_SERVER_NAME` | `localhost` | mTLS server 证书 SAN 名 |
 | `HELM_CERT_DIR` | 空 | 证书缓存目录（非空启用 mTLS） |
-| `HELM_SERVER_HTTP_ADDR` | 空 | Server HTTP 地址（换证书用） |
+| `HELM_SERVER_HTTP_ADDR` | 空 | Server HTTP 地址（换证书用；缺省按 gRPC 地址同 host 推导——推导默认端口 18080 与 Server 默认 HTTP 8080 不一致，已知缺口，建议显式设置） |
+
+> 编译期烙入变量（「生成 Agent」现场编译注入，`agent/build.rs` 白名单）：`HELM_BAKE_SERVER_ADDR` / `HELM_BAKE_AGENT_TOKEN` / `HELM_BAKE_AGENT_ID` / `HELM_BAKE_CONN_MODE` / `HELM_BAKE_LISTEN_ADDR`。运行时优先级：CLI 参数 > 环境变量 > 编译期烙入 > 内置兜底。
 
 ## 开发
 
@@ -221,11 +225,16 @@ just buf-lint    # protobuf 契约 lint
 python3 scripts/e2e-smoke.py      # 一键端到端 smoke
 python3 scripts/e2e-phase8.py     # CRUD + 实时流（Phase 8）
 python3 scripts/e2e-phase9.py     # 通知中心（Phase 9）
+python3 scripts/e2e-mcp.py        # MCP 端到端（签发→握手→裁剪→透传→越权→吊销）
+python3 scripts/e2e-account.py    # 单用户账号管理（Phase 12）
 python3 scripts/check_openapi.py  # OpenAPI 契约与路由一致性校验
+python3 scripts/check_docs.py     # 文档现状陈述与代码一致性校验
 ```
 
 ## 文档
 
-- [docs/](docs/) — 架构 / 技术栈 / API / 数据模型 / 运行部署 / 约定 / 现状归档。
-- [docs/openapi.yaml](docs/openapi.yaml) — HTTP API 契约（OpenAPI 3.0.3）。
-- [docs/plantree](docs/plantree/README.md) — 规划与架构决策树（决策 001–008 + roadmap Phase 0–8）。
+- **engram（projects/helm）** — 全部书面记录的唯一归档地：架构 / 技术栈 / API / 数据模型 /
+  运行部署 / 约定 / 现状与门禁 / 应急响应 / 规划决策树（原 docs/*.md 与 docs/plantree 全树，
+  2026-09-15 迁入）。经 engram MCP（`projects` 工具 `doc_search` / `doc_get`，project_name=helm）检索。
+- [docs/README.md](docs/README.md) — 本地文档指针索引（分类 → engram 文档对照表）。
+- [docs/openapi.yaml](docs/openapi.yaml) — HTTP API 契约（OpenAPI 3.0.3，73 端点；机器契约保留本地）。

@@ -1,33 +1,36 @@
-# docs/ — helm 项目归档索引
+# docs/ — helm 文档指针索引
 
-这是 `helm`（集中式运维平台）的完整书面记录，随落地持续维护，以**当前实现**为准。
-一句话：Server 控制端 + 跨平台 Agent 被控端，gRPC 双向流（可选 mTLS）为信令底座，axum 出 HTTP API，Postgres 持久化。
+> **2026-09-15 起，helm 的全部书面记录归档于 engram（projects 域，project `helm`）。**
+> 本地 `docs/` 只保留本索引与机器契约资产。正文不再放本地——查文档一律走 engram。
 
-## 文档清单
+## 怎么查
 
-| 文档 | 覆盖内容 | 何时读 |
-|------|---------|--------|
-| [overview.md](overview.md) | 项目是什么、核心能力、连接模式、30 秒全貌 | 第一次接触，先读这个 |
-| [architecture.md](architecture.md) | 目录树、模块边界、依赖方向、运行时流程 | 想找某段代码 / 理解分层时 |
-| [tech-stack.md](tech-stack.md) | 语言、框架、依赖版本、工具链、可观测性 | 想知道用了什么库、什么版本 |
-| [api.md](api.md) | gRPC 契约 + HTTP API + 配置环境变量 | 要写/改接口、对接前端或 Agent |
-| [data-model.md](data-model.md) | Postgres schema、实体关系、状态机、迁移 | 要改表结构、查数据流 |
-| [run-and-deploy.md](run-and-deploy.md) | 本地运行、开发命令、e2e、部署模板、发布门禁 | 要跑起来 / 部署 / 提 PR 前 |
-| [conventions.md](conventions.md) | 分层、错误处理、命名、测试、契约演进、git 约定 | 要写代码、保持一致时 |
-| [current-state.md](current-state.md) | 已验证的构建/测试结果、git 状态、开放项/已知问题 | 接手时看现状与坑 |
-| [ir-capabilities.md](ir-capabilities.md) | IR 应急响应全能力：自启动项/进程树/内存扫描/基线对比/批量操作/证据包/USN 时间线/权限/下线 | 应急响应、运维管控、安全审计时 |
-| [real-machine-test-report.md](real-machine-test-report.md) | Linux 真机测试报告：forward 持久连接 + mTLS 15/15、Windows GBK 修复验证 | 要看真机实证 / 评估 forward 模式时 |
-| [openapi.yaml](openapi.yaml) | HTTP API 契约（OpenAPI 3.0.3，72 端点） | 前端对接 / 接口校验时 |
+- engram MCP：`projects` 工具，`project_name = "helm"`
+  - `doc_search`：跨文档按行检索（grep 式）
+  - `doc_get`：按 doc_id 精读（映射表里有每个文档的 doc_id）
+- 分类结构：总览 / 架构与设计 / 接口契约 / 数据模型 / 运行与部署 / 约定 / 现状与门禁 / 应急响应 / 规划
 
-## 规划树（另行维护）
+## 分类 → 内容对照
 
-- [plantree/](plantree/README.md) — 项目的规划与决策树（baseline / plans / decisions / topics）。
-  决策链 001–008 保留历史规划性质；roadmap Phase 0–8 已回写 Done。
-  baseline 部分由早期 project-init 生成，可能残留历史表述（如「SQLite 起步」已被决策 004 取代），
-  以本归档（`docs/*.md`）为准。
+| engram 分类 | 内容（原本地文件） |
+|---|---|
+| 总览 | overview（项目是什么）、README（原归档索引）、本地归档 → engram 映射表 |
+| 架构与设计 | architecture（目录树/模块边界/运行时流程）、tech-stack（依赖版本）、实证地图（2026-09-15 codefind 实测） |
+| 接口契约 | api（gRPC 契约 + HTTP API + 环境变量）、mcp（MCP 接入：`POST /api/v1/mcp`，50 op） |
+| 数据模型 | data-model（17 表 / 16 迁移 / 状态机） |
+| 运行与部署 | run-and-deploy（运行/开发命令/e2e/部署模板）、real-machine-test-report（真机 15/15） |
+| 约定 | conventions（分层/错误处理/命名/测试/契约演进/git 约定） |
+| 现状与门禁 | current-state（实测门禁基线）、文档 vs 代码差异清单（2026-09-15） |
+| 应急响应 | ir-capabilities（IR 全能力：自启动/内存扫描/时间线/证据包） |
+| 规划 | 原 plantree 全树 75 篇（README / baseline 6 / roadmap / decisions 001–011 / topics / frontend 全套），folder 保留原目录结构 |
 
-## 未收录
+## 本地保留资产
 
-- **frontend-backend.md** — 跳过：前端在同仓 `console/`（M1–M4 全落地、20 路由就绪）；
-  其要消费的接口即 [api.md](api.md) 的 HTTP API 章节。前端对接对照请用
-  [plantree 前端规划](plantree/plans/frontend/README.md)（feature-inventory 70 功能标注落地轮次）。
+- `docs/openapi.yaml` — HTTP API 契约（OpenAPI 3.0.3，73 端点）；`scripts/check_openapi.py` 消费，勿迁。
+- 本文件 — 指针索引。
+
+## 历史备注
+
+- 原 docs 归档 12 篇 + plantree 75 篇于 2026-09-15 逐字迁入 engram（全量 doc_get 与原文 diff 一致后删除本地）。
+- 旧索引中「mcp.md 未入册」「决策 001–008」「migrations 14 个版本」等过期项已在 engram 内修正，
+  明细见 engram「现状与门禁 / 文档 vs 代码差异清单（2026-09-15）」。

@@ -8,3 +8,5 @@ __pycache__/
 *.pyc
 .cargo-musl/
 /linux-agent
+._*
+.codegraph/
