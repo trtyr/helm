@@ -3,10 +3,10 @@
 *.log
 /data/
 .docker/
-.pi/
+.pi
 __pycache__/
 *.pyc
 .cargo-musl/
 /linux-agent
 ._*
-.codegraph/
+.codegraph
