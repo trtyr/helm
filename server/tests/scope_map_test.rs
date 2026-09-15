@@ -40,6 +40,7 @@ const EXEMPT_PATHS: &[&str] = &[
     "/api/v1/auth/change-password",
     "/api/v1/auth/change-username",
     "/api/v1/agents/cert",
+    "/api/v1/mcp",
     "/api/v1/agents/{id}/terminal",
     "/api/v1/jobs/{id}/stream",
     "/api/v1/metrics/stream",
