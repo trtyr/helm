@@ -44,7 +44,7 @@ pub struct Config {
     #[arg(long, env = "HELM_CERT_DIR", default_value = "")]
     pub cert_dir: String,
 
-    /// Server HTTP 地址（换证书用，默认空则从 server_addr 推导 http://host:18080）
+    /// Server HTTP 地址（换证书用，默认空则从 server_addr 推导 http://host:8080）
     #[arg(long, env = "HELM_SERVER_HTTP_ADDR", default_value = "")]
     pub server_http_addr: String,
 }

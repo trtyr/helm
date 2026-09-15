@@ -213,7 +213,7 @@ Bearer 值为 JWT 或 `helm_` 前缀 API key（决策 010）均可认证；WebSo
 | `HELM_LOG_DIR` | 空 | 日志目录（非空按天滚动落文件） |
 | `HELM_TLS_SERVER_NAME` | `localhost` | mTLS server 证书 SAN 名 |
 | `HELM_CERT_DIR` | 空 | 证书缓存目录（非空启用 mTLS） |
-| `HELM_SERVER_HTTP_ADDR` | 空 | Server HTTP 地址（换证书用；缺省按 gRPC 地址同 host 推导——推导默认端口 18080 与 Server 默认 HTTP 8080 不一致，已知缺口，建议显式设置） |
+| `HELM_SERVER_HTTP_ADDR` | 空 | Server HTTP 地址（换证书用；缺省按 gRPC 地址同 host + 8080 推导，与 Server 默认 HTTP 端口一致；非默认部署请显式设置） |
 
 > 编译期烙入变量（「生成 Agent」现场编译注入，`agent/build.rs` 白名单）：`HELM_BAKE_SERVER_ADDR` / `HELM_BAKE_AGENT_TOKEN` / `HELM_BAKE_AGENT_ID` / `HELM_BAKE_CONN_MODE` / `HELM_BAKE_LISTEN_ADDR`。运行时优先级：CLI 参数 > 环境变量 > 编译期烙入 > 内置兜底。
 

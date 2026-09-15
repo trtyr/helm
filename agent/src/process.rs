@@ -218,7 +218,7 @@ fn collect_connections() -> Vec<NetConnection> {
 }
 
 /// 解析 Windows `netstat -ano`（Windows 已走原生 API，此解析保留给 Unix 平台构建的引用与测试）。
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn parse_netstat_windows(text: &str) -> Vec<NetConnection> {
     let mut conns = Vec::new();
     for line in text.lines() {

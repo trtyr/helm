@@ -266,7 +266,7 @@ pub(crate) fn build_register(config: &Config) -> Register {
             elevated: crate::privilege::is_elevated(),
             os_version,
             kernel,
-            uptime_secs: uptime_secs as u64,
+            uptime_secs,
         }),
         version: env!("CARGO_PKG_VERSION").to_string(),
     }
@@ -338,13 +338,13 @@ fn to_https_addr(server_addr: &str) -> String {
     }
 }
 
-/// 由 gRPC 地址推导 HTTP 地址（换证书用），默认端口 18080。
+/// 由 gRPC 地址推导 HTTP 地址（换证书用），默认端口 8080（与 Server 默认 HTTP 端口一致）。
 fn derive_http_addr(server_addr: &str) -> String {
     match server_addr.find("://") {
         Some(i) => {
             let rest = &server_addr[i + 3..];
             match rest.rsplit_once(':') {
-                Some((host, _)) => format!("{}://{}:18080", &server_addr[..i], host),
+                Some((host, _)) => format!("{}://{}:8080", &server_addr[..i], host),
                 None => server_addr.to_string(),
             }
         }
@@ -360,11 +360,11 @@ mod tests {
     fn derive_http_addr_replaces_port() {
         assert_eq!(
             derive_http_addr("http://127.0.0.1:50051"),
-            "http://127.0.0.1:18080"
+            "http://127.0.0.1:8080"
         );
         assert_eq!(
             derive_http_addr("https://example.com:8443"),
-            "https://example.com:18080"
+            "https://example.com:8080"
         );
         assert_eq!(derive_http_addr("http://host"), "http://host");
     }

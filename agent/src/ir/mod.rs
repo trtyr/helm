@@ -167,7 +167,7 @@ pub async fn mem_scan_stream(
     }
     #[cfg(not(windows))]
     {
-        let _ = (&pid, &min_len, &keyword, &tx);
+        let _ = (&request_id, &pid, &min_len, &keyword, &tx);
     }
 }
 
