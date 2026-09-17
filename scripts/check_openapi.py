@@ -79,6 +79,8 @@ def server_routes() -> set[str]:
     for r in raw:
         if r == "/healthz":
             full.add("/healthz")
+        elif r == "/mcp":
+            full.add(r)  # 根注册的 MCP 端点（mod.rs，不在 /api/v1 nest 内），不加前缀
         elif r.startswith("/api/v1"):
             full.add(r)  # 顶层路由（terminal / cert / 各 WS 流）
         else:

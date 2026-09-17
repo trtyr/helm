@@ -16,7 +16,7 @@
 |---|---|
 | 总览 | overview（项目是什么）、README（原归档索引）、本地归档 → engram 映射表 |
 | 架构与设计 | architecture（目录树/模块边界/运行时流程）、tech-stack（依赖版本）、实证地图（2026-09-15 codefind 实测） |
-| 接口契约 | api（gRPC 契约 + HTTP API + 环境变量）、mcp（MCP 接入：`POST /api/v1/mcp`，50 op） |
+| 接口契约 | api（gRPC 契约 + HTTP API + 环境变量）、mcp（MCP 接入：`POST /mcp`，50 op） |
 | 数据模型 | data-model（17 表 / 16 迁移 / 状态机） |
 | 运行与部署 | run-and-deploy（运行/开发命令/e2e/部署模板）、real-machine-test-report（真机 15/15） |
 | 约定 | conventions（分层/错误处理/命名/测试/契约演进/git 约定） |

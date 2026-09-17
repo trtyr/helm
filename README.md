@@ -176,6 +176,7 @@ Bearer 值为 JWT 或 `helm_` 前缀 API key（决策 010）均可认证；WebSo
 | WS | `/api/v1/jobs/{id}/stream?token=` | job 输出实时流 |
 | WS | `/api/v1/metrics/stream?token=` | 指标实时流 |
 | WS | `/api/v1/notifications/stream?token=` | 通知实时流（上线/下线/预警） |
+| WS | `/api/v1/ir/memscan/{id}/stream?token=` | 内存扫描实时流（流式进度与命中） |
 
 ## 配置（环境变量）
 

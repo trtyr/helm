@@ -992,7 +992,7 @@ paths:
         "101":
           description: WebSocket 升级成功
 
-  /api/v1/mcp:
+  /mcp:
     post:
       tags: [mcp]
       summary: MCP JSON-RPC 2.0 端点（AI 接入，单工具 helm）
@@ -1000,7 +1000,7 @@ paths:
         单工具 `helm`：`op` 渐进式调用（`catalog` 编目 → 逐 op loopback 透传既有 HTTP 面）。
         认证：JWT 或 API key（scope 裁剪，空 scopes = 全功能；api-keys/账号端点无 scope、
         永远 JWT-only）。请求体为 JSON-RPC 2.0 消息（initialize / tools/list / tools/call）；
-        工具级错误亦返回 200 + isError。详见 docs/mcp.md。
+        工具级错误亦返回 200 + isError。详见 engram projects/helm「接口契约/mcp」。
       requestBody:
         required: true
         content:

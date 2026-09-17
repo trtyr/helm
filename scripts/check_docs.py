@@ -137,7 +137,7 @@ def main() -> None:
     for ep in [
         "/api/v1/listeners",
         "/api/v1/agents/cert",
-        "/api/v1/mcp",
+        "/mcp",
         "/api/v1/audit",
         "/api/v1/forward/exec",
     ]:
