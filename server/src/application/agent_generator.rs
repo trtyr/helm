@@ -66,6 +66,36 @@ pub fn triple_for(os: &str, arch: &str) -> Option<(&'static str, &'static str)> 
     }
 }
 
+/// musl 交叉工具链可执行文件的完整路径（EN-66）。
+///
+/// 按 **host OS** 条件拼接，与目标平台无关（编译发生在 Server 所在主机）：
+/// - Windows host：zig cc 的 `.cmd` 包装脚本 + `\` 分隔；
+/// - POSIX host：无后缀 + `/` 分隔。
+///
+/// `is_windows` 参数化以便单测覆盖两种形态；运行时经 `cfg!(windows)` 选择。
+fn musl_tool_path_for(is_windows: bool, tools_dir: &str, tool: &str) -> String {
+    if is_windows {
+        format!("{tools_dir}\\x86_64-linux-musl-{tool}.cmd")
+    } else {
+        format!("{tools_dir}/x86_64-linux-musl-{tool}")
+    }
+}
+
+/// 运行时入口：按当前 host OS 拼接工具链路径。
+fn musl_tool_path(tools_dir: &str, tool: &str) -> String {
+    musl_tool_path_for(cfg!(windows), tools_dir, tool)
+}
+
+/// 交叉编译子进程 PATH 的分隔符（host OS 决定：Windows `;`，POSIX `:`）。
+fn host_path_sep() -> &'static str {
+    path_sep_for(std::env::consts::OS == "windows")
+}
+
+/// `path_sep_for` 的参数化版本（单测覆盖两种形态）。
+fn path_sep_for(is_windows: bool) -> &'static str {
+    if is_windows { ";" } else { ":" }
+}
+
 /// Agent 生成器：任务注册表 + cargo 编译编排。
 #[derive(Clone)]
 pub struct AgentGenService {
@@ -211,13 +241,16 @@ impl AgentGenService {
                     .unwrap_or_else(|_| std::path::PathBuf::from(&tools))
                     .to_string_lossy()
                     .into_owned();
-                let gcc = format!("{tools}\\x86_64-linux-musl-gcc.cmd");
-                let ar = format!("{tools}\\x86_64-linux-musl-ar.cmd");
+                let gcc = musl_tool_path(&tools, "gcc");
+                let ar = musl_tool_path(&tools, "ar");
                 if !std::path::Path::new(&gcc).exists() {
                     fail(
                         &job,
                         format!(
-                            "缺少 musl 交叉工具链：未找到 {gcc}（需 zig cc 包装脚本，目录可用 HELM_CROSS_TOOLS_DIR 指定）"
+                            "缺少 musl 交叉工具链：未找到 {gcc}（Linux 目标交叉编译需要 zig cc \
+                             包装脚本 x86_64-linux-musl-gcc / x86_64-linux-musl-ar；\
+                             可用 zig cc 生成包装脚本放入工具目录，目录默认 \
+                             <源码工作区>/.cargo-musl/bin，可用 HELM_CROSS_TOOLS_DIR 覆盖）"
                         ),
                     )
                     .await;
@@ -225,7 +258,7 @@ impl AgentGenService {
                 }
                 let env_suffix = job.triple.replace('-', "_").to_uppercase();
                 let path = std::env::var("PATH").unwrap_or_default();
-                cmd.env("PATH", format!("{tools};{path}"));
+                cmd.env("PATH", format!("{tools}{}{path}", host_path_sep()));
                 cmd.env(format!("CC_{env_suffix}"), &gcc);
                 cmd.env(format!("CXX_{env_suffix}"), &gcc);
                 cmd.env(format!("AR_{env_suffix}"), &ar);
@@ -387,5 +420,46 @@ mod tests {
             resolve_server_addr("192.168.1.5:50051"),
             "http://192.168.1.5:50051"
         );
+    }
+
+    #[test]
+    fn musl_tool_path_windows_form() {
+        // Windows host：`\` 分隔 + `.cmd` 后缀（zig cc 包装脚本）
+        assert_eq!(
+            musl_tool_path_for(true, "C:\\tools\\bin", "gcc"),
+            "C:\\tools\\bin\\x86_64-linux-musl-gcc.cmd"
+        );
+        assert_eq!(
+            musl_tool_path_for(true, "/opt/musl/bin", "ar"),
+            "/opt/musl/bin\\x86_64-linux-musl-ar.cmd"
+        );
+    }
+
+    #[test]
+    fn musl_tool_path_posix_form() {
+        // POSIX host：`/` 分隔 + 无后缀（EN-66 修复点：此前误用 Windows 形态）
+        assert_eq!(
+            musl_tool_path_for(false, "/opt/musl/bin", "gcc"),
+            "/opt/musl/bin/x86_64-linux-musl-gcc"
+        );
+        assert_eq!(
+            musl_tool_path_for(false, "/opt/musl/bin", "ar"),
+            "/opt/musl/bin/x86_64-linux-musl-ar"
+        );
+    }
+
+    #[test]
+    fn path_sep_matches_host_os_form() {
+        assert_eq!(path_sep_for(true), ";");
+        assert_eq!(path_sep_for(false), ":");
+        // 运行时入口与当前平台一致（编译期判定，双平台各自成立）
+        if cfg!(windows) {
+            assert_eq!(host_path_sep(), ";");
+            assert!(musl_tool_path("C:\\t", "gcc").ends_with(".cmd"));
+        } else {
+            assert_eq!(host_path_sep(), ":");
+            assert!(musl_tool_path("/t", "gcc").ends_with("x86_64-linux-musl-gcc"));
+            assert!(!musl_tool_path("/t", "gcc").contains(".cmd"));
+        }
     }
 }
