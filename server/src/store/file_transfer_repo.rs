@@ -49,6 +49,17 @@ impl FileTransferRepo {
         .await
     }
 
+    /// 按 id 读单条传输记录（不存在返回 None）。
+    pub async fn find(&self, id: Uuid) -> sqlx::Result<Option<FileTransferRow>> {
+        sqlx::query_as::<_, FileTransferRow>(
+            "SELECT id, host_id, direction, path, size, bytes_transferred, checksum, status
+             FROM file_transfers WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(self.db.pool())
+        .await
+    }
+
     /// 落最终状态与校验和。
     pub async fn finish(
         &self,

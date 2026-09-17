@@ -6,7 +6,8 @@ use crate::grpc::file_list_registry::FileListRegistry;
 use crate::grpc::transfer_registry::TransferRegistry;
 use crate::store::{Db, agent_repo::AgentRepo, file_transfer_repo::FileTransferRepo};
 use helm_proto::pb::{
-    FileChunk, FileEntry, FileList, FileRequest, ServerMessage, file_request, server_message,
+    FileChunk, FileEntry, FileList, FileRequest, ServerMessage, file_request, file_status,
+    server_message,
 };
 use sha2::{Digest, Sha256};
 use tokio::sync::oneshot;
@@ -67,10 +68,13 @@ impl FileService {
                 chunk_size: CHUNK_SIZE as u32,
             })),
         };
-        self.registry
-            .send(agent_id, req)
-            .await
-            .map_err(|e| Error::NotConnected(e.to_string()))?;
+        if let Err(e) = self.registry.send(agent_id, req).await {
+            // agent 不在线：下发失败，落 failed 而非遗留 pending 孤行（风险债 B3-①）。
+            FileTransferRepo::new(self.db.clone())
+                .finish(ft.id, "failed", data.len() as i64, "")
+                .await?;
+            return Err(Error::NotConnected(e.to_string()));
+        }
 
         let (tx, rx) = oneshot::channel();
         self.transfers.register_upload(&transfer_id, tx).await;
@@ -91,12 +95,19 @@ impl FileService {
             offset += piece.len() as u64;
         }
 
-        let status = rx
-            .await
-            .map_err(|_| Error::Internal("transfer channel closed".into()))?;
-        let ok = status.checksum == expected;
+        let status = match rx.await {
+            Ok(status) => status,
+            // agent 断线导致通道关闭：落 failed，不留悬空的 transferring。
+            Err(_) => {
+                FileTransferRepo::new(self.db.clone())
+                    .finish(ft.id, "failed", data.len() as i64, "")
+                    .await?;
+                return Err(Error::Internal("transfer channel closed".into()));
+            }
+        };
+        let (final_status, ok) = resolve_status(status.state, &status.checksum, &expected);
         FileTransferRepo::new(self.db.clone())
-            .finish(ft.id, "done", data.len() as i64, &status.checksum)
+            .finish(ft.id, final_status, data.len() as i64, &status.checksum)
             .await?;
 
         Ok((transfer_id, ok))
@@ -128,25 +139,42 @@ impl FileService {
                 chunk_size: CHUNK_SIZE as u32,
             })),
         };
-        self.registry
-            .send(agent_id, req)
-            .await
-            .map_err(|e| Error::NotConnected(e.to_string()))?;
+        if let Err(e) = self.registry.send(agent_id, req).await {
+            // agent 不在线：下发失败，落 failed 而非遗留 pending 孤行（风险债 B3-①）。
+            FileTransferRepo::new(self.db.clone())
+                .finish(ft.id, "failed", 0, "")
+                .await?;
+            return Err(Error::NotConnected(e.to_string()));
+        }
 
         let (tx, rx) = oneshot::channel();
         self.transfers.register_download(&transfer_id, tx).await;
 
-        let result = rx
-            .await
-            .map_err(|_| Error::Internal("transfer channel closed".into()))?;
+        let result = match rx.await {
+            Ok(result) => result,
+            // agent 断线导致通道关闭：落 failed，不留悬空的 transferring。
+            Err(_) => {
+                FileTransferRepo::new(self.db.clone())
+                    .finish(ft.id, "failed", 0, "")
+                    .await?;
+                return Err(Error::Internal("transfer channel closed".into()));
+            }
+        };
         let local_checksum = checksum(&result.data);
-        let ok = result.status.checksum == local_checksum;
-        tokio::fs::write(local_path, &result.data).await?;
+        let (final_status, ok) = resolve_status(
+            result.status.state,
+            &result.status.checksum,
+            &local_checksum,
+        );
+        // 失败时不写本地盘：残缺数据不应冒充下载结果。
+        if ok {
+            tokio::fs::write(local_path, &result.data).await?;
+        }
 
         FileTransferRepo::new(self.db.clone())
             .finish(
                 ft.id,
-                "done",
+                final_status,
                 result.data.len() as i64,
                 &result.status.checksum,
             )
@@ -187,6 +215,20 @@ pub fn checksum(data: &[u8]) -> String {
     hex::encode(Sha256::digest(data))
 }
 
+/// 依据 agent 回传的 FileStatus 与本地期望 checksum，判定落库终态。
+///
+/// 仅当 agent 上报 `STATE_DONE` 且 checksum 与本地一致时记 `done`；
+/// agent 报失败（含 Failed 态、error 非空导致的空 checksum）或校验不一致一律 `failed`（EN-65）。
+/// 返回 (status, ok)，ok 同时作为 HTTP 响应体的 checksum_ok 语义。
+pub fn resolve_status(
+    state: i32,
+    reported_checksum: &str,
+    expected_checksum: &str,
+) -> (&'static str, bool) {
+    let ok = state == file_status::State::Done as i32 && reported_checksum == expected_checksum;
+    (if ok { "done" } else { "failed" }, ok)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,5 +245,32 @@ mod tests {
     #[test]
     fn checksum_differs_on_input() {
         assert_ne!(checksum(b"a"), checksum(b"b"));
+    }
+
+    #[test]
+    fn resolve_status_done_when_agent_done_and_checksum_matches() {
+        let (status, ok) = resolve_status(
+            file_status::State::Done as i32,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        );
+        assert_eq!(status, "done");
+        assert!(ok);
+    }
+
+    #[test]
+    fn resolve_status_failed_on_checksum_mismatch() {
+        // agent 报 Done 但 checksum 对不上（传输损坏）
+        let (status, ok) = resolve_status(file_status::State::Done as i32, "deadbeef", "abc");
+        assert_eq!(status, "failed");
+        assert!(!ok);
+    }
+
+    #[test]
+    fn resolve_status_failed_on_agent_failure() {
+        // agent 报 Failed：checksum 为空串（agent/src/file.rs 失败路径）
+        let (status, ok) = resolve_status(file_status::State::Failed as i32, "", "abc");
+        assert_eq!(status, "failed");
+        assert!(!ok);
     }
 }
