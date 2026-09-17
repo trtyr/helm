@@ -10,9 +10,9 @@ use crate::grpc::session_registry::SessionRegistry;
 use crate::grpc::stream_registry::StreamRegistry;
 use crate::grpc::transfer_registry::TransferRegistry;
 use crate::store::agent_repo::HostOsDetails;
-use crate::store::{Db, agent_repo::AgentRepo};
+use crate::store::{Db, agent_repo::AgentRepo, job_repo::JobRepo};
 use helm_proto::pb::{
-    AgentMessage, RegisterAck, SelfDestruct, ServerMessage, agent_message,
+    AgentMessage, JobCancel, RegisterAck, SelfDestruct, ServerMessage, agent_message,
     agent_service_server::AgentService, server_message,
 };
 use tokio::sync::mpsc;
@@ -192,6 +192,35 @@ impl AgentService for AgentServiceImpl {
             let _ = AgentRepo::new(self.db.clone()).delete(&agent_id).await;
         }
 
+        // 掉线期间挂起的 job 取消（EN-64 ③）：重连后补发 JobCancel，杀掉目标机残留进程。
+        // job 在 cancel 时已置 cancelled 终态，此处发送只为杀进程；agent 回报的
+        // ExecResult(cancelled=true) 幂等覆盖，不改变终态。
+        match JobRepo::new(self.db.clone())
+            .take_pending_cancels(&agent_id)
+            .await
+        {
+            Ok(job_ids) if !job_ids.is_empty() => {
+                tracing::info!(
+                    agent_id = %agent_id,
+                    count = job_ids.len(),
+                    "deferred job cancels executed on reconnect"
+                );
+                for jid in job_ids {
+                    let _ = tx
+                        .send(ServerMessage {
+                            kind: Some(server_message::Kind::JobCancel(JobCancel {
+                                job_id: jid.to_string(),
+                            })),
+                        })
+                        .await;
+                }
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!(agent_id = %agent_id, error = %e, "take_pending_cancels failed")
+            }
+        }
+
         // 上线通知（决策 009：系统内小卡片；落库失败无 host_id 则跳过；挂起补执行或
         // 重复注册（本就在线，仅换连接）时不通知）
         if let Some(hid) = host_id
@@ -270,8 +299,19 @@ pub fn token_matches(server_token: &str, provided: &str) -> bool {
 }
 
 /// 由执行结果判断 Job 终态（纯函数，便于测试）。
-pub fn job_status(error: Option<&str>, exit_code: Option<i32>) -> &'static str {
-    if error.is_some() {
+/// `cancelled`/`timed_out` 由 agent 显式上报（JobCancel 杀进程 / timeout_secs 超时），
+/// 优先于 error/exit_code 判定（EN-64）。
+pub fn job_status(
+    error: Option<&str>,
+    exit_code: Option<i32>,
+    cancelled: bool,
+    timed_out: bool,
+) -> &'static str {
+    if cancelled {
+        "cancelled"
+    } else if timed_out {
+        "timed_out"
+    } else if error.is_some() {
         "failed"
     } else {
         match exit_code {
@@ -307,10 +347,16 @@ mod tests {
 
     #[test]
     fn job_status_rules() {
-        assert_eq!(job_status(None, Some(0)), "succeeded");
-        assert_eq!(job_status(None, Some(1)), "failed");
-        assert_eq!(job_status(Some("boom"), None), "failed");
-        assert_eq!(job_status(None, None), "succeeded");
+        assert_eq!(job_status(None, Some(0), false, false), "succeeded");
+        assert_eq!(job_status(None, Some(1), false, false), "failed");
+        assert_eq!(job_status(Some("boom"), None, false, false), "failed");
+        assert_eq!(job_status(None, None, false, false), "succeeded");
+        // EN-64：取消与超时标志优先于 error/exit_code
+        assert_eq!(
+            job_status(Some("killed"), Some(-9), true, false),
+            "cancelled"
+        );
+        assert_eq!(job_status(Some("timeout"), None, false, true), "timed_out");
     }
 
     #[test]

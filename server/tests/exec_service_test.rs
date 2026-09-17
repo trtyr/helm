@@ -13,7 +13,7 @@ async fn exec_unknown_agent_returns_not_found() {
     let service = ExecService::new(db, registry);
 
     let err = service
-        .exec("no-such-agent", "echo", &[])
+        .exec("no-such-agent", "echo", &[], None)
         .await
         .unwrap_err();
     assert!(matches!(err, Error::NotFound(_)));

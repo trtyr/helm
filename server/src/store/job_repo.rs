@@ -108,4 +108,67 @@ impl JobRepo {
         .fetch_all(self.db.pool())
         .await
     }
+
+    /// sweeper（EN-64）：将 running 超过 `timeout_secs` 的 job 置 timed_out。
+    /// 返回 (job_id, 最近注册的 agent_id)——agent 在线时 sweeper 顺带补发 JobCancel。
+    pub async fn expire_running(&self, timeout_secs: i64) -> sqlx::Result<Vec<ExpiredJob>> {
+        sqlx::query_as::<_, ExpiredJob>(
+            "UPDATE jobs SET status = 'timed_out', finished_at = now()
+             WHERE status = 'running'
+               AND started_at IS NOT NULL
+               AND started_at < now() - make_interval(secs => $1)
+             RETURNING id,
+                       (SELECT a.id FROM agents a
+                        WHERE a.host_id = jobs.host_id
+                        ORDER BY a.registered_at DESC LIMIT 1) AS agent_id",
+        )
+        .bind(timeout_secs)
+        .fetch_all(self.db.pool())
+        .await
+    }
+
+    /// sweeper（EN-67）：将 queued 超过 `timeout_secs` 的孤行置 failed，返回 job_id。
+    pub async fn fail_stale_queued(&self, timeout_secs: i64) -> sqlx::Result<Vec<Uuid>> {
+        sqlx::query_as::<_, (Uuid,)>(
+            "UPDATE jobs SET status = 'failed', finished_at = now()
+             WHERE status = 'queued'
+               AND created_at < now() - make_interval(secs => $1)
+             RETURNING id",
+        )
+        .bind(timeout_secs)
+        .fetch_all(self.db.pool())
+        .await
+        .map(|rows| rows.into_iter().map(|r| r.0).collect())
+    }
+
+    /// 记录离线取消补偿（agent 重连后补发 JobCancel；同 (agent, job) 幂等）。
+    pub async fn mark_cancel_pending(&self, agent_id: &str, job_id: Uuid) -> sqlx::Result<()> {
+        sqlx::query(
+            "INSERT INTO job_cancel_pending (agent_id, job_id) VALUES ($1, $2)
+             ON CONFLICT (agent_id, job_id) DO NOTHING",
+        )
+        .bind(agent_id)
+        .bind(job_id)
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// 取出并清除该 agent 的全部挂起取消（重连瞬间调用）。
+    pub async fn take_pending_cancels(&self, agent_id: &str) -> sqlx::Result<Vec<Uuid>> {
+        sqlx::query_as::<_, (Uuid,)>(
+            "DELETE FROM job_cancel_pending WHERE agent_id = $1 RETURNING job_id",
+        )
+        .bind(agent_id)
+        .fetch_all(self.db.pool())
+        .await
+        .map(|rows| rows.into_iter().map(|r| r.0).collect())
+    }
+}
+
+/// sweeper 过期结果：job id + 该 host 最近注册的 agent（可空——agent 可能已被注销）。
+#[derive(Debug, FromRow)]
+pub struct ExpiredJob {
+    pub id: Uuid,
+    pub agent_id: Option<String>,
 }

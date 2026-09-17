@@ -59,7 +59,7 @@ server/               # Server 控制端（axum + tonic + sqlx）
   src/grpc            #   gRPC 适配层（Agent 连入）
   src/http            #   HTTP API 适配层（控制台）
   src/store           #   持久化层（sqlx + Postgres）
-  migrations/         #   数据库迁移（16 个版本）
+  migrations/         #   数据库迁移（17 个版本）
 agent/                # Agent 被控端（tokio，跨平台）
   src/ir/             #   IR 应急响应模块（自启动/内存扫描/文件时间线/操作等 17 个模块）
   src/privilege.rs    #   权限检测（SeDebugPrivilege / Administrators 组）
@@ -238,4 +238,4 @@ python3 scripts/check_docs.py     # 文档现状陈述与代码一致性校验
   运行部署 / 约定 / 现状与门禁 / 应急响应 / 规划决策树（原 docs/*.md 与 docs/plantree 全树，
   2026-09-15 迁入）。经 engram MCP（`projects` 工具 `doc_search` / `doc_get`，project_name=helm）检索。
 - [docs/README.md](docs/README.md) — 本地文档指针索引（分类 → engram 文档对照表）。
-- [docs/openapi.yaml](docs/openapi.yaml) — HTTP API 契约（OpenAPI 3.0.3，73 端点；机器契约保留本地）。
+- [docs/openapi.yaml](docs/openapi.yaml) — HTTP API 契约（OpenAPI 3.0.3，74 端点；机器契约保留本地）。

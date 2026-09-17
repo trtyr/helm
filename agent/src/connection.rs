@@ -90,8 +90,18 @@ async fn connect_once(config: &Config) -> Result<()> {
             Some(server_message::Kind::ExecRequest(req)) => {
                 let tx = tx.clone();
                 tokio::spawn(async move {
-                    crate::exec::run_and_report(&req.job_id, &req.command, &req.args, &tx).await;
+                    crate::exec::run_and_report(
+                        &req.job_id,
+                        &req.command,
+                        &req.args,
+                        req.timeout_secs,
+                        &tx,
+                    )
+                    .await;
                 });
+            }
+            Some(server_message::Kind::JobCancel(req)) => {
+                crate::exec::request_cancel(&req.job_id);
             }
             Some(server_message::Kind::FileRequest(req)) => {
                 file_handler.handle_request(req, &tx).await;

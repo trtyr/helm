@@ -16,6 +16,8 @@ pub struct ExecBody {
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
+    /// 可选执行超时（秒）：透传 agent，超时杀进程并以 timed_out 上报。
+    pub timeout_secs: Option<u32>,
 }
 
 /// 下发命令：POST /api/v1/exec
@@ -34,7 +36,7 @@ pub async fn exec(
         .await;
     let service = ExecService::new(state.db, state.registry);
     let job_id = service
-        .exec(&body.agent_id, &body.command, &body.args)
+        .exec(&body.agent_id, &body.command, &body.args, body.timeout_secs)
         .await?;
     Ok(Json(json!({ "job_id": job_id })))
 }

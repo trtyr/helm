@@ -23,7 +23,7 @@ pub fn schedule(
         interval.tick().await;
         loop {
             interval.tick().await;
-            match exec.exec(&agent_id, &command, &args).await {
+            match exec.exec(&agent_id, &command, &args, None).await {
                 Ok(job_id) => {
                     tracing::info!(task_id = %task_id, job_id = %job_id, "scheduled exec ok")
                 }

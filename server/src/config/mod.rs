@@ -36,6 +36,11 @@ pub struct Config {
     #[arg(long, env = "HELM_HEARTBEAT_TIMEOUT", default_value = "30")]
     pub heartbeat_timeout_secs: u64,
 
+    /// Job 超时兜底阈值（秒，默认 300）：running 超此时长由 sweeper 置 timed_out，
+    /// queued 孤行超此时长置 failed；0 = 禁用 sweeper
+    #[arg(long, env = "HELM_JOB_TIMEOUT_SECS", default_value = "300")]
+    pub job_timeout_secs: u64,
+
     /// 会话空闲超时（秒），无输入/输出超过该时长自动关闭会话（默认 300s）
     #[arg(long, env = "HELM_SESSION_IDLE_TIMEOUT", default_value = "300")]
     pub session_idle_timeout_secs: u64,

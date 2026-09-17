@@ -118,6 +118,7 @@ pub async fn serve(
         .route("/exec", post(exec::exec))
         .route("/jobs", get(jobs::list_jobs))
         .route("/jobs/{id}", get(jobs::get_job))
+        .route("/jobs/{id}/cancel", post(jobs::cancel_job))
         .route("/metrics", get(metrics::list_metrics))
         .route("/files/upload", post(files::upload))
         .route("/files/download", post(files::download))

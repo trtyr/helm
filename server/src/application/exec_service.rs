@@ -3,7 +3,7 @@
 use crate::domain::{Error, Result};
 use crate::grpc::connection_registry::ConnectionRegistry;
 use crate::store::{Db, agent_repo::AgentRepo, job_repo::JobRepo};
-use helm_proto::pb::{ExecRequest, ServerMessage, server_message};
+use helm_proto::pb::{ExecRequest, JobCancel, ServerMessage, server_message};
 use uuid::Uuid;
 
 /// 命令执行用例：创建 Job → 经连接下发 → 状态流转。
@@ -19,7 +19,15 @@ impl ExecService {
     }
 
     /// 向指定 Agent 下发命令，返回 job_id。
-    pub async fn exec(&self, agent_id: &str, command: &str, args: &[String]) -> Result<Uuid> {
+    /// `timeout_secs` 透传给 agent（由 agent 侧超时杀进程并以 timed_out 上报）；
+    /// None = agent 不限时，仅由 Server 侧 job sweeper 兜底。
+    pub async fn exec(
+        &self,
+        agent_id: &str,
+        command: &str,
+        args: &[String],
+        timeout_secs: Option<u32>,
+    ) -> Result<Uuid> {
         let host_id = AgentRepo::new(self.db.clone())
             .get_host_id(agent_id)
             .await?
@@ -34,7 +42,7 @@ impl ExecService {
                 job_id: job.id.to_string(),
                 command: command.to_string(),
                 args: args.to_vec(),
-                timeout_secs: None,
+                timeout_secs,
                 working_dir: None,
             })),
         };
@@ -48,5 +56,57 @@ impl ExecService {
             .await?;
 
         Ok(job.id)
+    }
+
+    /// 取消结果：
+    /// `delivered` = JobCancel 已送达在线 agent（真中断）；
+    /// `compensated` = agent 离线，已记补偿（重连后补发 JobCancel 杀目标机残留进程，EN-64 ③）。
+    pub async fn cancel(&self, job_id: Uuid) -> Result<(bool, bool, bool)> {
+        let job = JobRepo::new(self.db.clone())
+            .get(job_id)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("job: {job_id}")))?;
+        if job.status != "queued" && job.status != "running" {
+            return Err(Error::InvalidArgument(format!(
+                "job already finished: {}",
+                job.status
+            )));
+        }
+
+        // jobs 表只有 host_id，经最近注册的 agent 找连接
+        let agent_id = AgentRepo::new(self.db.clone())
+            .find_latest_agent_id(job.host_id)
+            .await?;
+
+        let mut delivered = false;
+        let mut compensated = false;
+        if job.status == "running"
+            && let Some(agent_id) = agent_id.as_deref()
+        {
+            if self.registry.is_online(agent_id).await {
+                let msg = ServerMessage {
+                    kind: Some(server_message::Kind::JobCancel(JobCancel {
+                        job_id: job_id.to_string(),
+                    })),
+                };
+                self.registry
+                    .send(agent_id, msg)
+                    .await
+                    .map_err(|e| Error::NotConnected(e.to_string()))?;
+                delivered = true;
+            } else {
+                // 离线：目标机上进程仍在跑，记补偿，重连后补杀
+                JobRepo::new(self.db.clone())
+                    .mark_cancel_pending(agent_id, job_id)
+                    .await?;
+                compensated = true;
+            }
+        }
+
+        // queued：从未送达，直接收敛；running：终态先行（agent 回报 ExecResult(cancelled=true) 时幂等覆盖）
+        JobRepo::new(self.db.clone())
+            .set_status(job_id, "cancelled")
+            .await?;
+        Ok((true, delivered, compensated))
     }
 }

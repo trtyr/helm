@@ -211,6 +211,16 @@ impl AgentRepo {
             .await
     }
 
+    /// 该 host 最近注册的 agent id（cancel 等按 host 找 agent 的场景）。
+    pub async fn find_latest_agent_id(&self, host_id: Uuid) -> sqlx::Result<Option<String>> {
+        sqlx::query_scalar(
+            "SELECT id FROM agents WHERE host_id = $1 ORDER BY registered_at DESC LIMIT 1",
+        )
+        .bind(host_id)
+        .fetch_optional(self.db.pool())
+        .await
+    }
+
     /// 更新心跳时间。
     pub async fn update_heartbeat(&self, agent_id: &str, ts_ms: u64) -> sqlx::Result<()> {
         let ts = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ts_ms as i64)

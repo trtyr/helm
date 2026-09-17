@@ -76,6 +76,7 @@ message ServerMessage {
     AutorunsAction autoruns_action = 24;
     FileMetaQuery file_meta_query = 25;
     FsTimelineQuery fs_timeline_query = 26;
+    JobCancel job_cancel = 27;
   }
 }
 
@@ -113,6 +114,13 @@ message ExecResult {
   optional int32 exit_code = 3; // 结束时的退出码
   optional string error = 4;    // 执行失败信息
   bool finished = 5;            // 是否为最后一条
+  bool cancelled = 6;           // true = 被 Server 取消（JobCancel 杀进程后上报）
+  bool timed_out = 7;           // true = 执行超时被 agent 杀进程（timeout_secs）
+}
+
+// Server → Agent：取消一个执行中的 job（杀进程并回 ExecResult(cancelled=true)）。
+message JobCancel {
+  string job_id = 1;
 }
 
 // 指标采集

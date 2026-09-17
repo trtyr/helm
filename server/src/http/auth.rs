@@ -179,6 +179,7 @@ pub fn scope_for(path: &str) -> Option<&'static str> {
         | "/api/v1/exec/batch"
         | "/api/v1/jobs"
         | "/api/v1/jobs/{id}"
+        | "/api/v1/jobs/{id}/cancel"
         | "/api/v1/tasks/script"
         | "/api/v1/tasks/schedule" => Some(s::EXEC),
         "/api/v1/files/upload" | "/api/v1/files/download" | "/api/v1/files/list" => Some(s::FILES),

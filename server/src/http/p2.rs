@@ -27,6 +27,8 @@ pub struct BatchExecBody {
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
+    /// 可选执行超时（秒）：统一透传给本次批量的每个 job。
+    pub timeout_secs: Option<u32>,
 }
 
 /// 批量命令下发：POST /api/v1/exec/batch
@@ -45,7 +47,10 @@ pub async fn batch_exec(
     let svc = ExecService::new(state.db.clone(), state.registry.clone());
     let mut jobs = Vec::with_capacity(body.agent_ids.len());
     for agent_id in &body.agent_ids {
-        match svc.exec(agent_id, &body.command, &body.args).await {
+        match svc
+            .exec(agent_id, &body.command, &body.args, body.timeout_secs)
+            .await
+        {
             Ok(job_id) => jobs.push(json!({ "agent_id": agent_id, "job_id": job_id })),
             Err(e) => jobs.push(json!({ "agent_id": agent_id, "error": e.to_string() })),
         }

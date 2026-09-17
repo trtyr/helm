@@ -978,6 +978,36 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/jobs/{id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    post:
+      tags: [jobs]
+      summary: 取消 Job（EN-64）
+      description: |
+        queued → 直接收敛为 cancelled；running → 在线 agent 下发 JobCancel 真中断
+        （杀目标机进程并回 ExecResult(cancelled=true)），离线则置 cancelled 并记补偿
+        （agent 重连后补杀残留进程）。终态 job 返回 400。
+      responses:
+        "200":
+          description: 已受理取消（cancelled 恒 true）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cancelled: { type: boolean }
+                  delivered:
+                    type: boolean
+                    description: JobCancel 是否已送达在线 agent（真中断）
+                  compensated:
+                    type: boolean
+                    description: agent 离线时是否已记补偿（重连后补杀）
+        "400":
+          description: job 已处于终态（invalid_argument）
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/jobs/{id}/stream:
     parameters:
       - $ref: "#/components/parameters/JobId"

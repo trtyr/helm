@@ -86,6 +86,14 @@ pub async fn run() -> Result<()> {
         config.heartbeat_timeout_secs,
     );
 
+    // Job 超时兜底扫描（EN-64/EN-67）：running 超龄置 timed_out（在线补发 Cancel）、
+    // queued 孤行置 failed；HELM_JOB_TIMEOUT_SECS=0 禁用
+    application::job_sweeper::spawn_job_sweeper(
+        db.clone(),
+        registry.clone(),
+        config.job_timeout_secs,
+    );
+
     // 恢复已落库的定时任务
     let exec = application::exec_service::ExecService::new(db.clone(), registry.clone());
     application::scheduler::resume_scheduled(db.clone(), exec).await?;

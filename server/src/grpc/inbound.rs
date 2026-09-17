@@ -143,8 +143,12 @@ impl InboundCtx {
                 }
                 if er.finished {
                     let output = self.outputs.remove(&job_id).unwrap_or_default();
-                    let status =
-                        crate::grpc::agent_service::job_status(er.error.as_deref(), er.exit_code);
+                    let status = crate::grpc::agent_service::job_status(
+                        er.error.as_deref(),
+                        er.exit_code,
+                        er.cancelled,
+                        er.timed_out,
+                    );
                     match Uuid::parse_str(&job_id) {
                         Ok(id) => {
                             if let Err(e) = JobRepo::new(self.db.clone())

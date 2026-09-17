@@ -10,6 +10,7 @@ pub mod cert_service;
 pub mod exec_service;
 pub mod file_service;
 pub mod forward_service;
+pub mod job_sweeper;
 pub mod listener_service;
 pub mod mcp_registry;
 pub mod notification_service;

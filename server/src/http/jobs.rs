@@ -1,5 +1,6 @@
-//! Job 查询端点。
+//! Job 查询与取消端点。
 
+use crate::application::exec_service::ExecService;
 use crate::domain::Error;
 use crate::http::AppState;
 use crate::store::job_repo::JobRepo;
@@ -47,4 +48,22 @@ pub async fn get_job(
         Some(j) => Ok(Json(json!({ "job": j }))),
         None => Err(Error::NotFound(format!("job: {id}"))),
     }
+}
+
+/// 取消 Job：POST /api/v1/jobs/{id}/cancel（EN-64）。
+///
+/// queued → 直接收敛为 cancelled；running → 在线 agent 下发 JobCancel 真中断，
+/// 离线则置 cancelled 并记补偿（重连后补杀目标机残留进程）。
+/// 终态 job 返回 400（invalid_argument）。
+pub async fn cancel_job(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Value>, Error> {
+    let service = ExecService::new(state.db, state.registry);
+    let (cancelled, delivered, compensated) = service.cancel(id).await?;
+    Ok(Json(json!({
+        "cancelled": cancelled,
+        "delivered": delivered,
+        "compensated": compensated,
+    })))
 }
