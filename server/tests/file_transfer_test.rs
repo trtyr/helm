@@ -310,7 +310,9 @@ async fn transfer_timeout_persists_failed() {
     let (agent_id, host_id, _msg_rx) = seed_agent(&db, &registry).await;
 
     let src = std::env::temp_dir().join(format!("helm-itest-src-{}.bin", uuid::Uuid::new_v4()));
-    tokio::fs::write(&src, b"payload").await.expect("write source");
+    tokio::fs::write(&src, b"payload")
+        .await
+        .expect("write source");
 
     let started = std::time::Instant::now();
     let result = service
@@ -325,7 +327,10 @@ async fn transfer_timeout_persists_failed() {
     let _ = tokio::fs::remove_file(&src).await;
 
     let row = find_by_host(&db, host_id).await;
-    assert_eq!(row.status, "failed", "timed-out transfer must persist 'failed'");
+    assert_eq!(
+        row.status, "failed",
+        "timed-out transfer must persist 'failed'"
+    );
 }
 
 #[tokio::test]

@@ -287,7 +287,11 @@ async fn finish_is_idempotent_after_terminal() {
 
     let row = get_job_raw(&db, job.id).await;
     assert_eq!(row.status, "succeeded", "terminal state must be preserved");
-    assert_eq!(row.output.as_deref(), Some("out"), "output must be preserved");
+    assert_eq!(
+        row.output.as_deref(),
+        Some("out"),
+        "output must be preserved"
+    );
     assert_eq!(row.exit_code, Some(0));
 }
 

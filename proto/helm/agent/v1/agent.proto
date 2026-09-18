@@ -116,6 +116,7 @@ message ExecResult {
   bool finished = 5;            // 是否为最后一条
   bool cancelled = 6;           // true = 被 Server 取消（JobCancel 杀进程后上报）
   bool timed_out = 7;           // true = 执行超时被 agent 杀进程（timeout_secs）
+  bool truncated = 8;           // true = 输出超过 agent 侧上限被截断（B6）
 }
 
 // Server → Agent：取消一个执行中的 job（杀进程并回 ExecResult(cancelled=true)）。

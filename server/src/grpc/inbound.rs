@@ -142,7 +142,11 @@ impl InboundCtx {
                         .await;
                 }
                 if er.finished {
-                    let output = self.outputs.remove(&job_id).unwrap_or_default();
+                    let mut output = self.outputs.remove(&job_id).unwrap_or_default();
+                    // B6：agent 侧输出超限截断时在库内留痕
+                    if er.truncated {
+                        output.push_str("\n…[输出超过上限被截断]");
+                    }
                     let status = crate::grpc::agent_service::job_status(
                         er.error.as_deref(),
                         er.exit_code,

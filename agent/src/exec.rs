@@ -10,6 +10,11 @@ use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio::sync::{mpsc, watch};
 
+/// 单流输出分块上限（B6）：超过即截断并置 truncated 标志。
+const MAX_STREAM_OUTPUT: usize = 1 << 20; // 1 MiB / 流
+/// 输出分块大小（发送粒度）。
+const STREAM_CHUNK_SIZE: usize = 64 * 1024;
+
 /// 运行中 job 的取消通知通道：JobCancel 消息置位，执行循环 select 到后杀进程。
 static CANCEL_TX: LazyLock<Mutex<HashMap<String, watch::Sender<bool>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -42,15 +47,7 @@ pub async fn run_and_report(
             Err(_) => {
                 // 超时不计入取消标记
                 CANCELLED.lock().unwrap().remove(job_id);
-                let _ = tx
-                    .send(finish_frame(
-                        job_id,
-                        None,
-                        Some(format!("timeout: exceeded {secs}s")),
-                        false,
-                        true,
-                    ))
-                    .await;
+                report_timeout(job_id, secs, tx).await;
                 return;
             }
         },
@@ -59,15 +56,11 @@ pub async fn run_and_report(
 
     match outcome {
         Some(Ok((stdout, stderr, exit_code))) => {
-            if !stdout.is_empty() {
-                let _ = tx
-                    .send(chunk(job_id, stream_chunk::Kind::Stdout as i32, stdout))
-                    .await;
-            }
-            if !stderr.is_empty() {
-                let _ = tx
-                    .send(chunk(job_id, stream_chunk::Kind::Stderr as i32, stderr))
-                    .await;
+            // B6：单流输出超过上限即截断（truncated 标志随最终帧上报）
+            let mut truncated =
+                send_stream(job_id, stream_chunk::Kind::Stdout as i32, stdout, tx).await;
+            if send_stream(job_id, stream_chunk::Kind::Stderr as i32, stderr, tx).await {
+                truncated = true;
             }
             let cancelled = CANCELLED.lock().unwrap().remove(job_id);
             if cancelled {
@@ -78,11 +71,14 @@ pub async fn run_and_report(
                         Some("cancelled by server".into()),
                         true,
                         false,
+                        false,
                     ))
                     .await;
             } else {
                 let _ = tx
-                    .send(finish_frame(job_id, exit_code, None, false, false))
+                    .send(finish_frame(
+                        job_id, exit_code, None, false, false, truncated,
+                    ))
                     .await;
             }
         }
@@ -96,6 +92,7 @@ pub async fn run_and_report(
                         Some("cancelled by server".into()),
                         true,
                         false,
+                        false,
                     ))
                     .await;
             } else {
@@ -104,6 +101,7 @@ pub async fn run_and_report(
                         job_id,
                         None,
                         Some(e.to_string()),
+                        false,
                         false,
                         false,
                     ))
@@ -159,19 +157,56 @@ async fn decode_pipe(pipe: &mut (impl tokio::io::AsyncRead + Unpin)) -> Vec<u8> 
     buf
 }
 
-fn chunk(job_id: &str, kind: i32, data: String) -> AgentMessage {
+/// 超时分支上报：进程已被杀，输出丢弃。
+async fn report_timeout(job_id: &str, secs: u32, tx: &mpsc::Sender<AgentMessage>) {
+    let _ = tx
+        .send(finish_frame(
+            job_id,
+            None,
+            Some(format!("timeout: exceeded {secs}s")),
+            false,
+            true,
+            false,
+        ))
+        .await;
+}
+
+/// 单流输出分块发送（B6）：每流超过 `MAX_STREAM_OUTPUT` 字节即截断，
+/// 返回是否发生截断（随最终帧 truncated 标志上报）。
+async fn send_stream(
+    job_id: &str,
+    kind: i32,
+    data: String,
+    tx: &mpsc::Sender<AgentMessage>,
+) -> bool {
+    let bytes = data.into_bytes();
+    let mut offset = 0usize;
+    let mut truncated = false;
+    while offset < bytes.len() {
+        if offset >= MAX_STREAM_OUTPUT {
+            truncated = true;
+            break;
+        }
+        let end = (offset + STREAM_CHUNK_SIZE).min(MAX_STREAM_OUTPUT);
+        let _ = tx
+            .send(chunk_bytes(job_id, kind, bytes[offset..end].to_vec()))
+            .await;
+        offset = end;
+    }
+    truncated
+}
+
+fn chunk_bytes(job_id: &str, kind: i32, data: Vec<u8>) -> AgentMessage {
     AgentMessage {
         kind: Some(agent_message::Kind::ExecResult(ExecResult {
             job_id: job_id.to_string(),
-            chunk: Some(StreamChunk {
-                kind,
-                data: data.into_bytes(),
-            }),
+            chunk: Some(StreamChunk { kind, data }),
             exit_code: None,
             error: None,
             finished: false,
             cancelled: false,
             timed_out: false,
+            truncated: false,
         })),
     }
 }
@@ -182,6 +217,7 @@ fn finish_frame(
     error: Option<String>,
     cancelled: bool,
     timed_out: bool,
+    truncated: bool,
 ) -> AgentMessage {
     AgentMessage {
         kind: Some(agent_message::Kind::ExecResult(ExecResult {
@@ -192,6 +228,7 @@ fn finish_frame(
             finished: true,
             cancelled,
             timed_out,
+            truncated,
         })),
     }
 }
@@ -202,17 +239,25 @@ mod tests {
 
     #[test]
     fn finish_frame_carries_flags() {
-        let msg = finish_frame("j1", Some(0), None, false, false);
+        let msg = finish_frame("j1", Some(0), None, false, false, false);
         match msg.kind {
             Some(agent_message::Kind::ExecResult(r)) => {
                 assert_eq!(r.job_id, "j1");
                 assert!(r.finished);
                 assert!(!r.cancelled);
                 assert!(!r.timed_out);
+                assert!(!r.truncated);
             }
             _ => panic!("exec result expected"),
         }
-        let msg = finish_frame("j2", None, Some("cancelled by server".into()), true, false);
+        let msg = finish_frame(
+            "j2",
+            None,
+            Some("cancelled by server".into()),
+            true,
+            false,
+            false,
+        );
         match msg.kind {
             Some(agent_message::Kind::ExecResult(r)) => {
                 assert!(r.cancelled);
@@ -220,7 +265,7 @@ mod tests {
             }
             _ => panic!("exec result expected"),
         }
-        let msg = finish_frame("j3", None, Some("timeout".into()), false, true);
+        let msg = finish_frame("j3", None, Some("timeout".into()), false, true, false);
         match msg.kind {
             Some(agent_message::Kind::ExecResult(r)) => {
                 assert!(!r.cancelled);
@@ -228,6 +273,49 @@ mod tests {
             }
             _ => panic!("exec result expected"),
         }
+        let msg = finish_frame("j4", None, None, false, false, true);
+        match msg.kind {
+            Some(agent_message::Kind::ExecResult(r)) => {
+                assert!(r.truncated, "B6: truncation flag must be carried");
+            }
+            _ => panic!("exec result expected"),
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn oversized_output_is_truncated() {
+        // B6：输出超过 MAX_STREAM_OUTPUT（1 MiB）→ 停发 chunk + truncated=true
+        let (tx, mut rx) = mpsc::channel(256);
+        run_and_report(
+            "job-big",
+            "head",
+            &[
+                "-c".to_string(),
+                "3000000".to_string(),
+                "/dev/zero".to_string(),
+            ],
+            None,
+            &tx,
+        )
+        .await;
+        let mut total = 0usize;
+        let mut saw_truncated = false;
+        while let Ok(msg) = rx.try_recv() {
+            if let Some(agent_message::Kind::ExecResult(r)) = msg.kind {
+                if let Some(c) = r.chunk {
+                    total += c.data.len();
+                }
+                if r.finished && r.truncated {
+                    saw_truncated = true;
+                }
+            }
+        }
+        assert!(saw_truncated, "oversized output must set truncated");
+        assert!(
+            total <= (MAX_STREAM_OUTPUT + STREAM_CHUNK_SIZE) * 2,
+            "streamed bytes must be capped near the limit, got {total}"
+        );
     }
 
     #[test]
