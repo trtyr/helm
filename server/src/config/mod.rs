@@ -41,6 +41,19 @@ pub struct Config {
     #[arg(long, env = "HELM_JOB_TIMEOUT_SECS", default_value = "300")]
     pub job_timeout_secs: u64,
 
+    /// 数据保留天数（C1，默认 90）：超过的 jobs / audit_logs / file_transfers 及
+    /// 时序类（metrics/alerts/notifications）由后台清理；IR 表不自动清理（取证数据需显式策略）
+    #[arg(long, env = "HELM_RETENTION_DAYS", default_value = "90")]
+    pub retention_days: i64,
+
+    /// 数据库连接池容量（C3，默认 10）：按 Agent 数与控制台并发调大
+    #[arg(long, env = "HELM_DB_MAX_CONNECTIONS", default_value = "10")]
+    pub db_max_connections: u32,
+
+    /// 连接池获取超时（秒，C3，默认 30）：池耗尽时请求等待上限，超时快速失败
+    #[arg(long, env = "HELM_DB_ACQUIRE_TIMEOUT", default_value = "30")]
+    pub db_acquire_timeout_secs: u64,
+
     /// 会话空闲超时（秒），无输入/输出超过该时长自动关闭会话（默认 300s）
     #[arg(long, env = "HELM_SESSION_IDLE_TIMEOUT", default_value = "300")]
     pub session_idle_timeout_secs: u64,

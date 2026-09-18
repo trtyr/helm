@@ -71,4 +71,13 @@ impl AuditRepo {
         .fetch_all(self.db.pool())
         .await
     }
+
+    /// retention（C1）：删除 `cutoff` 之前的审计记录，返回删除行数。
+    pub async fn delete_before(&self, cutoff: DateTime<Utc>) -> sqlx::Result<u64> {
+        let result = sqlx::query("DELETE FROM audit_logs WHERE created_at < $1")
+            .bind(cutoff)
+            .execute(self.db.pool())
+            .await?;
+        Ok(result.rows_affected())
+    }
 }

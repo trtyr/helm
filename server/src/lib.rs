@@ -43,7 +43,12 @@ pub async fn run() -> Result<()> {
         "helm-server starting"
     );
 
-    let db = store::Db::connect(&config.database_url).await?;
+    let db = store::Db::connect_with(
+        &config.database_url,
+        config.db_max_connections,
+        config.db_acquire_timeout_secs,
+    )
+    .await?;
     db.migrate().await?;
     tracing::info!("database connected and migrated");
 
@@ -114,12 +119,15 @@ pub async fn run() -> Result<()> {
     .resume_or_seed(&config.grpc_addr)
     .await?;
 
-    // 时序保留清理：后台每 24h 删除 30 天前的 metrics + alerts + notifications + 已吊销 api_keys
+    // 数据保留清理（C1）：后台每 24h 删除超过 HELM_RETENTION_DAYS（默认 90 天）的
+    // 时序类（metrics/alerts/notifications）+ 已吊销 api_keys + 执行历史
+    // （jobs/audit_logs/file_transfers）；IR 表不自动清理（取证数据需显式策略）
     let cleanup_db = db.clone();
+    let retention_days = config.retention_days;
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
-            let cutoff = chrono::Utc::now() - chrono::Duration::days(30);
+            let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days);
             let m = store::metric_repo::MetricRepo::new(cleanup_db.clone())
                 .delete_before(cutoff)
                 .await;
@@ -132,7 +140,20 @@ pub async fn run() -> Result<()> {
             let k = store::api_key_repo::ApiKeyRepo::new(cleanup_db.clone())
                 .delete_revoked_before(cutoff)
                 .await;
-            tracing::info!(metrics_deleted = ?m, alerts_deleted = ?a, notifications_deleted = ?n, api_keys_deleted = ?k, "retention cleanup");
+            let j = store::job_repo::JobRepo::new(cleanup_db.clone())
+                .delete_before(cutoff)
+                .await;
+            let al = store::audit_repo::AuditRepo::new(cleanup_db.clone())
+                .delete_before(cutoff)
+                .await;
+            let f = store::file_transfer_repo::FileTransferRepo::new(cleanup_db.clone())
+                .delete_before(cutoff)
+                .await;
+            tracing::info!(
+                metrics_deleted = ?m, alerts_deleted = ?a, notifications_deleted = ?n,
+                api_keys_deleted = ?k, jobs_deleted = ?j, audit_deleted = ?al,
+                file_transfers_deleted = ?f, retention_days, "retention cleanup"
+            );
         }
     });
 

@@ -169,6 +169,15 @@ impl JobRepo {
         .await
         .map(|rows| rows.into_iter().map(|r| r.0).collect())
     }
+
+    /// retention（C1）：删除 `cutoff` 之前的 job 行，返回 job_id 列表。
+    pub async fn delete_before(&self, cutoff: DateTime<Utc>) -> sqlx::Result<Vec<Uuid>> {
+        sqlx::query_as::<_, (Uuid,)>("DELETE FROM jobs WHERE created_at < $1 RETURNING id")
+            .bind(cutoff)
+            .fetch_all(self.db.pool())
+            .await
+            .map(|rows| rows.into_iter().map(|r| r.0).collect())
+    }
 }
 
 /// sweeper 过期结果：job id + 该 host 最近注册的 agent（可空——agent 可能已被注销）。

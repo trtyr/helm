@@ -27,10 +27,20 @@ pub struct Db {
 }
 
 impl Db {
-    /// 建立连接池。
+    /// 建立连接池（默认：容量 10、获取超时 30s）。
     pub async fn connect(url: &str) -> sqlx::Result<Self> {
+        Self::connect_with(url, 10, 30).await
+    }
+
+    /// 建立连接池（C3：池容量与获取超时可配，避免默认 10 连接被多场景共享时无界排队）。
+    pub async fn connect_with(
+        url: &str,
+        max_connections: u32,
+        acquire_timeout_secs: u64,
+    ) -> sqlx::Result<Self> {
         let pool = PgPoolOptions::new()
-            .max_connections(10)
+            .max_connections(max_connections.max(1))
+            .acquire_timeout(std::time::Duration::from_secs(acquire_timeout_secs.max(1)))
             .connect(url)
             .await?;
         Ok(Self { pool })

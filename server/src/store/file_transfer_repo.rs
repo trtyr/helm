@@ -1,6 +1,7 @@
 //! FileTransfer 仓储：file_transfers 表的读写。
 
 use crate::store::Db;
+use chrono::{DateTime, Utc};
 use sqlx::FromRow;
 use uuid::Uuid;
 
@@ -58,6 +59,15 @@ impl FileTransferRepo {
         .bind(id)
         .fetch_optional(self.db.pool())
         .await
+    }
+
+    /// retention（C1）：删除 `cutoff` 之前的传输元数据行，返回删除行数。
+    pub async fn delete_before(&self, cutoff: DateTime<Utc>) -> sqlx::Result<u64> {
+        let result = sqlx::query("DELETE FROM file_transfers WHERE created_at < $1")
+            .bind(cutoff)
+            .execute(self.db.pool())
+            .await?;
+        Ok(result.rows_affected())
     }
 
     /// 落最终状态与校验和。
