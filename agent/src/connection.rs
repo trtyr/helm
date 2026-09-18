@@ -139,6 +139,7 @@ async fn connect_once(config: &Config) -> Result<()> {
                 }
             }
             Some(server_message::Kind::ExecRequest(req)) => {
+                tracing::info!(job_id = %req.job_id, command = %req.command, "exec request received, spawning");
                 let tx = tx.clone();
                 tokio::spawn(async move {
                     crate::exec::run_and_report(
@@ -149,6 +150,7 @@ async fn connect_once(config: &Config) -> Result<()> {
                         &tx,
                     )
                     .await;
+                    tracing::info!(job_id = %req.job_id, "exec task finished (result reported)");
                 });
             }
             Some(server_message::Kind::JobCancel(req)) => {

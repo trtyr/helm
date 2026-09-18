@@ -5,15 +5,36 @@
 use anyhow::Result;
 use helm_proto::pb::{AgentMessage, ExecResult, StreamChunk, agent_message, stream_chunk};
 use std::collections::{HashMap, HashSet};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio::sync::{mpsc, watch};
 
 /// 单流输出分块上限（B6）：超过即截断并置 truncated 标志。
 const MAX_STREAM_OUTPUT: usize = 1 << 20; // 1 MiB / 流
+
+/// 子进程退出后等待管道 EOF 的兜底上限：EOF 事件在 Windows 上偶发不传播，
+/// 超时后直接取共享缓冲（剩余数据必在缓冲内，不丢输出）。
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(3);
+
 /// 输出分块大小（发送粒度）。
 const STREAM_CHUNK_SIZE: usize = 64 * 1024;
+
+/// 管道读循环：读到 EOF（或出错）为止，字节持续写入共享缓冲。
+async fn read_pipe_into(pipe: &mut (impl tokio::io::AsyncRead + Unpin), buf: Arc<Mutex<Vec<u8>>>) {
+    let mut chunk = vec![0u8; 64 * 1024];
+    loop {
+        match pipe.read(&mut chunk).await {
+            Ok(0) => break, // EOF
+            Ok(n) => {
+                if let Ok(mut b) = buf.lock() {
+                    b.extend_from_slice(&chunk[..n]);
+                }
+            }
+            Err(_) => break,
+        }
+    }
+}
 
 /// 运行中 job 的取消通知通道：JobCancel 消息置位，执行循环 select 到后杀进程。
 static CANCEL_TX: LazyLock<Mutex<HashMap<String, watch::Sender<bool>>>> =
@@ -40,6 +61,7 @@ pub async fn run_and_report(
     timeout_secs: Option<u32>,
     tx: &mpsc::Sender<AgentMessage>,
 ) {
+    tracing::info!(job_id, command, "run_and_report: spawning child process");
     let fut = run_command(job_id, command, args);
     let outcome = match timeout_secs {
         Some(secs) => match tokio::time::timeout(Duration::from_secs(secs as u64), fut).await {
@@ -129,34 +151,71 @@ async fn run_command(
         .unwrap()
         .insert(job_id.to_string(), cancel_tx);
 
-    // 输出管道分离读取（wait_with_output 会消耗 Child，无法与取消分支共存）
+    // 输出管道分离读取（wait_with_output 会消耗 Child，无法与取消分支共存）。
+    // 读循环写入共享缓冲：子进程退出后若管道 EOF 事件不传播（Windows/tokio 偶发），
+    // 以 DRAIN_TIMEOUT 兜底取已缓冲数据，不丢输出也不永久卡死。
     let mut stdout_pipe = child.stdout.take().expect("stdout piped");
     let mut stderr_pipe = child.stderr.take().expect("stderr piped");
-    let read_stdout = tokio::spawn(async move { decode_pipe(&mut stdout_pipe).await });
-    let read_stderr = tokio::spawn(async move { decode_pipe(&mut stderr_pipe).await });
+    let stdout_buf = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let stderr_buf = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let read_stdout = {
+        let buf = stdout_buf.clone();
+        tokio::spawn(async move { read_pipe_into(&mut stdout_pipe, buf).await })
+    };
+    let read_stderr = {
+        let buf = stderr_buf.clone();
+        tokio::spawn(async move { read_pipe_into(&mut stderr_pipe, buf).await })
+    };
 
     let status = tokio::select! {
-        st = child.wait() => st?,
+        st = child.wait() => {
+            let st = st?;
+            tracing::info!(job_id, exit_code = st.code(), "child process exited");
+            st
+        }
         // JobCancel 到达：杀进程后收尾（wait 返回被杀状态）
         _ = cancel_rx.changed() => {
             let _ = child.start_kill();
-            child.wait().await?
+            let st = child.wait().await?;
+            tracing::info!(job_id, "child process killed by cancel");
+            st
         }
     };
     CANCEL_TX.lock().unwrap().remove(job_id);
-    let stdout = crate::encoding::decode_console(&read_stdout.await.unwrap_or_default());
-    let stderr = crate::encoding::decode_console(&read_stderr.await.unwrap_or_default());
+    let job_id_owned = job_id.to_string();
+    let stdout_raw = drain_pipe(&stdout_buf, read_stdout, &job_id_owned, "stdout").await;
+    let stderr_raw = drain_pipe(&stderr_buf, read_stderr, &job_id_owned, "stderr").await;
+    let stdout = crate::encoding::decode_console(&stdout_raw);
+    let stderr = crate::encoding::decode_console(&stderr_raw);
     let exit_code = status.code();
     Ok((stdout, stderr, exit_code))
 }
 
-/// 读尽管道原始字节（解码交给 decode_console）。
-async fn decode_pipe(pipe: &mut (impl tokio::io::AsyncRead + Unpin)) -> Vec<u8> {
-    let mut buf = Vec::new();
-    let _ = pipe.read_to_end(&mut buf).await;
-    buf
+/// 等读任务收尾：EOF 正常到达则拿到全量输出；EOF 不传播（Windows/tokio 偶发）
+/// 时以 DRAIN_TIMEOUT 兜底——子进程已退出，剩余数据必在缓冲内，直接取走不丢。
+async fn drain_pipe(
+    buf: &Arc<Mutex<Vec<u8>>>,
+    handle: tokio::task::JoinHandle<()>,
+    job_id: &str,
+    what: &'static str,
+) -> Vec<u8> {
+    match tokio::time::timeout(DRAIN_TIMEOUT, handle).await {
+        Ok(Ok(())) => {}
+        Ok(Err(_)) => {
+            tracing::warn!(job_id, pipe = what, "pipe reader task failed");
+        }
+        Err(_) => {
+            tracing::warn!(
+                job_id,
+                pipe = what,
+                "output pipe EOF not delivered within 3s (using buffered data)"
+            );
+        }
+    }
+    buf.lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
+/// 单流输出分块发送（B6）：每流超过 `MAX_STREAM_OUTPUT` 字节即截断，
 /// 超时分支上报：进程已被杀，输出丢弃。
 async fn report_timeout(job_id: &str, secs: u32, tx: &mpsc::Sender<AgentMessage>) {
     let _ = tx
@@ -187,7 +246,7 @@ async fn send_stream(
             truncated = true;
             break;
         }
-        let end = (offset + STREAM_CHUNK_SIZE).min(MAX_STREAM_OUTPUT);
+        let end = (offset + STREAM_CHUNK_SIZE).min(bytes.len());
         let _ = tx
             .send(chunk_bytes(job_id, kind, bytes[offset..end].to_vec()))
             .await;
@@ -236,6 +295,44 @@ fn finish_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 小输出（< 64KB）分块不越界：B6 回归——此前 min 写错导致
+    /// `bytes[offset..65536]` 在小输出上 panic（tokio 吞掉后 job 永远 running）。
+    #[tokio::test]
+    async fn send_stream_handles_output_smaller_than_chunk() {
+        let (tx, mut rx) = mpsc::channel(8);
+        let truncated =
+            send_stream("j1", stream_chunk::Kind::Stdout as i32, "hello".into(), &tx).await;
+        assert!(!truncated);
+        let mut collected = Vec::new();
+        while let Ok(msg) = rx.try_recv() {
+            if let Some(agent_message::Kind::ExecResult(r)) = msg.kind
+                && let Some(chunk) = r.chunk
+            {
+                collected.extend_from_slice(&chunk.data);
+            }
+        }
+        assert_eq!(collected, b"hello");
+    }
+
+    #[tokio::test]
+    async fn send_stream_exact_chunk_boundary() {
+        // 恰好 64KB：单块发出，无截断
+        let (tx, mut rx) = mpsc::channel(4);
+        let data = "x".repeat(STREAM_CHUNK_SIZE);
+        let truncated =
+            send_stream("j1", stream_chunk::Kind::Stdout as i32, data.clone(), &tx).await;
+        assert!(!truncated);
+        let mut total = 0usize;
+        while let Ok(msg) = rx.try_recv() {
+            if let Some(agent_message::Kind::ExecResult(r)) = msg.kind
+                && let Some(chunk) = r.chunk
+            {
+                total += chunk.data.len();
+            }
+        }
+        assert_eq!(total, STREAM_CHUNK_SIZE);
+    }
 
     #[test]
     fn finish_frame_carries_flags() {
