@@ -52,12 +52,14 @@ impl JobRepo {
     }
 
     /// 更新状态（running 时补 started_at，终态补 finished_at）。
+    /// 幂等守卫（EN-64/B4）：终态写入后不再变更——agent 重放/迟到回报不会覆盖终态。
     pub async fn set_status(&self, id: Uuid, status: &str) -> sqlx::Result<()> {
         sqlx::query(
             "UPDATE jobs SET status = $2,
                  started_at = COALESCE(started_at, CASE WHEN $2 = 'running' THEN now() END),
                  finished_at = CASE WHEN $2 IN ('succeeded','failed','timed_out','cancelled') THEN now() ELSE finished_at END
-             WHERE id = $1",
+             WHERE id = $1
+               AND status NOT IN ('succeeded','failed','timed_out','cancelled')",
         )
         .bind(id)
         .bind(status)
@@ -67,15 +69,18 @@ impl JobRepo {
     }
 
     /// 落最终结果：状态 + 输出 + 退出码。
+    /// 幂等守卫（EN-64/B4）：已有终态时拒绝写入（返回 false）——重放/迟到回报不覆盖终态。
     pub async fn finish(
         &self,
         id: Uuid,
         status: &str,
         output: &str,
         exit_code: Option<i32>,
-    ) -> sqlx::Result<()> {
-        sqlx::query(
-            "UPDATE jobs SET status = $2, output = $3, exit_code = $4, finished_at = now() WHERE id = $1",
+    ) -> sqlx::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE jobs SET status = $2, output = $3, exit_code = $4, finished_at = now()
+             WHERE id = $1
+               AND status NOT IN ('succeeded','failed','timed_out','cancelled')",
         )
         .bind(id)
         .bind(status)
@@ -83,7 +88,7 @@ impl JobRepo {
         .bind(exit_code)
         .execute(self.db.pool())
         .await?;
-        Ok(())
+        Ok(result.rows_affected() > 0)
     }
 
     /// 按 id 查询。

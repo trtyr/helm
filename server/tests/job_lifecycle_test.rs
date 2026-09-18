@@ -254,6 +254,44 @@ async fn cancel_running_offline_compensates_for_reconnect() {
 }
 
 #[tokio::test]
+async fn finish_is_idempotent_after_terminal() {
+    // EN-64/B4：终态写入后，重放/迟到回报不得覆盖终态
+    let db = common::connect().await;
+    let registry = ConnectionRegistry::new();
+    let (_agent_id, host_id) = seed_agent(&db).await;
+
+    let job = JobRepo::new(db.clone())
+        .create(host_id, "true", &[])
+        .await
+        .expect("create");
+
+    let repo = JobRepo::new(db.clone());
+    let first = repo
+        .finish(job.id, "succeeded", "out", Some(0))
+        .await
+        .expect("first finish");
+    assert!(first, "first finish must land");
+
+    // 重放：不同终态也不得覆盖
+    let replay = repo
+        .finish(job.id, "failed", "replayed", Some(1))
+        .await
+        .expect("replay finish");
+    assert!(!replay, "replayed finish must be rejected by guard");
+
+    // set_status 同守卫：终态后不可再迁移
+    JobRepo::new(db.clone())
+        .set_status(job.id, "cancelled")
+        .await
+        .expect("set_status");
+
+    let row = get_job_raw(&db, job.id).await;
+    assert_eq!(row.status, "succeeded", "terminal state must be preserved");
+    assert_eq!(row.output.as_deref(), Some("out"), "output must be preserved");
+    assert_eq!(row.exit_code, Some(0));
+}
+
+#[tokio::test]
 async fn cancel_terminal_job_is_rejected() {
     let db = common::connect().await;
     let registry = ConnectionRegistry::new();
