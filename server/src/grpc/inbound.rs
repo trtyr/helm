@@ -9,9 +9,8 @@ use crate::grpc::query_registry::{QueryRegistry, QueryResponse};
 use crate::grpc::session_registry::SessionRegistry;
 use crate::grpc::stream_registry::StreamRegistry;
 use crate::grpc::transfer_registry::TransferRegistry;
-use crate::store::alert_repo::AlertRepo;
 use crate::store::service_repo::ServiceRepo;
-use crate::store::{Db, agent_repo::AgentRepo, job_repo::JobRepo, metric_repo::MetricRepo};
+use crate::store::{Db, agent_repo::AgentRepo, job_repo::JobRepo};
 use helm_proto::pb::{AgentMessage, agent_message};
 use tokio::sync::watch;
 use uuid::Uuid;
@@ -30,6 +29,8 @@ pub struct InboundCtx {
     pub file_list: FileListRegistry,
     pub query: QueryRegistry,
     pub streams: StreamRegistry,
+    /// 指标落库队列（E2）：MetricReport 异步化，不阻塞结果类消息。
+    pub metrics: crate::application::metric_sink::MetricSink,
     pub db: Db,
     /// job_id → 累积输出（ExecResult 分块重组）。
     outputs: HashMap<String, String>,
@@ -48,6 +49,7 @@ impl InboundCtx {
         file_list: FileListRegistry,
         query: QueryRegistry,
         streams: StreamRegistry,
+        metrics: crate::application::metric_sink::MetricSink,
         db: Db,
     ) -> Self {
         Self {
@@ -61,6 +63,7 @@ impl InboundCtx {
             file_list,
             query,
             streams,
+            metrics,
             db,
             outputs: HashMap::new(),
         }
@@ -81,53 +84,10 @@ impl InboundCtx {
             }
             Some(agent_message::Kind::MetricReport(report)) => {
                 let count = report.metrics.len();
+                // E2：落库/告警/广播移入独立 metric sink 任务，入站只做有界入队，
+                // ExecResult / FileStatus 等结果类消息不再被逐条 INSERT 拖住
                 if let Some(host_id) = self.host_id {
-                    let metric_repo = MetricRepo::new(self.db.clone());
-                    let alert_repo = AlertRepo::new(self.db.clone());
-                    for m in report.metrics {
-                        let ts = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
-                            m.timestamp_unix_ms as i64,
-                        )
-                        .unwrap_or_else(chrono::Utc::now);
-                        if let Err(e) = metric_repo.insert(host_id, &m.name, m.value, ts).await {
-                            tracing::warn!(error = %e, "failed to persist metric");
-                        }
-                        // 告警评估：超阈值落 alerts 表
-                        if let Some(threshold) =
-                            crate::application::alert_service::AlertService::threshold_for(&m.name)
-                                .filter(|t| m.value > *t)
-                        {
-                            let _ = alert_repo
-                                .insert(host_id, &m.name, threshold, m.value)
-                                .await;
-                            // 预警联动通知中心（决策 009：系统内小卡片）
-                            let svc =
-                                crate::application::notification_service::NotificationService::new(
-                                    self.db.clone(),
-                                    self.streams.clone(),
-                                );
-                            let _ = svc
-                                .notify(
-                                    host_id,
-                                    crate::application::notification_service::KIND_ALERT,
-                                    &format!(
-                                        "预警：{} = {:.1}（阈值 {}）",
-                                        m.name, m.value, threshold
-                                    ),
-                                )
-                                .await;
-                        }
-                        // 实时流：推送指标
-                        let payload = serde_json::json!({
-                            "host_id": host_id,
-                            "name": m.name,
-                            "value": m.value,
-                            "ts": m.timestamp_unix_ms,
-                        });
-                        self.streams
-                            .broadcast("metrics", payload.to_string().into_bytes())
-                            .await;
-                    }
+                    self.metrics.enqueue(host_id, report.metrics).await;
                 }
                 tracing::debug!(agent_id = %agent_id, count, "metrics received");
             }

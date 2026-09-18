@@ -13,6 +13,7 @@ pub mod forward_service;
 pub mod job_sweeper;
 pub mod listener_service;
 pub mod mcp_registry;
+pub mod metric_sink;
 pub mod notification_service;
 pub mod online_status;
 pub mod process_service;

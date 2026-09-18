@@ -45,6 +45,7 @@ fn service(state: &AppState) -> ListenerService {
         state.file_list.clone(),
         state.query.clone(),
         state.streams.clone(),
+        state.metrics.clone(),
         state.server_token.clone(),
         state.cert.clone(),
     )

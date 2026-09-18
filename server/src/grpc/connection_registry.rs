@@ -17,7 +17,23 @@ pub enum SendError {
     NotConnected(String),
     #[error("connection closed: {0}")]
     Gone(String),
+    /// 下行通道满且在超时窗口内未被消费（agent 挂起/停止读取），按失联处理（E1）。
+    #[error("send timeout: {0}")]
+    Timeout(String),
 }
+
+/// 注册失败原因（E3：注册表容量上限）。
+#[derive(Debug, thiserror::Error)]
+pub enum RegisterError {
+    #[error("connection registry full ({0} agents), rejecting new registration")]
+    Full(usize),
+}
+
+/// 默认注册表容量上限（E3）：防失控 agent 注册潮拖垮内存。
+pub const DEFAULT_MAX_AGENTS: usize = 1024;
+
+/// 下行发送超时（E1）：通道满超过此时长即视为 agent 失联。
+pub const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// 被顶掉/注销的旧连接句柄：kick() 让其入站任务立即退出并释放 gRPC 流。
 #[derive(Debug)]
@@ -51,24 +67,45 @@ struct ConnEntry {
 }
 
 /// 活跃连接注册表。每个在线 Agent 对应一个发送通道。
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct ConnectionRegistry {
     inner: Arc<Mutex<HashMap<String, ConnEntry>>>,
+    /// 注册容量上限（E3）；同 id 重连（顶号）不受此限。
+    max_agents: usize,
+}
+
+impl Default for ConnectionRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ConnectionRegistry {
     pub fn new() -> Self {
-        Self::default()
+        Self::with_max_agents(DEFAULT_MAX_AGENTS)
+    }
+
+    /// 指定容量上限构造（测试用小值验证拒绝语义）。
+    pub fn with_max_agents(max_agents: usize) -> Self {
+        Self {
+            inner: Arc::default(),
+            max_agents: max_agents.max(1),
+        }
     }
 
     /// 注册一个 Agent 连接；同 id 已有旧连接时将其顶掉并返回其踢下线句柄。
+    ///
+    /// E3：容量达上限时拒绝**新** agent 注册（同 id 重连不受限）。
     pub async fn register(
         &self,
         agent_id: &str,
         tx: mpsc::Sender<ServerMessage>,
-    ) -> RegisteredConnection {
+    ) -> Result<RegisteredConnection, RegisterError> {
         let (kick_tx, kick_rx) = watch::channel(false);
         let mut map = self.inner.lock().await;
+        if !map.contains_key(agent_id) && map.len() >= self.max_agents {
+            return Err(RegisterError::Full(self.max_agents));
+        }
         let replaced = map
             .insert(
                 agent_id.to_string(),
@@ -78,11 +115,11 @@ impl ConnectionRegistry {
                 },
             )
             .map(|old| ConnectionKick { kick: old.kick });
-        RegisteredConnection {
+        Ok(RegisteredConnection {
             kick_tx,
             kick_rx,
             replaced,
-        }
+        })
     }
 
     /// 强制注销一个 Agent 连接（不比对身份），返回被移除连接的踢下线句柄，
@@ -114,8 +151,19 @@ impl ConnectionRegistry {
         }
     }
 
-    /// 向指定 Agent 发送消息。
+    /// 向指定 Agent 发送消息（默认 5s 超时，E1）。
     pub async fn send(&self, agent_id: &str, msg: ServerMessage) -> Result<(), SendError> {
+        self.send_with_timeout(agent_id, msg, SEND_TIMEOUT).await
+    }
+
+    /// 向指定 Agent 发送消息，带显式超时（E1：通道满超时即按失联处理，
+    /// 不引入 try_send 行为突变——正常情况下语义与无界等待一致）。
+    pub async fn send_with_timeout(
+        &self,
+        agent_id: &str,
+        msg: ServerMessage,
+        timeout: std::time::Duration,
+    ) -> Result<(), SendError> {
         let tx = self
             .inner
             .lock()
@@ -123,8 +171,10 @@ impl ConnectionRegistry {
             .get(agent_id)
             .map(|e| e.tx.clone())
             .ok_or_else(|| SendError::NotConnected(agent_id.to_string()))?;
-        tx.send(msg)
+        // 锁已释放，超时不会阻塞其他 agent 的路由
+        tokio::time::timeout(timeout, tx.send(msg))
             .await
+            .map_err(|_| SendError::Timeout(agent_id.to_string()))?
             .map_err(|_| SendError::Gone(agent_id.to_string()))
     }
 
@@ -154,7 +204,7 @@ mod tests {
     async fn register_send_unregister() {
         let reg = ConnectionRegistry::new();
         let (tx, mut rx) = mpsc::channel(4);
-        let conn = reg.register("a1", tx).await;
+        let conn = reg.register("a1", tx).await.unwrap();
         assert!(conn.replaced.is_none());
         assert!(reg.is_online("a1").await);
         assert_eq!(reg.online_count().await, 1);
@@ -179,12 +229,12 @@ mod tests {
         let reg = ConnectionRegistry::new();
 
         let (tx1, mut rx1) = mpsc::channel(4);
-        let conn1 = reg.register("a1", tx1).await;
+        let conn1 = reg.register("a1", tx1).await.unwrap();
         assert!(conn1.replaced.is_none());
 
         // 同 id 二次注册：顶掉旧连接并返回踢下线句柄
         let (tx2, mut rx2) = mpsc::channel(4);
-        let conn2 = reg.register("a1", tx2).await;
+        let conn2 = reg.register("a1", tx2).await.unwrap();
         assert!(conn2.replaced.is_some());
         conn2.replaced.as_ref().unwrap().kick();
 
@@ -205,5 +255,54 @@ mod tests {
         // 当前连接断开：注销成功
         assert!(reg.unregister_if_current("a1", &conn2.kick_tx).await);
         assert!(!reg.is_online("a1").await);
+    }
+
+    #[tokio::test]
+    async fn send_times_out_when_downstream_never_consumed() {
+        // E1：容量 1 的通道塞满且无人消费 → send_with_timeout 超时返回 Timeout
+        let reg = ConnectionRegistry::new();
+        let (tx, rx) = mpsc::channel(1);
+        reg.register("a1", tx).await.unwrap();
+        // 占满通道
+        let _permit = rx; // 消费端持有不读
+        reg.send("a1", ServerMessage { kind: None }).await.unwrap();
+        // 第二条必然阻塞 → 50ms 超时
+        let started = std::time::Instant::now();
+        let result = reg
+            .send_with_timeout(
+                "a1",
+                ServerMessage { kind: None },
+                std::time::Duration::from_millis(50),
+            )
+            .await;
+        assert!(
+            matches!(result, Err(SendError::Timeout(_))),
+            "expected Timeout, got {result:?}"
+        );
+        assert!(started.elapsed() >= std::time::Duration::from_millis(45));
+    }
+
+    #[tokio::test]
+    async fn register_rejects_new_agents_at_capacity_but_allows_rebind() {
+        // E3：上限 2 → 第 3 个新 agent 拒绝；已有 id 重连（顶号）不受限
+        let reg = ConnectionRegistry::with_max_agents(2);
+        let (tx1, _rx1) = mpsc::channel(1);
+        let (tx2, _rx2) = mpsc::channel(1);
+        reg.register("a", tx1).await.unwrap();
+        reg.register("b", tx2).await.unwrap();
+
+        let (tx3, _rx3) = mpsc::channel(1);
+        assert!(
+            matches!(reg.register("c", tx3).await, Err(RegisterError::Full(2))),
+            "new agent must be rejected at capacity"
+        );
+
+        // 同 id 重连不受上限约束（agent 重连是恢复路径，必须放行）
+        let (tx2b, mut rx2b) = mpsc::channel(1);
+        let rebind = reg.register("b", tx2b).await.unwrap();
+        assert!(rebind.replaced.is_some(), "rebind must kick old connection");
+        assert_eq!(reg.online_count().await, 2);
+        reg.send("b", ServerMessage { kind: None }).await.unwrap();
+        assert!(rx2b.recv().await.is_some());
     }
 }

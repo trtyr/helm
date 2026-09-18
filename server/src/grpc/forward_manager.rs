@@ -48,6 +48,8 @@ pub struct ForwardDeps {
     pub file_list: FileListRegistry,
     pub query: QueryRegistry,
     pub streams: StreamRegistry,
+    /// 指标落库队列（E2）。
+    pub metrics: crate::application::metric_sink::MetricSink,
     pub db: Db,
     pub server_token: String,
     /// mTLS 证书服务（enabled 时拨号走 TLS 双向认证）
@@ -221,7 +223,22 @@ async fn connect_once(
         )
         .await?;
 
-    let registration = deps.registry.register(&agent_id, tx.clone()).await;
+    let registration = match deps.registry.register(&agent_id, tx.clone()).await {
+        Ok(reg) => reg,
+        Err(e) => {
+            // E3：注册表容量已满——拒绝注册（不广播上线），agent 侧会按退避重试
+            tracing::error!(agent_id = %agent_id, error = %e, "registration rejected: registry full (forward)");
+            let ack = ServerMessage {
+                kind: Some(server_message::Kind::RegisterAck(RegisterAck {
+                    ok: false,
+                    message: format!("server at capacity: {e}"),
+                    heartbeat_interval_secs: 10,
+                })),
+            };
+            let _ = tx.send(ack).await;
+            return Ok(());
+        }
+    };
     if let Some(old) = registration.replaced.as_ref() {
         tracing::info!(agent_id = %agent_id, "duplicate registration (forward), kicking previous connection");
         old.kick();
@@ -277,6 +294,7 @@ async fn connect_once(
         deps.file_list.clone(),
         deps.query.clone(),
         deps.streams.clone(),
+        deps.metrics.clone(),
         deps.db.clone(),
     );
     let mut kick_rx = registration.kick_rx;

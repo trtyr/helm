@@ -7,7 +7,7 @@ mod common;
 
 use helm_proto::pb::server_message;
 use helm_server::application::exec_service::ExecService;
-use helm_server::application::job_sweeper::sweep_once;
+use helm_server::application::job_sweeper::{expire_stale_pending_offline, sweep_once};
 use helm_server::grpc::connection_registry::ConnectionRegistry;
 use helm_server::store::agent_repo::{AgentRepo, HostOsDetails};
 use helm_server::store::job_repo::{JobRepo, JobRow};
@@ -101,7 +101,7 @@ async fn sweeper_sends_cancel_to_online_agent() {
     let registry = ConnectionRegistry::new();
     let (agent_id, host_id) = seed_agent(&db).await;
     let (msg_tx, mut msg_rx) = mpsc::channel::<helm_proto::pb::ServerMessage>(64);
-    registry.register(&agent_id, msg_tx).await;
+    registry.register(&agent_id, msg_tx).await.unwrap();
 
     let job = JobRepo::new(db.clone())
         .create(host_id, "sleep", &["999".to_string()])
@@ -183,7 +183,7 @@ async fn cancel_running_online_delivers_job_cancel() {
     let registry = ConnectionRegistry::new();
     let (agent_id, host_id) = seed_agent(&db).await;
     let (msg_tx, mut msg_rx) = mpsc::channel::<helm_proto::pb::ServerMessage>(64);
-    registry.register(&agent_id, msg_tx).await;
+    registry.register(&agent_id, msg_tx).await.unwrap();
 
     let job = JobRepo::new(db.clone())
         .create(host_id, "sleep", &["999".to_string()])
@@ -315,4 +315,44 @@ async fn cancel_terminal_job_is_rejected() {
         .await
         .expect_err("terminal job must reject");
     assert_eq!(err.code(), "invalid_argument");
+}
+
+#[tokio::test]
+async fn pending_offline_ttl_expires_stale_actions() {
+    // F1：超 TTL 的挂起下线/注销被作废；新鲜行保留
+    let db = common::connect().await;
+    let (agent_id, _host_id) = seed_agent(&db).await;
+
+    AgentRepo::new(db.clone())
+        .mark_pending_offline(&agent_id, "shutdown")
+        .await
+        .expect("mark pending");
+
+    // 新鲜行：TTL 7 天 → 不受影响
+    let expired = expire_stale_pending_offline(&db).await;
+    assert_eq!(expired, 0, "fresh pending action must survive");
+    let kept = AgentRepo::new(db.clone())
+        .take_pending_offline(&agent_id)
+        .await
+        .expect("take");
+    assert_eq!(kept.as_deref(), Some("shutdown"), "fresh action kept");
+
+    // 拨旧到 8 天前 → TTL 清理回收
+    AgentRepo::new(db.clone())
+        .mark_pending_offline(&agent_id, "uninstall")
+        .await
+        .expect("mark again");
+    sqlx::query("UPDATE agent_pending_offline SET created_at = now() - interval '8 days' WHERE agent_id = $1")
+        .bind(&agent_id)
+        .execute(db.pool())
+        .await
+        .expect("backdate");
+
+    let expired = expire_stale_pending_offline(&db).await;
+    assert_eq!(expired, 1, "stale pending action must be expired (F1)");
+    let after = AgentRepo::new(db.clone())
+        .take_pending_offline(&agent_id)
+        .await
+        .expect("take after");
+    assert!(after.is_none(), "expired action must be gone");
 }

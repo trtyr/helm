@@ -49,6 +49,7 @@ pub struct ListenerService {
     file_list: FileListRegistry,
     query: QueryRegistry,
     streams: StreamRegistry,
+    metrics: crate::application::metric_sink::MetricSink,
     fallback_token: String,
     cert: CertService,
 }
@@ -64,6 +65,7 @@ impl ListenerService {
         file_list: FileListRegistry,
         query: QueryRegistry,
         streams: StreamRegistry,
+        metrics: crate::application::metric_sink::MetricSink,
         fallback_token: String,
         cert: CertService,
     ) -> Self {
@@ -76,6 +78,7 @@ impl ListenerService {
             file_list,
             query,
             streams,
+            metrics,
             fallback_token,
             cert,
         }
@@ -126,6 +129,7 @@ impl ListenerService {
                 self.file_list.clone(),
                 self.query.clone(),
                 self.streams.clone(),
+                self.metrics.clone(),
                 self.db.clone(),
                 token,
                 self.cert.clone(),
@@ -195,6 +199,7 @@ impl ListenerService {
                         self.file_list.clone(),
                         self.query.clone(),
                         self.streams.clone(),
+                        self.metrics.clone(),
                         self.db.clone(),
                         token,
                         self.cert.clone(),
@@ -222,6 +227,7 @@ impl ListenerService {
                     self.file_list.clone(),
                     self.query.clone(),
                     self.streams.clone(),
+                    self.metrics.clone(),
                     self.db.clone(),
                     token,
                     self.cert.clone(),

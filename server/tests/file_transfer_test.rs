@@ -42,7 +42,7 @@ async fn seed_agent(
         .expect("get_host_id")
         .expect("host registered");
     let (msg_tx, msg_rx) = mpsc::channel::<ServerMessage>(64);
-    registry.register(&agent_id, msg_tx).await;
+    registry.register(&agent_id, msg_tx).await.unwrap();
     (agent_id, host_id, msg_rx)
 }
 

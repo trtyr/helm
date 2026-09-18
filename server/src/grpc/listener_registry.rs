@@ -54,6 +54,7 @@ impl ListenerRegistry {
         file_list: FileListRegistry,
         query: QueryRegistry,
         streams: StreamRegistry,
+        metrics: crate::application::metric_sink::MetricSink,
         db: Db,
         token: String,
         cert: CertService,
@@ -67,7 +68,7 @@ impl ListenerRegistry {
             .parse()
             .map_err(|_| ListenerError::InvalidAddr(listener.addr.clone()))?;
         let svc = AgentServiceServer::new(AgentServiceImpl::new(
-            registry, transfers, sessions, file_list, query, streams, db, token,
+            registry, transfers, sessions, file_list, query, streams, metrics, db, token,
         ));
         let (tx, rx) = oneshot::channel::<()>();
         let id = listener.id;

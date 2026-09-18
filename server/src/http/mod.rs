@@ -52,6 +52,8 @@ pub struct AppState {
     pub file_list: FileListRegistry,
     pub query: QueryRegistry,
     pub streams: StreamRegistry,
+    /// 指标落库队列（E2）：listeners 管理页重启监听器时需重建 gRPC 服务。
+    pub metrics: crate::application::metric_sink::MetricSink,
     pub jwt_secret: String,
     pub server_token: String,
     pub heartbeat_timeout_secs: u64,
@@ -77,6 +79,7 @@ pub async fn serve(
     file_list: FileListRegistry,
     query: QueryRegistry,
     streams: StreamRegistry,
+    metrics: crate::application::metric_sink::MetricSink,
     cert: CertService,
 ) -> anyhow::Result<()> {
     let state = AppState {
@@ -88,6 +91,7 @@ pub async fn serve(
         file_list,
         query,
         streams,
+        metrics,
         jwt_secret: config.jwt_secret.clone(),
         server_token: config.server_token.clone(),
         heartbeat_timeout_secs: config.heartbeat_timeout_secs,

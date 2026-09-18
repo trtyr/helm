@@ -7,7 +7,6 @@ use helm_server::store::agent_repo::{AgentRepo, HostOsDetails};
 use helm_server::store::audit_repo::AuditRepo;
 use helm_server::store::file_transfer_repo::FileTransferRepo;
 use helm_server::store::job_repo::JobRepo;
-use uuid::Uuid;
 
 /// 造一个 host，返回 host_id。
 async fn seed_host(db: &Db) -> uuid::Uuid {

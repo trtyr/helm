@@ -26,6 +26,51 @@ pub struct SweepReport {
     pub cancels_sent: usize,
 }
 
+/// pending_offline 挂起操作的 TTL（F1）：agent 长期未重连则过期作废。
+pub const PENDING_OFFLINE_TTL: chrono::Duration = chrono::Duration::days(7);
+
+/// TTL 清理周期。
+pub const PENDING_OFFLINE_SWEEP_INTERVAL: std::time::Duration =
+    std::time::Duration::from_secs(30 * 60);
+
+/// pending_offline TTL 清理（F1）：过期作废并告警（操作者可见）。
+/// 独立于 job 超时 sweeper 的启停（`HELM_JOB_TIMEOUT_SECS=0` 不影响本清理）。
+pub async fn expire_stale_pending_offline(db: &Db) -> usize {
+    match crate::store::agent_repo::AgentRepo::new(db.clone())
+        .expire_stale_pending_offline(PENDING_OFFLINE_TTL)
+        .await
+    {
+        Ok(rows) => {
+            for (agent_id, action) in &rows {
+                tracing::warn!(
+                    agent_id = %agent_id,
+                    action = %action,
+                    ttl_days = PENDING_OFFLINE_TTL.num_days(),
+                    "pending offline action expired (agent never reconnected) — discarded"
+                );
+            }
+            rows.len()
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "pending_offline TTL cleanup failed");
+            0
+        }
+    }
+}
+
+/// pending_offline TTL 后台清理任务（lib.rs 启动时挂载）。
+pub fn spawn_pending_offline_ttl_sweeper(db: Db) {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(PENDING_OFFLINE_SWEEP_INTERVAL).await;
+            let n = expire_stale_pending_offline(&db).await;
+            if n > 0 {
+                tracing::info!(expired = n, "pending_offline TTL sweep");
+            }
+        }
+    });
+}
+
 /// 单轮扫描（pub 供集成测试直接驱动，不经 30s 周期）。
 pub async fn sweep_once(
     db: &Db,

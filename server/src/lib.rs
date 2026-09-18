@@ -63,6 +63,8 @@ pub async fn run() -> Result<()> {
     let file_list = grpc::file_list_registry::FileListRegistry::new();
     let query = grpc::query_registry::QueryRegistry::new();
     let streams = grpc::stream_registry::StreamRegistry::new();
+    // 指标落库队列（E2）：MetricReport 异步批量落库，不阻塞结果类消息
+    let metrics = application::metric_sink::MetricSink::spawn(db.clone(), streams.clone());
     let cert = application::cert_service::CertService::load_or_generate(
         &config.tls_dir,
         &config.tls_server_name,
@@ -76,6 +78,7 @@ pub async fn run() -> Result<()> {
         file_list: file_list.clone(),
         query: query.clone(),
         streams: streams.clone(),
+        metrics: metrics.clone(),
         db: db.clone(),
         server_token: config.server_token.clone(),
         cert: cert.clone(),
@@ -99,6 +102,9 @@ pub async fn run() -> Result<()> {
         config.job_timeout_secs,
     );
 
+    // pending_offline TTL 清理（F1）：挂起下线/注销超 7 天无人认领则作废并告警
+    application::job_sweeper::spawn_pending_offline_ttl_sweeper(db.clone());
+
     // 恢复已落库的定时任务
     let exec = application::exec_service::ExecService::new(db.clone(), registry.clone());
     application::scheduler::resume_scheduled(db.clone(), exec).await?;
@@ -113,6 +119,7 @@ pub async fn run() -> Result<()> {
         file_list.clone(),
         query.clone(),
         streams.clone(),
+        metrics.clone(),
         config.server_token.clone(),
         cert.clone(),
     )
@@ -167,6 +174,7 @@ pub async fn run() -> Result<()> {
         file_list.clone(),
         query.clone(),
         streams.clone(),
+        metrics,
         cert.clone(),
     )
     .await?;

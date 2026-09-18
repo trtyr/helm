@@ -29,6 +29,8 @@ pub struct AgentServiceImpl {
     file_list: FileListRegistry,
     query: QueryRegistry,
     streams: StreamRegistry,
+    /// 指标落库队列（E2）。
+    metrics: crate::application::metric_sink::MetricSink,
     db: Db,
     server_token: String,
 }
@@ -42,6 +44,7 @@ impl AgentServiceImpl {
         file_list: FileListRegistry,
         query: QueryRegistry,
         streams: StreamRegistry,
+        metrics: crate::application::metric_sink::MetricSink,
         db: Db,
         server_token: String,
     ) -> Self {
@@ -52,6 +55,7 @@ impl AgentServiceImpl {
             file_list,
             query,
             streams,
+            metrics,
             db,
             server_token,
         }
@@ -150,7 +154,15 @@ impl AgentService for AgentServiceImpl {
         };
 
         let (tx, rx) = mpsc::channel::<ServerMessage>(64);
-        let registration = self.registry.register(&agent_id, tx.clone()).await;
+        let registration = match self.registry.register(&agent_id, tx.clone()).await {
+            Ok(reg) => reg,
+            Err(e) => {
+                // E3：注册表容量已满——拒绝连接（不广播上线），
+                // agent 侧收到连接错误后按重连退避重试
+                tracing::error!(agent_id = %agent_id, error = %e, "registration rejected: registry full");
+                return Err(Status::resource_exhausted(e.to_string()));
+            }
+        };
         if let Some(old) = registration.replaced.as_ref() {
             tracing::info!(agent_id = %agent_id, "duplicate registration, kicking previous connection");
             old.kick();
@@ -250,6 +262,7 @@ impl AgentService for AgentServiceImpl {
         let file_list = self.file_list.clone();
         let query = self.query.clone();
         let streams = self.streams.clone();
+        let metrics = self.metrics.clone();
         let db = self.db.clone();
         let agent_id_inner = agent_id.clone();
         let hostname_inner = hostname.to_string();
@@ -265,6 +278,7 @@ impl AgentService for AgentServiceImpl {
                 file_list,
                 query,
                 streams,
+                metrics,
                 db,
             );
             let mut kick_rx = registration.kick_rx;

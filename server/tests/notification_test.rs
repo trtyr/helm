@@ -69,7 +69,10 @@ async fn inbound_metric_over_threshold_triggers_alert_notification() {
     let host_id = setup_host(&db, &hostname).await;
     let repo = NotificationRepo::new(db.clone());
 
-    // 构造 InboundCtx（reverse/forward 共用的入站处理），喂超阈值指标
+    // 构造 InboundCtx（reverse/forward 共用的入站处理），喂超阈值指标。
+    // E2 起指标走异步 sink，断言前用 wait_idle 等落库收敛。
+    let metric_sink =
+        helm_server::application::metric_sink::MetricSink::spawn(db.clone(), StreamRegistry::new());
     let mut ctx = InboundCtx::new(
         format!("agent-{}", std::process::id()),
         Some(host_id),
@@ -81,6 +84,7 @@ async fn inbound_metric_over_threshold_triggers_alert_notification() {
         FileListRegistry::new(),
         QueryRegistry::new(),
         StreamRegistry::new(),
+        metric_sink.clone(),
         db.clone(),
     );
     ctx.handle(AgentMessage {
@@ -94,6 +98,13 @@ async fn inbound_metric_over_threshold_triggers_alert_notification() {
         })),
     })
     .await;
+    // E2：等异步 sink 落库收敛再断言
+    assert!(
+        metric_sink
+            .wait_idle(std::time::Duration::from_secs(5))
+            .await,
+        "metric sink should drain"
+    );
 
     // 预警联动：alert 类型通知产生（含指标名与实测值）
     let note = repo.latest_of_type(host_id, KIND_ALERT).await.unwrap();

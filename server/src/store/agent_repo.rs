@@ -318,4 +318,20 @@ impl AgentRepo {
         .await?;
         Ok(row.map(|r| r.0))
     }
+
+    /// TTL 清理（F1）：删除超过 `ttl` 未被消费的挂起操作，返回删除的 agent 数。
+    /// 挂起操作长期无人认领 = agent 长期未重连，过期作废并告警（操作者可见）。
+    pub async fn expire_stale_pending_offline(
+        &self,
+        ttl: chrono::Duration,
+    ) -> sqlx::Result<Vec<(String, String)>> {
+        sqlx::query_as(
+            "DELETE FROM agent_pending_offline
+             WHERE created_at < now() - make_interval(secs => $1)
+             RETURNING agent_id, action",
+        )
+        .bind(ttl.num_seconds() as f64)
+        .fetch_all(self.db.pool())
+        .await
+    }
 }
