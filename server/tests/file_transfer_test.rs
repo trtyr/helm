@@ -295,6 +295,40 @@ async fn download_checksum_mismatch_persists_failed_and_skips_local_write() {
 }
 
 #[tokio::test]
+async fn transfer_timeout_persists_failed() {
+    // B3③：agent「流未断但不回 FileStatus」——oneshot 等待超时，HTTP 快速失败且库落 failed。
+    let db = common::connect().await;
+    let registry = ConnectionRegistry::new();
+    let transfers = TransferRegistry::new();
+    let service = FileService::new(
+        db.clone(),
+        registry.clone(),
+        transfers.clone(),
+        FileListRegistry::new(),
+    )
+    .with_transfer_timeout(std::time::Duration::from_millis(100));
+    let (agent_id, host_id, _msg_rx) = seed_agent(&db, &registry).await;
+
+    let src = std::env::temp_dir().join(format!("helm-itest-src-{}.bin", uuid::Uuid::new_v4()));
+    tokio::fs::write(&src, b"payload").await.expect("write source");
+
+    let started = std::time::Instant::now();
+    let result = service
+        .upload(&agent_id, &src.to_string_lossy(), "/tmp/itest.bin")
+        .await;
+    assert!(result.is_err(), "silent agent must time out");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "timeout must be bounded, took {:?}",
+        started.elapsed()
+    );
+    let _ = tokio::fs::remove_file(&src).await;
+
+    let row = find_by_host(&db, host_id).await;
+    assert_eq!(row.status, "failed", "timed-out transfer must persist 'failed'");
+}
+
+#[tokio::test]
 async fn upload_send_failure_persists_failed() {
     // agent 有 DB 行但无活跃连接：registry.send 失败 → Err(NotConnected)，且库行落 failed
     //（不再遗留 pending 孤行，风险债 B3-①）。

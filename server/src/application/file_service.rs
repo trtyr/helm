@@ -15,6 +15,9 @@ use uuid::Uuid;
 
 const CHUNK_SIZE: usize = 64 * 1024;
 const LIST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// 单次传输的 oneshot 等待上限（B3③）：agent「流未断但不回 FileStatus」时
+/// 防止 HTTP 请求永久挂起；超时传输落 `failed`。
+const FILE_TRANSFER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 
 /// 文件传输用例。
 #[derive(Clone)]
@@ -23,6 +26,7 @@ pub struct FileService {
     registry: ConnectionRegistry,
     transfers: TransferRegistry,
     file_list: FileListRegistry,
+    transfer_timeout: std::time::Duration,
 }
 
 impl FileService {
@@ -37,7 +41,14 @@ impl FileService {
             registry,
             transfers,
             file_list,
+            transfer_timeout: FILE_TRANSFER_TIMEOUT,
         }
+    }
+
+    /// 覆盖传输等待上限（测试或部署调优用）。
+    pub fn with_transfer_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.transfer_timeout = timeout;
+        self
     }
 
     /// 下发文件到目标机（upload）。返回 (transfer_id, checksum 是否一致)。
@@ -95,14 +106,24 @@ impl FileService {
             offset += piece.len() as u64;
         }
 
-        let status = match rx.await {
-            Ok(status) => status,
-            // agent 断线导致通道关闭：落 failed，不留悬空的 transferring。
-            Err(_) => {
+        let status = match tokio::time::timeout(self.transfer_timeout, rx).await {
+            Ok(Ok(status)) => status,
+            Ok(Err(_)) => {
+                // channel closed（agent 断线）：落 failed，不留悬空的 transferring。
                 FileTransferRepo::new(self.db.clone())
                     .finish(ft.id, "failed", data.len() as i64, "")
                     .await?;
                 return Err(Error::Internal("transfer channel closed".into()));
+            }
+            // 超时（B3③）：agent 流未断但不回 FileStatus——落 failed 防止 HTTP 永久挂起。
+            Err(_) => {
+                FileTransferRepo::new(self.db.clone())
+                    .finish(ft.id, "failed", data.len() as i64, "")
+                    .await?;
+                return Err(Error::Internal(format!(
+                    "file transfer timeout: agent did not respond within {:?}",
+                    self.transfer_timeout
+                )));
             }
         };
         let (final_status, ok) = resolve_status(status.state, &status.checksum, &expected);
@@ -150,14 +171,24 @@ impl FileService {
         let (tx, rx) = oneshot::channel();
         self.transfers.register_download(&transfer_id, tx).await;
 
-        let result = match rx.await {
-            Ok(result) => result,
-            // agent 断线导致通道关闭：落 failed，不留悬空的 transferring。
-            Err(_) => {
+        let result = match tokio::time::timeout(self.transfer_timeout, rx).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => {
+                // channel closed（agent 断线）：落 failed，不留悬空的 transferring。
                 FileTransferRepo::new(self.db.clone())
                     .finish(ft.id, "failed", 0, "")
                     .await?;
                 return Err(Error::Internal("transfer channel closed".into()));
+            }
+            // 超时（B3③）：agent 流未断但不回 FileStatus——落 failed 防止 HTTP 永久挂起。
+            Err(_) => {
+                FileTransferRepo::new(self.db.clone())
+                    .finish(ft.id, "failed", 0, "")
+                    .await?;
+                return Err(Error::Internal(format!(
+                    "file transfer timeout: agent did not respond within {:?}",
+                    self.transfer_timeout
+                )));
             }
         };
         let local_checksum = checksum(&result.data);
