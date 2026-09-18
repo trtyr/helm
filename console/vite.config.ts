@@ -2,8 +2,8 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'vite'
 
-// 后端本地地址（8080 被本机其他服务占用，联调固定 18081）
-const BACKEND = 'http://127.0.0.1:18081'
+// 后端本地地址（helm-server dev 默认 8080；若被占用可临时切走）
+const BACKEND = 'http://127.0.0.1:8080'
 
 // https://vite.dev/config/
 export default defineConfig({

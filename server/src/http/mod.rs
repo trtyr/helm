@@ -250,6 +250,85 @@ pub async fn serve(
     let listener = tokio::net::TcpListener::bind(&config.http_addr).await?;
     tracing::info!(addr = %config.http_addr, "http listening");
 
-    axum::serve(listener, app).await?;
+    if config.web_dist_dir.is_empty() {
+        axum::serve(listener, app).await?;
+    } else {
+        // 前后端一体化（HELM_WEB_DIST_DIR）：同一端口托管控制台静态资源 + SPA fallback。
+        // API 语义保留：/api、/mcp、/healthz 未匹配仍返回 404，不落回 index.html。
+        let dist = std::path::PathBuf::from(&config.web_dist_dir);
+        if !dist.join("index.html").is_file() {
+            return Err(anyhow::anyhow!(
+                "web_dist_dir {:?} 不存在 index.html（先构建 console：pnpm --dir console build）",
+                dist
+            ));
+        }
+        tracing::info!(dist = %dist.display(), "serving console static files");
+        let app = app.fallback(move |req| web_static(dist.clone(), req));
+        axum::serve(listener, app).await?;
+    }
     Ok(())
+}
+
+/// 静态资源 MIME（Vite 产物常用类型，覆盖不全时浏览器按猜测处理也无碍）。
+fn mime_of(path: &str) -> &'static str {
+    match path.rsplit('.').next().unwrap_or("") {
+        "html" => "text/html; charset=utf-8",
+        "js" | "mjs" => "text/javascript; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "json" | "map" => "application/json",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "ico" => "image/x-icon",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "ttf" => "font/ttf",
+        "txt" => "text/plain; charset=utf-8",
+        _ => "application/octet-stream",
+    }
+}
+
+/// 前后端一体化的静态托管 fallback：命中文件直接回，未命中回 index.html（SPA 路由）。
+async fn web_static(
+    dist: std::path::PathBuf,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let path = req.uri().path().trim_start_matches('/').to_string();
+    if path.starts_with("api/") || path == "mcp" || path == "healthz" {
+        // API 未匹配路径保持 JSON 404 语义，不落回 SPA
+        return (axum::http::StatusCode::NOT_FOUND, "not found").into_response();
+    }
+    let rel = if path.is_empty() { "index.html" } else { &path };
+    let file = dist.join(rel);
+    let serve = |bytes: axum::body::Bytes, mime: &'static str, immutable: bool| {
+        axum::response::Response::builder()
+            .status(axum::http::StatusCode::OK)
+            .header(axum::http::header::CONTENT_TYPE, mime)
+            .header(
+                axum::http::header::CACHE_CONTROL,
+                if immutable {
+                    "public, max-age=31536000, immutable"
+                } else {
+                    "no-cache"
+                },
+            )
+            .body(axum::body::Body::from(bytes))
+            .unwrap()
+    };
+    if tokio::fs::metadata(&file)
+        .await
+        .map(|m| m.is_file())
+        .unwrap_or(false)
+        && let Ok(bytes) = tokio::fs::read(&file).await
+    {
+        return serve(bytes.into(), mime_of(rel), path.starts_with("assets/"));
+    }
+    // SPA fallback：前端 history 路由刷新回 index.html
+    match tokio::fs::read(dist.join("index.html")).await {
+        Ok(bytes) => serve(bytes.into(), "text/html; charset=utf-8", false),
+        Err(_) => (axum::http::StatusCode::NOT_FOUND, "not found").into_response(),
+    }
 }

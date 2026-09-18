@@ -8,6 +8,11 @@ pub struct Config {
     #[arg(long, env = "HELM_HTTP_ADDR", default_value = "0.0.0.0:8080")]
     pub http_addr: String,
 
+    /// 前端静态资源目录（console 构建产物 dist/）：设置后 server 直接托管控制台
+    /// （前后端一体化，同一端口）；空 = 不托管（开发模式走 Vite dev server）
+    #[arg(long, env = "HELM_WEB_DIST_DIR", default_value = "")]
+    pub web_dist_dir: String,
+
     /// gRPC 监听地址（Agent 反向连入）
     #[arg(long, env = "HELM_GRPC_ADDR", default_value = "0.0.0.0:50051")]
     pub grpc_addr: String,
