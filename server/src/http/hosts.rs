@@ -90,6 +90,18 @@ pub struct SetTagsBody {
     pub tags: Vec<String>,
 }
 
+/// 查询单台主机：GET /api/v1/hosts/{id}（D4：详情页单查，免去全列表扫描）。
+pub async fn get_host(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Value>, Error> {
+    let host = HostRepo::new(state.db).get(id).await?;
+    match host {
+        Some(h) => Ok(Json(json!({ "host": h }))),
+        None => Err(Error::NotFound(format!("host: {id}"))),
+    }
+}
+
 /// 列出主机：GET /api/v1/hosts（附在线状态 + 最后心跳 + 心跳超时标记；支持 ?tag= 过滤 + ?page=&limit= 分页）
 pub async fn list_hosts(
     State(state): State<AppState>,

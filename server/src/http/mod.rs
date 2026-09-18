@@ -116,7 +116,9 @@ pub async fn serve(
         .route("/hosts", get(hosts::list_hosts).post(hosts::create_host))
         .route(
             "/hosts/{id}",
-            put(hosts::update_host).delete(hosts::delete_host),
+            get(hosts::get_host)
+                .put(hosts::update_host)
+                .delete(hosts::delete_host),
         )
         .route("/hosts/{id}/tags", post(hosts::set_host_tags))
         .route("/exec", post(exec::exec))
@@ -230,6 +232,7 @@ pub async fn serve(
             "/api/v1/services/{id}/logs/stream",
             get(stream::service_logs_stream),
         )
+        .route("/api/v1/services/stream", get(stream::services_stream))
         .route("/api/v1/jobs/{id}/stream", get(stream::job_stream))
         .route("/api/v1/metrics/stream", get(stream::metrics_stream))
         .route(

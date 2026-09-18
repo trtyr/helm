@@ -114,6 +114,33 @@ impl JobRepo {
         .await
     }
 
+    /// 过滤列出（D4）：按 status / host_id 可选过滤，全为 None 时等价 list_paged。
+    pub async fn list_filtered(
+        &self,
+        status: Option<&str>,
+        host_id: Option<Uuid>,
+        limit: i64,
+        offset: i64,
+    ) -> sqlx::Result<Vec<JobRow>> {
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            "SELECT id, task_id, host_id, status, command, args, output, exit_code,
+                    started_at, finished_at FROM jobs WHERE 1=1",
+        );
+        if let Some(s) = status {
+            qb.push(" AND status = ").push_bind(s.to_string());
+        }
+        if let Some(h) = host_id {
+            qb.push(" AND host_id = ").push_bind(h);
+        }
+        qb.push(" ORDER BY started_at DESC NULLS LAST LIMIT ")
+            .push_bind(limit)
+            .push(" OFFSET ")
+            .push_bind(offset);
+        qb.build_query_as::<JobRow>()
+            .fetch_all(self.db.pool())
+            .await
+    }
+
     /// sweeper（EN-64）：将 running 超过 `timeout_secs` 的 job 置 timed_out。
     /// 返回 (job_id, 最近注册的 agent_id)——agent 在线时 sweeper 顺带补发 JobCancel。
     pub async fn expire_running(&self, timeout_secs: i64) -> sqlx::Result<Vec<ExpiredJob>> {

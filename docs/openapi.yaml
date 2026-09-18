@@ -212,6 +212,20 @@ paths:
   /api/v1/hosts/{id}:
     parameters:
       - $ref: "#/components/parameters/HostId"
+    get:
+      tags: [hosts]
+      summary: 查询单台主机（详情页单查）
+      responses:
+        "200":
+          description: 主机详情
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  host: { $ref: "#/components/schemas/Host" }
+        "404":
+          $ref: "#/components/responses/NotFound"
     put:
       tags: [hosts]
       summary: 更新主机
@@ -940,7 +954,7 @@ paths:
   /api/v1/jobs:
     get:
       tags: [jobs]
-      summary: 分页列出 Job
+      summary: 分页列出 Job（支持 status / host_id 过滤）
       parameters:
         - name: page
           in: query
@@ -948,6 +962,14 @@ paths:
         - name: limit
           in: query
           schema: { type: integer, default: 20 }
+        - name: status
+          in: query
+          description: 按状态过滤（queued/running/succeeded/failed/cancelled/timed_out）
+          schema: { type: string, enum: [queued, running, succeeded, failed, cancelled, timed_out] }
+        - name: host_id
+          in: query
+          description: 按主机过滤
+          schema: { type: string, format: uuid }
       responses:
         "200":
           description: Job 列表
@@ -1476,6 +1498,22 @@ paths:
     get:
       tags: [stream]
       summary: 服务日志实时流（WebSocket，二进制帧为日志增量）
+      responses:
+        "101":
+          description: WebSocket 升级成功
+
+  /api/v1/services/stream:
+    parameters:
+      - name: token
+        in: query
+        required: true
+        schema: { type: string }
+    get:
+      tags: [stream]
+      summary: >-
+        服务状态实时流（WebSocket）。连接即推一次全量快照
+        （{"snapshot":[...]}），此后 agent 上报的状态变更为增量
+        （{"service_id","status","pid","exit_code"}）。
       responses:
         "101":
           description: WebSocket 升级成功

@@ -1,0 +1,69 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # 集成测试库（common/mod.rs 重建 helm_itest 并跑迁移）
+  HELM_DATABASE_URL: postgres://postgres:postgres@localhost:5432/helm
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: helm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # buf breaking 对照上一个提交
+          fetch-depth: 2
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: bufbuild/buf-action@v1
+        with:
+          input: proto
+          setup_only: true
+
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+
+      - name: clippy
+        run: cargo clippy -p helm-server -p helm-agent --all-targets -- -D warnings
+
+      - name: tests (server, with postgres)
+        run: cargo test -p helm-server
+
+      - name: tests (agent)
+        run: cargo test -p helm-agent
+
+      - name: buf lint
+        run: cd proto && buf lint
+
+      - name: buf breaking
+        run: cd proto && buf breaking --against '${{ github.event.pull_request.base.sha || github.event.before }}'
+
+      - name: openapi contract check
+        run: python3 scripts/check_openapi.py
+
+      - name: docs consistency check
+        run: python3 scripts/check_docs.py

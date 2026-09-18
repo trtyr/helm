@@ -26,7 +26,7 @@
 
 ## 本地保留资产
 
-- `docs/openapi.yaml` — HTTP API 契约（OpenAPI 3.0.3，74 端点）；`scripts/check_openapi.py` 消费，勿迁。
+- `docs/openapi.yaml` — HTTP API 契约（OpenAPI 3.0.3，75 端点）；`scripts/check_openapi.py` 消费，勿迁。
 - 本文件 — 指针索引。
 
 ## 历史备注

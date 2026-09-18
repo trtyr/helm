@@ -16,6 +16,10 @@ pub struct JobQuery {
     pub page: i64,
     #[serde(default = "default_limit")]
     pub limit: i64,
+    /// D4：按状态过滤（queued/running/succeeded/failed/cancelled/timed_out）
+    pub status: Option<String>,
+    /// D4：按主机过滤
+    pub host_id: Option<Uuid>,
 }
 
 fn default_page() -> i64 {
@@ -26,14 +30,14 @@ fn default_limit() -> i64 {
     20
 }
 
-/// 列出 Job：GET /api/v1/jobs?page=&limit=
+/// 列出 Job：GET /api/v1/jobs?page=&limit=&status=&host_id=（D4：可选过滤）
 pub async fn list_jobs(
     State(state): State<AppState>,
     Query(q): Query<JobQuery>,
 ) -> Result<Json<Value>, Error> {
     let offset = (q.page.max(1) - 1) * q.limit.max(1);
     let jobs = JobRepo::new(state.db)
-        .list_paged(q.limit.max(1), offset)
+        .list_filtered(q.status.as_deref(), q.host_id, q.limit.max(1), offset)
         .await?;
     Ok(Json(json!({ "jobs": jobs })))
 }

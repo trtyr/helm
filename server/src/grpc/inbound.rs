@@ -157,7 +157,8 @@ impl InboundCtx {
                             .broadcast(&format!("service:{id}"), st.log.clone())
                             .await;
                     }
-                    match crate::grpc::agent_service::map_service_status(&st.status) {
+                    let mapped = crate::grpc::agent_service::map_service_status(&st.status);
+                    match mapped {
                         Some("running") => {
                             let _ = repo.set_status(id, "running", st.pid, None).await;
                         }
@@ -168,6 +169,18 @@ impl InboundCtx {
                             let _ = repo.set_status(id, "stopped", None, st.exit_code).await;
                         }
                         _ => {}
+                    }
+                    // D4：服务状态流——有状态变化即广播（含 agent 上报的原始状态）
+                    if mapped.is_some() {
+                        let payload = serde_json::json!({
+                            "service_id": id,
+                            "status": mapped,
+                            "pid": st.pid,
+                            "exit_code": st.exit_code,
+                        });
+                        self.streams
+                            .broadcast("services", payload.to_string().into_bytes())
+                            .await;
                     }
                 }
             }

@@ -126,7 +126,7 @@ Bearer 值为 JWT 或 `helm_` 前缀 API key（决策 010）均可认证；WebSo
 | POST | `/api/v1/auth/change-username` | 修改用户名（校验当前密码，旧 token 随即失效） |
 | POST | `/api/v1/agents/cert` | Agent 提交 CSR 换 mTLS 证书（免 JWT） |
 | GET/POST | `/api/v1/hosts` | 列出（分页/标签过滤/在线状态）/ 创建主机 |
-| PUT/DELETE | `/api/v1/hosts/{id}` | 更新 / 删除主机 |
+| GET/PUT/DELETE | `/api/v1/hosts/{id}` | 查询单台 / 更新 / 删除主机 |
 | POST | `/api/v1/hosts/{id}/tags` | 设置主机标签 |
 | GET | `/api/v1/agents` | 列出已注册 Agent |
 | GET/DELETE | `/api/v1/agents/{id}` | Agent 详情 / 注销 |
@@ -136,7 +136,7 @@ Bearer 值为 JWT 或 `helm_` 前缀 API key（决策 010）均可认证；WebSo
 | GET | `/api/v1/agent-gen/{id}` | 生成任务进度（含编译日志尾部） |
 | GET | `/api/v1/agent-gen/{id}/download` | 下载编译完成的 Agent 二进制 |
 | POST | `/api/v1/exec` | 下发命令 |
-| GET | `/api/v1/jobs` | 分页列出 Job |
+| GET | `/api/v1/jobs` | 分页列出 Job（`?status=&host_id=` 过滤） |
 | GET | `/api/v1/jobs/{id}` | 查询任务结果 |
 | GET | `/api/v1/metrics?host_id=` | 查询主机指标 |
 | GET | `/api/v1/alerts` | 分页列出告警 |
@@ -173,6 +173,7 @@ Bearer 值为 JWT 或 `helm_` 前缀 API key（决策 010）均可认证；WebSo
 | GET | `/api/v1/audit` | 分页列出审计日志 |
 | WS | `/api/v1/agents/{id}/terminal?token=` | 交互终端（PTY） |
 | WS | `/api/v1/services/{id}/logs/stream?token=` | 服务日志实时流 |
+| WS | `/api/v1/services/stream?token=` | 服务状态实时流（连接推全量快照，此后状态变更增量） |
 | WS | `/api/v1/jobs/{id}/stream?token=` | job 输出实时流 |
 | WS | `/api/v1/metrics/stream?token=` | 指标实时流 |
 | WS | `/api/v1/notifications/stream?token=` | 通知实时流（上线/下线/预警） |
@@ -238,4 +239,4 @@ python3 scripts/check_docs.py     # 文档现状陈述与代码一致性校验
   运行部署 / 约定 / 现状与门禁 / 应急响应 / 规划决策树（原 docs/*.md 与 docs/plantree 全树，
   2026-09-15 迁入）。经 engram MCP（`projects` 工具 `doc_search` / `doc_get`，project_name=helm）检索。
 - [docs/README.md](docs/README.md) — 本地文档指针索引（分类 → engram 文档对照表）。
-- [docs/openapi.yaml](docs/openapi.yaml) — HTTP API 契约（OpenAPI 3.0.3，74 端点；机器契约保留本地）。
+- [docs/openapi.yaml](docs/openapi.yaml) — HTTP API 契约（OpenAPI 3.0.3，75 端点；机器契约保留本地）。

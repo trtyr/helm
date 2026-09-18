@@ -185,6 +185,7 @@ pub fn scope_for(path: &str) -> Option<&'static str> {
         "/api/v1/files/upload" | "/api/v1/files/download" | "/api/v1/files/list" => Some(s::FILES),
         // services 域（常驻服务 + 系统服务）
         "/api/v1/services"
+        | "/api/v1/services/stream"
         | "/api/v1/services/{id}"
         | "/api/v1/services/{id}/start"
         | "/api/v1/services/{id}/stop"
