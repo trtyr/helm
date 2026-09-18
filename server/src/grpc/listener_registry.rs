@@ -76,7 +76,12 @@ impl ListenerRegistry {
         let cert = cert.clone();
         tokio::spawn(async move {
             tracing::info!(listener_id = %id, addr = %addr_str, "listener started");
-            let mut builder = tonic::transport::Server::builder();
+            let mut builder = tonic::transport::Server::builder()
+                // EN-72 对称加固：server 端 h2 keepalive——对半开连接 40s 内
+                // 主动判死并回收，不再依赖 TCP 被动超时；与 agent 端
+                // keepalive（commit 4d282c5）对称，双向快速检测。
+                .http2_keepalive_interval(Some(std::time::Duration::from_secs(30)))
+                .http2_keepalive_timeout(Some(std::time::Duration::from_secs(10)));
             if cert.enabled() {
                 let tls = ServerTlsConfig::new()
                     .identity(Identity::from_pem(
