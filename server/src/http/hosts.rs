@@ -91,15 +91,34 @@ pub struct SetTagsBody {
 }
 
 /// 查询单台主机：GET /api/v1/hosts/{id}（D4：详情页单查，免去全列表扫描）。
+/// 返回结构与列表项一致（HostView：host 派生 online/last_seen/stale/agent_*）。
 pub async fn get_host(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, Error> {
-    let host = HostRepo::new(state.db).get(id).await?;
-    match host {
-        Some(h) => Ok(Json(json!({ "host": h }))),
-        None => Err(Error::NotFound(format!("host: {id}"))),
-    }
+    let host = HostRepo::new(state.db.clone()).get(id).await?;
+    let Some(host) = host else {
+        return Err(Error::NotFound(format!("host: {id}")));
+    };
+    let agent_repo = AgentRepo::new(state.db.clone());
+    let agent_ids = agent_repo.list_agent_ids(host.id).await?;
+    let online = state.registry.any_online(&agent_ids).await;
+    let last_seen = agent_repo.last_heartbeat(host.id).await?;
+    let stale = is_stale(last_seen, chrono::Utc::now(), {
+        chrono::Duration::seconds(state.heartbeat_timeout_secs as i64)
+    });
+    let agent = agent_repo.first_by_host(host.id).await?;
+    Ok(Json(json!({
+        "host": HostView {
+            host,
+            online,
+            last_seen,
+            stale,
+            agent_id: agent.as_ref().map(|a| a.id.clone()),
+            agent_version: agent.as_ref().map(|a| a.version.clone()),
+            agent_elevated: agent.as_ref().map(|a| a.elevated),
+        }
+    })))
 }
 
 /// 列出主机：GET /api/v1/hosts（附在线状态 + 最后心跳 + 心跳超时标记；支持 ?tag= 过滤 + ?page=&limit= 分页）

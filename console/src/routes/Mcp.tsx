@@ -36,13 +36,16 @@ interface TestResult {
 
 /** 连接测试：用给定 key 走 initialize + tools/list，展示该 key 可见的 op 目录。 */
 async function probe(key: string): Promise<TestResult> {
+  // D5 修正：原调 /mcp-test 为幽灵端点（后端从未实现，测试恒 404）；
+  // 直连真实 MCP 端点 /mcp（与 CLAUDE_SNIPPET 宣传的接入路径一致）。
   const call = async (method: string, params?: object, id = 1) => {
-    const resp = await fetch("/mcp-test", {
+    const resp = await fetch(`${apiBase}/mcp`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
     });
     if (resp.status === 401) return { ok: false, error: "凭证无效或已吊销（401）" };
+    if (!resp.ok) return { ok: false, error: `HTTP ${resp.status}` };
     const body = await resp.json();
     if (body.error) return { ok: false, error: body.error.message ?? JSON.stringify(body.error) };
     return body.result;

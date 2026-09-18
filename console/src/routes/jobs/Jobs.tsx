@@ -29,9 +29,13 @@ export default function Jobs() {
   const limit = 20;
 
   const jobsQuery = useQuery({
-    queryKey: ["jobs", page],
+    queryKey: ["jobs", page, status, hostFilter],
     queryFn: async () => {
-      const r = await api<{ jobs: Job[] }>(`/api/v1/jobs?page=${page}&limit=${limit}`);
+      // D4：服务端过滤（status/host_id），不再前端筛当前页
+      const sp = new URLSearchParams({ page: String(page), limit: String(limit) });
+      if (status !== "all") sp.set("status", status);
+      if (hostFilter) sp.set("host_id", hostFilter);
+      const r = await api<{ jobs: Job[] }>(`/api/v1/jobs?${sp}`);
       return { at: Date.now(), jobs: r.jobs ?? [] }; // now 在异步侧产生（render 纯度）
     },
     refetchInterval: (q) =>
@@ -47,21 +51,18 @@ export default function Jobs() {
     return (id: string | undefined) => map.get(id ?? "") ?? "—";
   }, [hostsQuery.data]);
 
-  // 服务端无 status/host 过滤参数 → 前端过滤（当前页内）
-  const jobs = (jobsQuery.data?.jobs ?? []).filter((j) => {
-    if (status !== "all" && j.status !== status) return false;
-    if (hostFilter && j.host_id !== hostFilter) return false;
-    return true;
-  });
+  // D4：过滤在服务端完成，直接渲染返回集
+  const jobs = jobsQuery.data?.jobs ?? [];
+  // 统计卡片：无过滤时即全量；有过滤时统计的是过滤后集合（语义：当前视图分布）
   const counts = useMemo(() => {
-    const all = jobsQuery.data?.jobs ?? [];
+    const all = jobs;
     return {
       all: all.length,
       succeeded: all.filter((j) => j.status === "succeeded").length,
       failed: all.filter((j) => j.status === "failed").length,
       running: all.filter((j) => j.status === "running" || j.status === "queued").length,
     };
-  }, [jobsQuery.data]);
+  }, [jobs]);
 
   function patchParams(patch: Record<string, string | null>) {
     const next = new URLSearchParams(params);

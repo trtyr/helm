@@ -77,6 +77,18 @@ impl ServiceRepo {
         .await
     }
 
+    /// 按 host 过滤列出（D4 前端接入：详情页只看本机常驻服务）。
+    pub async fn list_by_host(&self, host_id: Uuid, limit: i64) -> sqlx::Result<Vec<ServiceRow>> {
+        sqlx::query_as::<_, ServiceRow>(
+            "SELECT id, host_id, name, command, args, status, restart_policy, pid, exit_code, log, created_at, updated_at
+             FROM services WHERE host_id = $1 ORDER BY created_at DESC LIMIT $2",
+        )
+        .bind(host_id)
+        .bind(limit)
+        .fetch_all(self.db.pool())
+        .await
+    }
+
     /// 按 id 查服务。
     pub async fn get(&self, id: Uuid) -> sqlx::Result<Option<ServiceRow>> {
         sqlx::query_as::<_, ServiceRow>(

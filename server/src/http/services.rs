@@ -3,6 +3,7 @@
 use crate::application::service_service::ServiceService;
 use crate::domain::Error;
 use crate::http::AppState;
+use crate::store::service_repo::ServiceRepo;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use serde::Deserialize;
@@ -15,6 +16,8 @@ pub struct ListQuery {
     pub page: i64,
     #[serde(default = "default_limit")]
     pub limit: i64,
+    /// D4：按主机过滤（详情页只看本机常驻服务）
+    pub host_id: Option<Uuid>,
 }
 
 fn default_page() -> i64 {
@@ -67,11 +70,17 @@ pub async fn create_service(
     Ok(Json(json!({ "service": row })))
 }
 
-/// 列出服务：GET /api/v1/services?page=&limit=
+/// 列出服务：GET /api/v1/services?page=&limit=&host_id=（D4：可选按主机过滤）
 pub async fn list_services(
     State(state): State<AppState>,
     Query(q): Query<ListQuery>,
 ) -> Result<Json<Value>, Error> {
+    if let Some(host_id) = q.host_id {
+        let rows = ServiceRepo::new(state.db)
+            .list_by_host(host_id, q.limit.max(1))
+            .await?;
+        return Ok(Json(json!({ "services": rows })));
+    }
     let offset = (q.page.max(1) - 1) * q.limit.max(1);
     let rows = service(&state).list_paged(q.limit.max(1), offset).await?;
     Ok(Json(json!({ "services": rows })))

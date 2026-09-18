@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { copyText } from "../../lib/clipboard";
 import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -43,13 +43,14 @@ export default function HostDetailLayout() {
   });
   const [deleting, setDeleting] = useState(false);
 
-  // 复用列表缓存（后端无 GET /hosts/{id} 单查，缺口见 plantree open-questions #9）
+  // D4：GET /hosts/{id} 单查（原复用列表缓存的缺口 #9 已由后端单查端点补上）
   const { data, isPending } = useQuery({
-    queryKey: ["hosts", 1, null],
-    queryFn: () => api<{ hosts: HostView[] }>("/api/v1/hosts?page=1&limit=20"),
+    queryKey: ["host", id],
+    queryFn: () => api<{ host: HostView }>(`/api/v1/hosts/${id}`),
     refetchInterval: 30_000,
+    retry: false,
   });
-  const host = useMemo(() => data?.hosts.find((h) => h.id === id), [data, id]);
+  const host = data?.host;
 
   const saveTags = useMutation({
     mutationFn: (tags: string[]) =>
