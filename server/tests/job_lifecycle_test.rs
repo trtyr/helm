@@ -255,9 +255,8 @@ async fn cancel_running_offline_compensates_for_reconnect() {
 
 #[tokio::test]
 async fn finish_is_idempotent_after_terminal() {
-    // EN-64/B4：终态写入后，重放/迟到回报不得覆盖终态
+    // EN-64/B4：终态写入后，重放/迟到回报不得覆盖终态（纯 repo 层，无需 registry）
     let db = common::connect().await;
-    let registry = ConnectionRegistry::new();
     let (_agent_id, host_id) = seed_agent(&db).await;
 
     let job = JobRepo::new(db.clone())

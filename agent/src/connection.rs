@@ -13,20 +13,71 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
-const RECONNECT_DELAY: Duration = Duration::from_secs(3);
+/// 重连退避基数（B7）：普通网络错误从 3s 起指数退避。
+const RECONNECT_BASE: Duration = Duration::from_secs(3);
+/// 重连退避上限。
+const RECONNECT_MAX: Duration = Duration::from_secs(300);
+/// unauthenticated（token 配错等不可自愈错误）的长退避：显著放缓自伤式重试，
+/// 并以 error 级日志保证本地可见（B7）。
+const RECONNECT_AUTH_FAILURE: Duration = Duration::from_secs(300);
 
-/// 连接循环：断线后自动重连并重新注册。
+/// 下一次重连延迟（纯函数便于测试；`jitter` 为 0..=400 的伪随机量）。
+///
+/// - `auth_failure`：token 配错类不可自愈错误 → 固定长退避（300s），不再高频冲击 Server；
+/// - 普通错误：指数退避 `min(base * 2^(attempt-1), max)`，附加 ±20% jitter 防止集群同步重试。
+fn next_reconnect_delay(attempt: u32, auth_failure: bool, jitter: u32) -> Duration {
+    if auth_failure {
+        return RECONNECT_AUTH_FAILURE;
+    }
+    let exp = attempt.saturating_sub(1).min(16);
+    let base = RECONNECT_BASE
+        .saturating_mul(1u32 << exp)
+        .min(RECONNECT_MAX);
+    // jitter ∈ [0,400] 线性映射偏移 [-20%, +20%]
+    let offset_ms = base.as_millis() as i64 * (jitter.min(400) as i64 - 200) / 1000;
+    Duration::from_millis((base.as_millis() as i64 + offset_ms).max(0) as u64)
+}
+
+/// 错误是否为认证失败（token 配错等，不可自愈）。
+fn is_auth_failure(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<tonic::Status>()
+        .map(|s| s.code() == tonic::Code::Unauthenticated)
+        .unwrap_or(false)
+}
+
+/// 连接循环：断线后自动重连并重新注册（B7：指数退避 + jitter + 认证错误长退避）。
 pub async fn run_agent(config: &Config) -> Result<()> {
+    let mut attempt: u32 = 0;
     loop {
-        match connect_once(config).await {
+        let result = connect_once(config).await;
+        let auth_failure = matches!(&result, Err(e) if is_auth_failure(e));
+        match &result {
             Ok(()) => {
-                tracing::warn!("connection closed, reconnecting in {RECONNECT_DELAY:?}");
+                attempt = 0;
+                tracing::warn!("connection closed, reconnecting");
             }
             Err(e) => {
-                tracing::warn!(error = %e, "connection failed, reconnecting in {RECONNECT_DELAY:?}");
+                attempt += 1;
+                if auth_failure {
+                    // 不可自愈：error 级本地日志（运维可见）+ 长退避
+                    tracing::error!(
+                        attempt,
+                        delay = ?RECONNECT_AUTH_FAILURE,
+                        error = %e,
+                        "authentication failed (check HELM_AGENT_TOKEN); retrying with long backoff"
+                    );
+                } else {
+                    tracing::warn!(attempt, error = %e, "connection failed, reconnecting");
+                }
             }
         }
-        tokio::time::sleep(RECONNECT_DELAY).await;
+        let jitter = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|t| t.subsec_nanos() % 401)
+            .unwrap_or(0);
+        let delay = next_reconnect_delay(attempt, auth_failure, jitter);
+        tracing::debug!(?delay, attempt, "reconnect scheduled");
+        tokio::time::sleep(delay).await;
     }
 }
 
@@ -365,6 +416,48 @@ fn derive_http_addr(server_addr: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reconnect_backoff_is_exponential_with_cap() {
+        // 普通错误：3s 起指数退避（jitter=200 即零偏移），封顶 300s
+        assert_eq!(next_reconnect_delay(0, false, 200), Duration::from_secs(3));
+        assert_eq!(next_reconnect_delay(1, false, 200), Duration::from_secs(3));
+        assert_eq!(next_reconnect_delay(2, false, 200), Duration::from_secs(6));
+        assert_eq!(next_reconnect_delay(3, false, 200), Duration::from_secs(12));
+        assert_eq!(
+            next_reconnect_delay(20, false, 200),
+            Duration::from_secs(300),
+            "must cap at RECONNECT_MAX"
+        );
+    }
+
+    #[test]
+    fn reconnect_backoff_applies_jitter() {
+        // jitter ∈ [0,400] → ±20% 偏移：3s → [2.4s, 3.6s]
+        let low = next_reconnect_delay(1, false, 0);
+        let high = next_reconnect_delay(1, false, 400);
+        assert_eq!(low, Duration::from_millis(2400));
+        assert_eq!(high, Duration::from_millis(3600));
+        // jitter=200 → 零偏移（中位）
+        assert_eq!(next_reconnect_delay(1, false, 200), Duration::from_secs(3));
+    }
+
+    #[test]
+    fn auth_failure_uses_long_backoff() {
+        // token 配错（不可自愈）：固定 300s，与 attempt 无关
+        assert_eq!(next_reconnect_delay(1, true, 0), Duration::from_secs(300));
+        assert_eq!(next_reconnect_delay(9, true, 400), Duration::from_secs(300));
+    }
+
+    #[test]
+    fn auth_failure_detection_from_tonic_status() {
+        let err: anyhow::Error = tonic::Status::unauthenticated("bad token").into();
+        assert!(is_auth_failure(&err));
+        let err: anyhow::Error = tonic::Status::unavailable("down").into();
+        assert!(!is_auth_failure(&err));
+        let err: anyhow::Error = anyhow::anyhow!("plain io error");
+        assert!(!is_auth_failure(&err));
+    }
 
     #[test]
     fn derive_http_addr_replaces_port() {
