@@ -360,7 +360,12 @@ pub(crate) fn now_ms() -> u64 {
 /// 建立到 Server 的 channel：cert_dir 非空时走 mTLS（换证书 + 双向认证）。
 async fn build_channel(config: &Config) -> Result<Channel> {
     if config.cert_dir.is_empty() {
+        // EN-72：h2 层 PING 保活——半开连接 40s 内快速检测并干净重连（B7 接管），
+        // 不再依赖对端 RST/应用层心跳；keep_alive_while_idle 覆盖空闲窗口
         return Ok(Channel::from_shared(config.server_addr.clone())?
+            .http2_keep_alive_interval(Duration::from_secs(30))
+            .keep_alive_timeout(Duration::from_secs(10))
+            .keep_alive_while_idle(true)
             .connect()
             .await?);
     }
