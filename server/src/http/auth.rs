@@ -224,7 +224,6 @@ pub fn scope_for(path: &str) -> Option<&'static str> {
             Some(s::AGENT_GEN)
         }
         "/api/v1/audit" => Some(s::AUDIT),
-        "/api/v1/skill" | "/api/v1/skill/manifest" => Some(s::SKILL),
         // api-keys / auth 账号：不编目（None → API key 一律拒绝，JWT 不受影响）
         _ => None,
     }

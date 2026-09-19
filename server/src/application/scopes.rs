@@ -17,7 +17,6 @@ pub const PROXY: &str = "proxy";
 pub const IR: &str = "ir";
 pub const AGENT_GEN: &str = "agent-gen";
 pub const AUDIT: &str = "audit";
-pub const SKILL: &str = "skill";
 
 /// 全部合法 scope（创建 key 时校验的值域；JWT 视为持有全部）。
 pub const ALL: &[&str] = &[
@@ -34,7 +33,6 @@ pub const ALL: &[&str] = &[
     IR,
     AGENT_GEN,
     AUDIT,
-    SKILL,
 ];
 
 /// scope 是否合法。

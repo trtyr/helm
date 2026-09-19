@@ -21,4 +21,3 @@ pub mod proxy_service;
 pub mod scheduler;
 pub mod scopes;
 pub mod service_service;
-pub mod skill_package;

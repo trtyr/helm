@@ -22,7 +22,6 @@ pub mod p2;
 pub mod process;
 pub mod proxies;
 pub mod services;
-pub mod skill;
 pub mod stream;
 pub mod tasks;
 pub mod terminal;
@@ -213,8 +212,6 @@ pub async fn serve(
             "/api-keys/{id}",
             get(api_keys::get_one).delete(api_keys::revoke),
         )
-        .route("/skill", get(skill::download))
-        .route("/skill/manifest", get(skill::manifest))
         .route("/auth/me", get(auth::me))
         .route("/auth/change-password", post(auth::change_password))
         .route("/auth/change-username", post(auth::change_username))

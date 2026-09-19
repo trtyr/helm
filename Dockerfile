@@ -26,7 +26,6 @@ RUN mkdir -p proto/src server/src agent/src \
 COPY proto proto
 COPY server server
 COPY agent agent
-COPY skill skill
 RUN touch proto/src/lib.rs server/src/main.rs server/src/lib.rs agent/src/main.rs \
     && cargo build --release -p helm-server
 

@@ -585,7 +585,7 @@ pub static OPS: &[OpDef] = &[
         "查询编译任务状态与日志尾",
         &[("id", "任务 uuid")]
     ),
-    // -- audit / skill 域 --
+    // -- audit 域 --
     op!(
         "audit.list",
         "audit",
@@ -594,15 +594,6 @@ pub static OPS: &[OpDef] = &[
         "/api/v1/audit",
         "审计日志（谁在什么时候对什么做了什么）",
         &[("page", "页码（可选）"), ("limit", "条数（可选）")]
-    ),
-    op!(
-        "skill.manifest",
-        "skill",
-        Os::Any,
-        "GET",
-        "/api/v1/skill/manifest",
-        "运维技能包清单（版本+文件+sha256）",
-        &[]
     ),
 ];
 

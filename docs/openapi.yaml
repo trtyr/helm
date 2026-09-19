@@ -41,8 +41,6 @@ tags:
     description: 审计日志
   - name: api-keys
     description: API key 管理
-  - name: skill
-    description: Skill 包分发
   - name: stream
     description: 实时流（WebSocket）
 
@@ -1856,41 +1854,6 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /api/v1/skill:
-    get:
-      tags: [skill]
-      summary: 下载运维 skill 完整包（zip；JWT / API key 均可，决策 011）
-      responses:
-        "200":
-          description: zip 包（内嵌 SKILL.md + scripts/ + references/）
-          content:
-            application/zip:
-              schema: { type: string, format: binary }
-
-  /api/v1/skill/manifest:
-    get:
-      tags: [skill]
-      summary: Skill 包清单（版本 + 文件 + sha256，用于升级对比）
-      responses:
-        "200":
-          description: 包清单
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  name: { type: string }
-                  version: { type: string }
-                  file_count: { type: integer }
-                  files:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        path: { type: string }
-                        size: { type: integer }
-                        sha256: { type: string }
-
 components:
   securitySchemes:
     bearerAuth:
@@ -2292,7 +2255,7 @@ components:
 
     ApiKeyScope:
       type: string
-      enum: [hosts, exec, files, services, processes, metrics, notifications, listeners, forward, proxy, ir, agent-gen, audit, skill]
+      enum: [hosts, exec, files, services, processes, metrics, notifications, listeners, forward, proxy, ir, agent-gen, audit]
       description: 功能域 scope（api-keys/账号管理永远 JWT-only，不设 scope）
 
     Account:

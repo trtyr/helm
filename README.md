@@ -64,7 +64,6 @@ agent/                # Agent 被控端（tokio，跨平台）
   src/ir/             #   IR 应急响应模块（自启动/内存扫描/文件时间线/操作等 17 个模块）
   src/privilege.rs    #   权限检测（SeDebugPrivilege / Administrators 组）
 console/              # 前端控制台（Vite + React；pnpm 独立工作流）
-skill/                # 运维 skill 包源（Server 内嵌分发：SKILL.md + Python 脚本 + references）
 deploy/               # 部署模板（systemd unit + Windows nssm 脚本）
 scripts/              # e2e 脚本（Python）+ OpenAPI 校验
 docs/                 # openapi.yaml（机器契约）+ README.md（engram 文档指针索引）；归档正文已迁 engram
@@ -146,14 +145,12 @@ Bearer 值为 JWT 或 `helm_` 前缀 API key（决策 010）均可认证；WebSo
 | POST | `/api/v1/notifications/read-all` | 全部通知已读 |
 | GET/POST | `/api/v1/api-keys` | 分页列出 / 创建 API key（**明文 key 仅创建响应返回一次**） |
 | GET/DELETE | `/api/v1/api-keys/{id}` | API key 详情 / 吊销（仅 JWT，key 不可自管） |
-| GET | `/api/v1/skill` | 下载运维 skill 完整包（zip，内嵌随 Server 分发） |
-| GET | `/api/v1/skill/manifest` | Skill 包清单（版本 + 文件 sha256） |
 | POST | `/api/v1/files/upload` | 下发文件 |
 | POST | `/api/v1/files/download` | 取回文件 |
 | POST | `/api/v1/files/list` | 列目录 |
 | POST | `/api/v1/tasks/script` | 脚本执行 |
 | POST | `/api/v1/tasks/schedule` | 定时任务 |
-| POST | `/api/v1/mcp` | MCP JSON-RPC 端点（AI 单工具 `helm` 接入，50 op，scope 授权；见 engram「接口契约/mcp」） |
+| POST | `/api/v1/mcp` | MCP JSON-RPC 端点（AI 单工具 `helm` 接入，49 op，scope 授权；见 engram「接口契约/mcp」） |
 | POST | `/api/v1/forward/exec` | 正向连接执行命令 |
 | GET/POST | `/api/v1/listeners` | 列出 / 创建监听器 |
 | PUT/DELETE | `/api/v1/listeners/{id}` | 更新 / 删除监听器 |
@@ -239,4 +236,4 @@ python3 scripts/check_docs.py     # 文档现状陈述与代码一致性校验
   运行部署 / 约定 / 现状与门禁 / 应急响应 / 规划决策树（原 docs/*.md 与 docs/plantree 全树，
   2026-09-15 迁入）。经 engram MCP（`projects` 工具 `doc_search` / `doc_get`，project_name=helm）检索。
 - [docs/README.md](docs/README.md) — 本地文档指针索引（分类 → engram 文档对照表）。
-- [docs/openapi.yaml](docs/openapi.yaml) — HTTP API 契约（OpenAPI 3.0.3，75 端点；机器契约保留本地）。
+- [docs/openapi.yaml](docs/openapi.yaml) — HTTP API 契约（OpenAPI 3.0.3，73 端点；机器契约保留本地）。

@@ -104,7 +104,6 @@ fn core_domains_are_mapped() {
         ("/api/v1/ir/scan", scopes::IR),
         ("/api/v1/agent-gen", scopes::AGENT_GEN),
         ("/api/v1/audit", scopes::AUDIT),
-        ("/api/v1/skill", scopes::SKILL),
     ] {
         assert_eq!(scope_for(path), Some(want), "{path} 编目错误");
     }
