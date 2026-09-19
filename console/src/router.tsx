@@ -197,9 +197,47 @@ export const router = createBrowserRouter([
           {
             path: "settings",
             lazy: async () => {
-              const { default: Settings } = await import("./routes/Settings");
-              return { Component: Settings };
+              const { default: SettingsLayout } = await import("./routes/settings/SettingsLayout");
+              return { Component: SettingsLayout };
             },
+            children: [
+              { index: true, element: <Navigate to="account" replace /> },
+              {
+                path: "account",
+                lazy: async () => {
+                  const { default: C } = await import("./routes/settings/AccountSettings");
+                  return { Component: C };
+                },
+              },
+              {
+                path: "api-keys",
+                lazy: async () => {
+                  const { default: C } = await import("./routes/settings/ApiKeysSettings");
+                  return { Component: C };
+                },
+              },
+              {
+                path: "appearance",
+                lazy: async () => {
+                  const { default: C } = await import("./routes/settings/AppearanceSettings");
+                  return { Component: C };
+                },
+              },
+              {
+                path: "sessions",
+                lazy: async () => {
+                  const { default: C } = await import("./routes/settings/SessionsSettings");
+                  return { Component: C };
+                },
+              },
+              {
+                path: "system",
+                lazy: async () => {
+                  const { default: C } = await import("./routes/settings/SystemSettings");
+                  return { Component: C };
+                },
+              },
+            ],
           },
           { path: "*", element: <NotFound /> },
         ],

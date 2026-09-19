@@ -1,16 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import type { components } from "../api/schema";
 import { api } from "../api/client";
 import { useWsStream } from "../api/ws";
-import { useTheme } from "../hooks/useTheme";
-import { kindDot, type NotificationItem, type NotificationKind } from "../lib/notificationStore";
 import { relativeTime } from "../lib/format";
-import { pushWindow, type Point } from "../lib/metrics";
 
 type HostView = components["schemas"]["HostView"];
 type Alert = components["schemas"]["Alert"];
+type Job = components["schemas"]["Job"];
 
 interface Frame {
   host_id?: string;
@@ -47,12 +45,72 @@ function Ring({ percent, online, total }: { percent: number; online: number; tot
   );
 }
 
-/** /dashboard 仪表盘（规格 dashboard.md F06–F11：统计卡 + 环形 + sparkline + 最近通知/告警）。 */
+/** 资源热点横向条形（roadmap T7：跨主机比大小才有意义）。 */
+function TopBars({ title, data }: { title: string; data: { id: string; label: string; value: number }[] }) {
+  const max = Math.max(...data.map((d) => d.value), 100);
+  return (
+    <div>
+      <h3 className="text-label-13 text-gray-900">{title}</h3>
+      <div className="mt-2 flex flex-col gap-1.5">
+        {data.map((d) => (
+          <div key={d.id} className="flex items-center gap-2">
+            <Link
+              to={`/hosts/${d.id}/overview`}
+              className="w-28 shrink-0 truncate text-label-12 text-gray-900 hover:text-blue-1000"
+              title={d.label}
+            >
+              {d.label}
+            </Link>
+            <div className="h-4 flex-1 overflow-hidden rounded bg-gray-200">
+              <div
+                className="h-full rounded bg-blue-1000/70"
+                style={{ width: `${Math.min(100, (d.value / max) * 100)}%` }}
+              />
+            </div>
+            <span className="w-12 shrink-0 text-right font-mono text-label-12 tabular-nums text-gray-1000">
+              {d.value.toFixed(1)}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** 活动任务行（编号 + 命令 + 状态 + 时间，点击进详情）。 */
+function TaskRow({ j, at }: { j: Job; at: number | undefined }) {
+  const active = j.status === "running" || j.status === "queued";
+  return (
+    <Link
+      to={j.id ? `/jobs/${j.id}` : "/jobs"}
+      className="flex h-8 items-center gap-3 rounded px-2 text-label-13 transition-colors duration-150 hover:bg-gray-200"
+    >
+      <span className="w-16 shrink-0 font-mono text-label-12 text-gray-900">{j.id?.slice(0, 8) ?? "—"}</span>
+      <span className="min-w-0 flex-1 truncate">
+        {j.command}
+        {(j.args ?? []).length > 0 ? ` ${(j.args ?? []).join(" ")}` : ""}
+      </span>
+      <span
+        className={`w-16 shrink-0 font-mono text-label-12 ${
+          active ? "text-blue-1000" : j.status === "succeeded" ? "text-green-1000" : "text-red-1000"
+        }`}
+      >
+        {j.status}
+      </span>
+      <span className="shrink-0 font-mono text-label-12 text-gray-900">
+        {relativeTime(j.started_at ?? undefined, at)}
+      </span>
+    </Link>
+  );
+}
+
+/**
+ * /dashboard 仪表盘（roadmap T7 四象限决议：①在线态势 ②需要关注 ③活动任务流 ④资源热点）。
+ * 全局 CPU 均值已移除（单用户伪指标）；资源热点按主机横向对比（跨主机比大小才有意义）。
+ */
 export default function Dashboard() {
-  const { theme } = useTheme();
-  const [cpuWindow, setCpuWindow] = useState<Point[]>([]);
-  // 在线主机集合（WS 过滤用；ref 保存避免重建回调）
-  const onlineHostsRef = useRef<Set<string>>(new Set());
+  // 在线主机最新 CPU/内存（WS metrics 按主机记录，决策 004：前端丢帧过滤）
+  const [cpuMem, setCpuMem] = useState<Map<string, { cpu?: number; mem?: number }>>(new Map());
 
   const hostsQuery = useQuery({
     queryKey: ["hosts", 1, null],
@@ -64,32 +122,22 @@ export default function Dashboard() {
   });
   const hosts = hostsQuery.data?.hosts ?? [];
 
-  // WS metrics：聚合在线主机 cpu.usage 均值（决策 004：前端丢帧过滤）
-  useWsStream("/api/v1/metrics/stream", (raw) => {
-    try {
-      const m = JSON.parse(raw) as Frame;
-      if (m.name !== "cpu.usage" || m.value == null || !m.ts) return;
-      const set = onlineHostsRef.current;
-      if (set.size > 0 && !set.has(m.host_id ?? "")) return;
-      setCpuWindow((prev) => pushWindow(prev, { ts: m.ts!, value: m.value! }, 60));
-    } catch {
-      // 非 JSON 帧忽略
-    }
-  });
-  // 在线主机集合随 hosts 数据同步（依赖 query data 稳定引用）
-  const hostsData = hostsQuery.data;
-  useEffect(() => {
-    const next = new Set<string>();
-    (hostsData?.hosts ?? []).filter((h) => h.online).forEach((h) => next.add(h.id ?? ""));
-    onlineHostsRef.current = next;
-  }, [hostsData]);
-
-  const notificationsQuery = useQuery({
-    queryKey: ["notifications", "recent8"],
+  const jobsQuery = useQuery({
+    queryKey: ["jobs", "dash"],
     queryFn: async () => {
-      const r = await api<{ notifications: NotificationItem[] }>("/api/v1/notifications?page=1&limit=8");
-      return { at: Date.now(), notifications: r.notifications ?? [] };
+      const r = await api<{ jobs: Job[] }>("/api/v1/jobs?page=1&limit=50");
+      return { at: Date.now(), jobs: r.jobs ?? [] };
     },
+    refetchInterval: (q) =>
+      (q.state.data?.jobs ?? []).some((j) => j.status === "running" || j.status === "queued")
+        ? 10_000
+        : 30_000,
+  });
+  const jobs = jobsQuery.data?.jobs ?? [];
+
+  const unreadQuery = useQuery({
+    queryKey: ["notifications", "unread-count"],
+    queryFn: () => api<{ count: number }>("/api/v1/notifications/unread-count"),
     refetchInterval: 30_000,
   });
   const alertsQuery = useQuery({
@@ -100,33 +148,57 @@ export default function Dashboard() {
     },
     refetchInterval: 30_000,
   });
-  const unreadQuery = useQuery({
-    queryKey: ["notifications", "unread-count"],
-    queryFn: () => api<{ count: number }>("/api/v1/notifications/unread-count"),
-    refetchInterval: 30_000,
+
+  // WS metrics：按主机分别记录最新 cpu.usage / mem.percent（资源热点 Top5 数据源）
+  useWsStream("/api/v1/metrics/stream", (raw) => {
+    try {
+      const m = JSON.parse(raw) as Frame;
+      if (!m.host_id || m.value == null || !m.ts) return;
+      if (m.name !== "cpu.usage" && m.name !== "mem.percent") return;
+      setCpuMem((prev) => {
+        const cur = prev.get(m.host_id!) ?? {};
+        const next = m.name === "cpu.usage" ? { ...cur, cpu: m.value } : { ...cur, mem: m.value };
+        const map = new Map(prev);
+        map.set(m.host_id!, next);
+        return map;
+      });
+    } catch {
+      // 非 JSON 帧忽略
+    }
   });
 
-  const online = hosts.filter((h) => h.online).length;
+  const online = hosts.filter((h) => h.online);
+  const offlineHosts = hosts.filter((h) => !h.online);
   const stale = hosts.filter((h) => h.stale).length;
-  const percent = hosts.length > 0 ? Math.round((online / hosts.length) * 100) : 0;
+  const percent = hosts.length > 0 ? Math.round((online.length / hosts.length) * 100) : 0;
   const unread = unreadQuery.data?.count ?? 0;
   const alertCount = alertsQuery.data?.alerts.length ?? 0;
-  const latestCpu = cpuWindow[cpuWindow.length - 1]?.value;
+  const runningJobs = jobs.filter((j) => j.status === "running" || j.status === "queued");
+  const finishedJobs = jobs.filter((j) => j.status !== "running" && j.status !== "queued");
+  const failedJobs = finishedJobs.filter((j) => j.status === "failed" || j.status === "timed_out");
+  const topBy = (key: "cpu" | "mem") =>
+    online
+      .map((h) => ({ id: h.id ?? "", label: h.hostname ?? "—", value: cpuMem.get(h.id ?? "")?.[key] }))
+      .filter((d): d is { id: string; label: string; value: number } => d.value != null)
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5);
+  const cpuTop = topBy("cpu");
+  const memTop = topBy("mem");
 
   if (hostsQuery.isPending) {
     return (
       <div className="flex flex-col gap-6">
         <div className="h-8 w-40 animate-pulse rounded bg-gray-200" />
-        <div className="grid grid-cols-2 gap-6 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-24 animate-pulse rounded-lg border border-gray-400 bg-gray-100" />
+            <div key={i} className="h-48 animate-pulse rounded-lg border border-gray-400 bg-gray-100" />
           ))}
         </div>
       </div>
     );
   }
 
-  if (!hostsQuery.isError && hosts.length === 0) {
+  if (hosts.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-gray-500 p-16 text-center">
         <p className="text-copy-13 text-gray-900">还没有主机</p>
@@ -140,13 +212,6 @@ export default function Dashboard() {
     );
   }
 
-  const stats = [
-    { label: "主机", value: hosts.length, unit: "台主机", to: "/hosts", dot: false },
-    { label: "在线", value: online, unit: "台在线", to: "/hosts", dot: false },
-    { label: "未读通知", value: unread, unit: "条未读", to: "/notifications", dot: unread > 0 },
-    { label: "告警", value: alertCount, unit: "最近 5 条内", to: "/alerts", dot: false },
-  ];
-
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -154,147 +219,110 @@ export default function Dashboard() {
         <p className="mt-1 text-copy-13 text-gray-900">主机状态与活动总览</p>
       </div>
 
-      {/* 统计卡 4 联 */}
-      <div className="grid grid-cols-2 gap-6 xl:grid-cols-4">
-        {stats.map((s) => (
-          <Link
-            key={s.label}
-            to={s.to}
-            className="relative flex h-24 flex-col justify-center rounded-lg border border-gray-400 px-6 transition-colors duration-150 hover:border-gray-500"
-          >
-            <span className="text-label-13 text-gray-900">{s.label}</span>
-            <span className="mt-1 font-mono text-[2rem] leading-none tabular-nums text-gray-1000">
-              {s.value}
-            </span>
-            <span className="mt-1 text-label-12 text-gray-900">{s.unit}</span>
-            {s.dot && <span className="absolute right-4 top-4 h-2 w-2 rounded-full bg-blue-1000" />}
-          </Link>
-        ))}
-      </div>
+      {/* 四象限（roadmap T7 决议） */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        {/* ① 在线态势：在线 x/y + 离线主机直达 */}
+        <section className="rounded-lg border border-gray-400 p-6">
+          <h2 className="text-heading-16">在线态势</h2>
+          <div className="mt-4 flex items-center gap-6">
+            <Ring percent={percent} online={online.length} total={hosts.length} />
+            <div className="text-label-13 text-gray-900">
+              <p>
+                在线 {online.length} · 离线 {offlineHosts.length}
+              </p>
+              <p className="mt-1 text-label-12">stale {stale}（心跳超时未注销）</p>
+            </div>
+          </div>
+          {offlineHosts.length > 0 && (
+            <div className="mt-4 flex flex-col">
+              <p className="text-label-12 text-gray-900">离线主机（点击直达）</p>
+              {offlineHosts.slice(0, 6).map((h) => (
+                <Link
+                  key={h.id}
+                  to={`/hosts/${h.id}/overview`}
+                  className="flex h-8 items-center gap-3 rounded px-2 text-label-13 transition-colors duration-150 hover:bg-gray-200"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-gray-500" />
+                  <span className="min-w-0 flex-1 truncate">{h.hostname}</span>
+                  <span className="shrink-0 font-mono text-label-12 text-gray-900">
+                    {relativeTime(h.last_seen, hostsQuery.data?.at)}
+                  </span>
+                </Link>
+              ))}
+              {offlineHosts.length > 6 && (
+                <p className="mt-1 px-2 text-label-12 text-gray-900">等 {offlineHosts.length - 6} 台…</p>
+              )}
+            </div>
+          )}
+        </section>
 
-      {/* 环形 + sparkline */}
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-        <div className="flex items-center gap-6 rounded-lg border border-gray-400 p-6 xl:col-span-5">
-          <Ring percent={percent} online={online} total={hosts.length} />
-          <div>
-            <h2 className="text-heading-16">在线率</h2>
-            <p className="mt-2 text-label-13 text-gray-900">
-              离线 {hosts.length - online - stale} · stale {stale}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-col rounded-lg border border-gray-400 p-6 xl:col-span-7">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-heading-16">全局 CPU（实时）</h2>
-            <span className="font-mono text-label-13 tabular-nums">
-              {latestCpu != null ? `${latestCpu.toFixed(1)}%` : "等待数据"}
-            </span>
-          </div>
-          <div className="mt-3 flex-1">
-            <CpuSparkline points={cpuWindow} theme={theme} />
-          </div>
-          <p className="mt-1 text-label-12 text-gray-900">{online} 台在线均值 · 60 点窗口</p>
-        </div>
-      </div>
-
-      {/* 最近通知 + 告警 */}
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-        <div className="rounded-lg border border-gray-400 p-6 xl:col-span-5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-heading-16">最近通知</h2>
+        {/* ② 需要关注：未读告警数 + 最近失败/超时任务 */}
+        <section className="rounded-lg border border-gray-400 p-6">
+          <h2 className="text-heading-16">需要关注</h2>
+          <div className="mt-4 flex items-baseline gap-3">
+            <span className="font-mono text-[2rem] leading-none tabular-nums text-gray-1000">{unread}</span>
+            <span className="text-label-13 text-gray-900">条未读通知</span>
             <Link to="/notifications" className="text-label-13 text-blue-1000 hover:underline">
-              全部 →
+              去处理 →
             </Link>
           </div>
-          <div className="mt-3 flex flex-col">
-            {notificationsQuery.isPending ? (
-              <p className="py-6 text-center text-label-13 text-gray-900">加载…</p>
-            ) : (notificationsQuery.data?.notifications ?? []).length === 0 ? (
-              <p className="py-6 text-center text-label-13 text-gray-900">暂无通知</p>
+          <p className="mt-1 text-label-12 text-gray-900">
+            最近告警 {alertCount} 条 ·{" "}
+            <Link to="/alerts" className="text-blue-1000 hover:underline">
+              查看告警 →
+            </Link>
+          </p>
+          <div className="mt-4 flex flex-col">
+            <p className="text-label-12 text-gray-900">最近失败 / 超时</p>
+            {failedJobs.length === 0 ? (
+              <p className="py-3 text-center text-label-13 text-gray-900">近期无失败任务 ✓</p>
             ) : (
-              (notificationsQuery.data?.notifications ?? []).map((n) => (
-                <MiniNotification key={n.id} n={n} at={notificationsQuery.data?.at} />
-              ))
+              failedJobs.slice(0, 5).map((j) => <TaskRow key={j.id} j={j} at={jobsQuery.data?.at} />)
             )}
           </div>
-        </div>
-        <div className="rounded-lg border border-gray-400 p-6 xl:col-span-7">
+        </section>
+
+        {/* ③ 活动任务流：running + 最近完成，点进详情 */}
+        <section className="rounded-lg border border-gray-400 p-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-heading-16">最近告警</h2>
-            <Link to="/alerts" className="text-label-13 text-blue-1000 hover:underline">
+            <h2 className="text-heading-16">活动任务流</h2>
+            <Link to="/jobs" className="text-label-13 text-blue-1000 hover:underline">
               全部 →
             </Link>
           </div>
           <div className="mt-3 flex flex-col">
-            {alertsQuery.isPending ? (
-              <p className="py-6 text-center text-label-13 text-gray-900">加载…</p>
-            ) : (alertsQuery.data?.alerts ?? []).length === 0 ? (
-              <p className="py-6 text-center text-label-13 text-gray-900">暂无告警</p>
+            <p className="text-label-12 text-gray-900">进行中（{runningJobs.length}）</p>
+            {runningJobs.length === 0 ? (
+              <p className="py-3 text-center text-label-13 text-gray-900">当前无进行中任务</p>
             ) : (
-              (alertsQuery.data?.alerts ?? []).map((a) => {
-                const h = hosts.find((x) => x.id === a.host_id);
-                return (
-                  <Link
-                    key={a.id}
-                    to={`/hosts/${a.host_id}/metrics?metric=${encodeURIComponent(a.metric_name ?? "")}`}
-                    className="flex h-8 items-center gap-3 rounded px-2 text-label-13 transition-colors duration-150 hover:bg-gray-200"
-                  >
-                    <span className="w-16 shrink-0 truncate">{h?.hostname ?? "—"}</span>
-                    <span className="w-28 shrink-0 font-mono text-gray-900">{a.metric_name}</span>
-                    <span className="font-mono font-bold tabular-nums text-red-1000">
-                      {(a.value ?? 0).toFixed(1)}
-                    </span>
-                    <span className="font-mono text-gray-900">→ {a.threshold}</span>
-                    <span className="ml-auto font-mono text-label-12 text-gray-900">
-                      {relativeTime(a.created_at, alertsQuery.data?.at)}
-                    </span>
-                  </Link>
-                );
-              })
+              runningJobs.slice(0, 5).map((j) => <TaskRow key={j.id} j={j} at={jobsQuery.data?.at} />)
             )}
           </div>
-        </div>
+          <div className="mt-4 flex flex-col">
+            <p className="text-label-12 text-gray-900">最近完成</p>
+            {finishedJobs.length === 0 ? (
+              <p className="py-3 text-center text-label-13 text-gray-900">暂无完成记录</p>
+            ) : (
+              finishedJobs.slice(0, 6).map((j) => <TaskRow key={j.id} j={j} at={jobsQuery.data?.at} />)
+            )}
+          </div>
+        </section>
+
+        {/* ④ 资源热点：CPU / 内存 Top5 在线主机横向条形 */}
+        <section className="rounded-lg border border-gray-400 p-6">
+          <h2 className="text-heading-16">资源热点（在线主机 Top5）</h2>
+          {cpuTop.length === 0 && memTop.length === 0 ? (
+            <p className="py-8 text-center text-label-13 text-gray-900">
+              暂无指标数据（等待主机心跳上报）
+            </p>
+          ) : (
+            <div className="mt-4 flex flex-col gap-5">
+              <TopBars title="CPU 使用率" data={cpuTop} />
+              <TopBars title="内存占用" data={memTop} />
+            </div>
+          )}
+        </section>
       </div>
     </div>
-  );
-}
-
-function MiniNotification({ n, at }: { n: NotificationItem; at: number | undefined }) {
-  const dot = kindDot(n.kind as NotificationKind);
-  return (
-    <div className="flex h-8 items-center gap-2.5 rounded px-2 transition-colors duration-150 hover:bg-gray-200">
-      <span className={`text-label-13 ${dot.cls}`}>{dot.symbol}</span>
-      <span className="min-w-0 flex-1 truncate text-label-13">{n.message}</span>
-      <span className="shrink-0 font-mono text-label-12 text-gray-900">
-        {relativeTime(n.created_at, at)}
-      </span>
-    </div>
-  );
-}
-
-/** 全局 CPU sparkline（决策 006：SVG 自绘 polyline，非 uPlot）。 */
-function CpuSparkline({ points, theme }: { points: Point[]; theme: string }) {
-  if (points.length < 2) {
-    return <div className="h-16" />;
-  }
-  const w = 560;
-  const h = 64;
-  const values = points.map((p) => p.value);
-  const min = Math.min(...values, 0);
-  const max = Math.max(...values, 100);
-  const path = points
-    .map((p, i) => {
-      const x = (i / (points.length - 1)) * w;
-      const y = h - ((p.value - min) / (max - min || 1)) * h;
-      return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-  const area = `${path} L${w},${h} L0,${h} Z`;
-  void theme; // 主题变化触发重绘（CSS 变量自动生效）
-  return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="h-16 w-full" preserveAspectRatio="none" aria-hidden>
-      <path d={area} fill="var(--ds-blue-1000)" fillOpacity="0.08" />
-      <path d={path} fill="none" stroke="var(--ds-blue-1000)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-    </svg>
   );
 }

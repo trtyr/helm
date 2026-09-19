@@ -1,30 +1,15 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Copy, PlugZap, KeyRound } from "lucide-react";
+import { ChevronRight, Copy, KeyRound, PlugZap } from "lucide-react";
 import { copyText } from "../lib/clipboard";
 import { SCOPES } from "../lib/scopes";
+import { MCP_CATALOG, MCP_OP_COUNT, type McpDomainGroup, type McpOp } from "../lib/mcpCatalog";
 import { toast } from "../lib/toast";
 
-/** MCP 端点页：接入地址、客户端配置示例、连接测试、scope 说明。 */
+/** MCP 端点页：接入地址、工具目录（领域 → 工具 → 参数/JSON 示例）、连接测试、scope 说明。 */
 
 const apiBase = import.meta.env.VITE_API_BASE || location.origin;
 const ENDPOINT = `${apiBase}/mcp`;
-
-const CLAUDE_SNIPPET = `claude mcp add helm --transport http ${ENDPOINT} \\
-  --header "Authorization: Bearer helm_xxxxxxxx..."`;
-
-const JSON_SNIPPET = JSON.stringify(
-  {
-    mcpServers: {
-      helm: {
-        url: ENDPOINT,
-        headers: { Authorization: "Bearer helm_xxxxxxxx..." },
-      },
-    },
-  },
-  null,
-  2,
-);
 
 interface TestResult {
   ok: boolean;
@@ -36,8 +21,7 @@ interface TestResult {
 
 /** 连接测试：用给定 key 走 initialize + tools/list，展示该 key 可见的 op 目录。 */
 async function probe(key: string): Promise<TestResult> {
-  // D5 修正：原调 /mcp-test 为幽灵端点（后端从未实现，测试恒 404）；
-  // 直连真实 MCP 端点 /mcp（与 CLAUDE_SNIPPET 宣传的接入路径一致）。
+  // 直连真实 MCP 端点 /mcp（与端点段宣传的接入路径一致）。
   const call = async (method: string, params?: object, id = 1) => {
     const resp = await fetch(`${apiBase}/mcp`, {
       method: "POST",
@@ -58,6 +42,104 @@ async function probe(key: string): Promise<TestResult> {
   if (!tool) return { ok: false, error: "服务端未返回工具" };
   const ops = [...tool.description.matchAll(/^(\S+) — /gm)].map((m) => m[1]);
   return { ok: true, protocolVersion: init.protocolVersion, opCount: ops.length, ops };
+}
+
+/** 单个工具的可展开行：点击展开完整描述、参数表与调用 JSON 示例。 */
+function OpRow({ op }: { op: McpOp }) {
+  const [open, setOpen] = useState(false);
+  const argsExample: Record<string, string> = {};
+  for (const [k] of op.params) {
+    argsExample[k] = k === "page" ? "1" : k === "limit" ? "20" : `<${k}>`;
+  }
+  const example = JSON.stringify(
+    { op: op.name, args: Object.keys(argsExample).length > 0 ? argsExample : {} },
+    null,
+    2,
+  );
+  return (
+    <div className="border-b border-gray-400/60 last:border-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-label-13 transition-colors duration-150 hover:bg-gray-200"
+      >
+        <ChevronRight
+          size={12}
+          strokeWidth={1.5}
+          className={`shrink-0 transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+        />
+        <span className="shrink-0 font-mono">{op.name}</span>
+        {op.os === "Windows" && (
+          <span className="shrink-0 rounded border border-gray-400 px-1 text-label-12 text-gray-900">Windows</span>
+        )}
+        <span className="ml-auto min-w-0 truncate text-gray-900">{op.summary}</span>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-2 px-6 pb-3">
+          <div className="flex flex-wrap items-center gap-2 text-label-12 text-gray-900">
+            <span className="rounded border border-gray-400 px-1 font-mono">{op.method}</span>
+            <span className="font-mono">{op.path}</span>
+            <span className="ml-auto font-mono">scope: {op.scope}</span>
+          </div>
+          {op.params.length > 0 && (
+            <div className="flex flex-col gap-0.5">
+              <p className="text-label-12 text-gray-900">参数</p>
+              {op.params.map(([k, v]) => (
+                <div key={k} className="flex gap-2 text-label-12">
+                  <code className="w-32 shrink-0 font-mono text-gray-1000">{k}</code>
+                  <span className="text-gray-900">{v}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="relative">
+            <pre className="overflow-x-auto rounded-md bg-[#0d0d0d] px-3 py-2 font-mono text-label-12 text-gray-100">
+              {example}
+            </pre>
+            <button
+              type="button"
+              aria-label={`复制 ${op.name} 示例`}
+              onClick={() => copyText(example).then((ok) => toast(ok ? "已复制" : "复制失败", ok ? undefined : "warn"))}
+              className="absolute right-2 top-2 text-gray-900 transition-colors duration-150 hover:text-gray-1000"
+            >
+              <Copy size={12} strokeWidth={1.5} />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 领域分组可展开块：域标题 → 该域工具列表。 */
+function DomainGroup({ group }: { group: McpDomainGroup }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-lg border border-gray-400">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors duration-150 hover:bg-gray-200/60"
+      >
+        <ChevronRight
+          size={14}
+          strokeWidth={1.5}
+          className={`shrink-0 transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+        />
+        <span className="text-label-14">{group.domain}</span>
+        <span className="ml-auto font-mono text-label-12 text-gray-900">{group.ops.length} op</span>
+      </button>
+      {open && (
+        <div className="border-t border-gray-400 px-2 py-1">
+          {group.ops.map((op) => (
+            <OpRow key={op.name} op={op} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function Mcp() {
@@ -112,33 +194,21 @@ export default function Mcp() {
         </p>
       </section>
 
-      {/* 接入配置示例 */}
+      {/* 工具目录（roadmap T9：领域 → 工具 → 参数描述/JSON 示例，可展开） */}
       <section className="rounded-lg border border-gray-400 p-6">
-        <h2 className="text-heading-16">客户端接入配置</h2>
-        {[
-          { label: "Claude Code（CLI）", snippet: CLAUDE_SNIPPET },
-          { label: "通用 JSON（mcpServers）", snippet: JSON_SNIPPET },
-        ].map(({ label, snippet }) => (
-          <div key={label} className="mt-3">
-            <p className="text-label-13 text-gray-900">{label}</p>
-            <div className="mt-1 flex items-start gap-2 rounded-md border border-gray-400 bg-gray-100 p-3">
-              <pre className="flex-1 overflow-x-auto whitespace-pre-wrap break-all font-mono text-label-12">
-                {snippet}
-              </pre>
-              <button
-                type="button"
-                aria-label={`复制${label}配置`}
-                title="复制"
-                onClick={() => copy(snippet, "已复制配置")}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-gray-400 hover:bg-gray-200"
-              >
-                <Copy size={14} strokeWidth={1.5} />
-              </button>
-            </div>
-          </div>
-        ))}
-        <p className="mt-2 text-label-12 text-gray-900">
-          把 <code className="font-mono">helm_xxxxxxxx...</code> 换成你签发的凭证明文。
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-heading-16">工具目录</h2>
+          <span className="text-label-12 text-gray-900">
+            {MCP_CATALOG.length} 域 · {MCP_OP_COUNT} op
+          </span>
+        </div>
+        <div className="mt-3 flex flex-col gap-2">
+          {MCP_CATALOG.map((g) => (
+            <DomainGroup key={g.domain} group={g} />
+          ))}
+        </div>
+        <p className="mt-3 text-label-12 text-gray-900">
+          实际可见目录由凭证 scope 决定——用下方「连接测试」查看某凭证的真实可见集。
         </p>
       </section>
 
@@ -193,7 +263,7 @@ export default function Mcp() {
         <div className="flex items-baseline justify-between">
           <h2 className="text-heading-16">Scope 与可见操作</h2>
           <Link
-            to="/settings"
+            to="/settings/api-keys"
             className="flex items-center gap-1 text-label-13 text-blue-1000 hover:underline"
           >
             <KeyRound size={13} strokeWidth={1.5} />

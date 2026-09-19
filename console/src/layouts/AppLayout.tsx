@@ -16,7 +16,7 @@ import { ToastHost } from "../components/ToastHost";
 import { NotificationBell } from "../components/NotificationBell";
 import { clearChunkReloadFlag } from "../routes/placeholder";
 
-/** 全局布局：Topbar 56 + Sidebar 220（可折叠 64）+ 内容 + StatusBar 28。 */
+/** 全局布局：Topbar 56 + Sidebar 144（可折叠 64）+ 内容 + StatusBar 28。 */
 
 /**
  * 侧栏导航：`to` 为入口，`match` 为高亮路径组（合并菜单的子页面同组高亮，
@@ -94,7 +94,7 @@ export default function AppLayout() {
         {/* Sidebar */}
         <nav
           className={`flex shrink-0 flex-col border-r border-gray-400 transition-[width] duration-150 ${
-            collapsed ? "w-16" : "w-55"
+            collapsed ? "w-16" : "w-36"
           }`}
         >
           <div className="flex flex-col gap-0.5 p-2">
