@@ -138,6 +138,22 @@ impl NotificationRepo {
         sqlx::query_scalar(sql).fetch_one(self.db.pool()).await
     }
 
+    /// 过滤条件下的总数（P001-T4 分页栏 total；WHERE 分支与 list_paged 镜像，含 q 搜索）。
+    pub async fn count_filtered(&self, unread_only: bool, q: Option<&str>) -> sqlx::Result<i64> {
+        let mut qb =
+            sqlx::QueryBuilder::<sqlx::Postgres>::new("SELECT COUNT(*) FROM notifications");
+        if unread_only {
+            qb.push(" WHERE NOT read");
+        }
+        if let Some(kw) = q {
+            qb.push(if unread_only { " AND (" } else { " WHERE (" })
+                .push("message ILIKE ")
+                .push_bind(format!("%{kw}%"))
+                .push(")");
+        }
+        qb.build_query_scalar().fetch_one(self.db.pool()).await
+    }
+
     /// 标记单条已读。返回是否命中。
     pub async fn mark_read(&self, id: Uuid) -> sqlx::Result<bool> {
         sqlx::query("UPDATE notifications SET read = TRUE WHERE id = $1")

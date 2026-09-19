@@ -62,6 +62,45 @@ async fn count_for(repo: &NotificationRepo, host_id: Uuid, unread_only: bool) ->
         .count()
 }
 
+/// P001-T4 缺陷回归：count_filtered 必须应用 q 搜索（否则搜索时「共 N 条」按全集算，翻页进空页）。
+#[tokio::test]
+async fn count_filtered_applies_search_query() {
+    let db = common::connect().await;
+    let hostname = format!("itest-notif-cf-{}", std::process::id());
+    let host_id = setup_host(&db, &hostname).await;
+    let repo = NotificationRepo::new(db.clone());
+    let svc = NotificationService::new(db.clone(), StreamRegistry::new());
+
+    // 两条不同类型通知（不同 kind 避免冷却合并），message 各含独特关键词
+    svc.notify(host_id, KIND_ONLINE, "alpha-cf-keyword up")
+        .await
+        .expect("notify 1");
+    svc.notify(host_id, KIND_OFFLINE, "beta-other-content")
+        .await
+        .expect("notify 2");
+
+    // 一致性：count_filtered 与 list_paged 同过滤口径（q 命中的行数）
+    let rows = repo
+        .list_paged(1000, 0, false, None, Some("alpha-cf"))
+        .await
+        .unwrap()
+        .iter()
+        .filter(|r| r.host_id == host_id)
+        .count();
+    let total = repo.count_filtered(false, Some("alpha-cf")).await.unwrap();
+    assert_eq!(
+        total, rows as i64,
+        "count_filtered 应与 list_paged 同过滤口径（含 q）"
+    );
+    assert!(total >= 1);
+
+    // 组合分支：unread_only 与 q 叠加不报错且不过量
+    let unread_hits = repo.count_filtered(true, Some("alpha-cf")).await.unwrap();
+    assert!(unread_hits <= total);
+
+    cleanup(&db, &hostname).await;
+}
+
 #[tokio::test]
 async fn inbound_metric_over_threshold_triggers_alert_notification() {
     let db = common::connect().await;

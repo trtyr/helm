@@ -44,7 +44,9 @@ pub async fn list_notifications(
     let rows = NotificationService::new(state.db.clone(), state.streams)
         .list_paged(q.limit.max(1), offset, unread_only, sort, q.q.as_deref())
         .await?;
-    let total = NotificationRepo::new(state.db).count(unread_only).await?;
+    let total = NotificationRepo::new(state.db)
+        .count_filtered(unread_only, q.q.as_deref())
+        .await?;
     Ok(Json(json!({ "notifications": rows, "total": total })))
 }
 
