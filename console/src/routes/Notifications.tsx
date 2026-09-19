@@ -43,7 +43,7 @@ export default function Notifications() {
   });
 
   const listQuery = useQuery({
-    queryKey: ["notifications", "page", kind, unreadOnly, page, sortField],
+    queryKey: ["notifications", "page", kind, unreadOnly, page, sortField, limit],
     queryFn: async () => {
       const q = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (kind !== "all") q.set("kind", kind);

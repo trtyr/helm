@@ -43,7 +43,7 @@ export default function Jobs() {
   };
 
   const jobsQuery = useQuery({
-    queryKey: ["jobs", page, status, hostFilter, sortField],
+    queryKey: ["jobs", page, limit, status, hostFilter, sortField],
     queryFn: async () => {
       // D4：服务端过滤（status/host_id），不再前端筛当前页
       const sp = new URLSearchParams({ page: String(page), limit: String(limit) });
