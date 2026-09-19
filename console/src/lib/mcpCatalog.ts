@@ -385,6 +385,11 @@ export const MCP_CATALOG: McpDomainGroup[] = [
         summary: "停止代理",
         params: [["id", "代理 uuid"]] as [string, string][],
       },
+    ],
+  },
+  {
+    domain: "ir",
+    ops: [
       {
         name: "ir.scan",
         scope: "ir",
@@ -457,6 +462,11 @@ export const MCP_CATALOG: McpDomainGroup[] = [
         summary: "与基线快照对比，diff 出新增/移除项",
         params: [["id", "基线快照 uuid"], ["agent_id", "agent_id"]] as [string, string][],
       },
+    ],
+  },
+  {
+    domain: "agent-gen",
+    ops: [
       {
         name: "agent_gen.create",
         scope: "agent-gen",
