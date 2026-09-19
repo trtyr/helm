@@ -4,6 +4,7 @@ import { Info } from "lucide-react";
 import type { components } from "../api/schema";
 import { api } from "../api/client";
 import { relativeTime } from "../lib/format";
+import { SortableTh } from "../components/tableControls";
 
 type Alert = components["schemas"]["Alert"];
 type Host = components["schemas"]["Host"];
@@ -13,11 +14,26 @@ export default function Alerts() {
   const [params, setParams] = useSearchParams();
   const page = Math.max(1, Number(params.get("page") ?? 1));
   const limit = 20;
+  // 列表基座（P001-T1c）：排序走服务端（sort 参数），状态存 URL params
+  const sortField = params.get("sort") ?? "";
+  const sortDesc = sortField.endsWith(":desc");
+  const sortKey = sortField.replace(":desc", "");
+  const sort: { key: string; desc: boolean } | null = sortKey ? { key: sortKey, desc: sortDesc } : null;
+  const toggleSort = (key: string) => {
+    const next = new URLSearchParams(params);
+    if (sort?.key === key) {
+      if (sort.desc) next.delete("sort");
+      else next.set("sort", `${key}:desc`);
+    } else next.set("sort", key);
+    setParams(next, { replace: true });
+  };
 
   const alertsQuery = useQuery({
-    queryKey: ["alerts", page],
+    queryKey: ["alerts", page, sortField],
     queryFn: async () => {
-      const r = await api<{ alerts: Alert[] }>(`/api/v1/alerts?page=${page}&limit=${limit}`);
+      const sp = new URLSearchParams({ page: String(page), limit: String(limit) });
+      if (sortField) sp.set("sort", sortField);
+      const r = await api<{ alerts: Alert[] }>(`/api/v1/alerts?${sp}`);
       return { at: Date.now(), alerts: r.alerts ?? [] };
     },
     refetchInterval: 30_000,
@@ -50,11 +66,11 @@ export default function Alerts() {
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-400 text-label-13 text-gray-900">
-              <th className="px-4 py-2 font-normal">主机</th>
-              <th className="px-4 py-2 font-normal">指标</th>
-              <th className="px-4 py-2 font-normal">实测 → 阈值</th>
-              <th className="px-4 py-2 font-normal">级别</th>
-              <th className="px-4 py-2 font-normal">时间</th>
+              <SortableTh className="px-4 py-2" label="主机" sortKey="host_id" sort={sort} onSort={toggleSort} />
+              <SortableTh className="px-4 py-2" label="指标" sortKey="metric_name" sort={sort} onSort={toggleSort} />
+              <SortableTh className="px-4 py-2" label="实测 → 阈值" sortKey="value" sort={sort} onSort={toggleSort} />
+              <SortableTh className="px-4 py-2" label="级别" sortKey="level" sort={sort} onSort={toggleSort} />
+              <SortableTh className="px-4 py-2" label="时间" sortKey="created_at" sort={sort} onSort={toggleSort} />
             </tr>
           </thead>
           <tbody>

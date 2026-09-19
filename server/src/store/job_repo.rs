@@ -103,24 +103,42 @@ impl JobRepo {
     }
 
     /// 分页列出 job（按 started_at 倒序）。
-    pub async fn list_paged(&self, limit: i64, offset: i64) -> sqlx::Result<Vec<JobRow>> {
-        sqlx::query_as::<_, JobRow>(
-            "SELECT id, task_id, host_id, status, command, args, output, exit_code,
-                    started_at, finished_at FROM jobs ORDER BY started_at DESC NULLS LAST LIMIT $1 OFFSET $2",
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(self.db.pool())
-        .await
+    pub async fn list_paged(
+        &self,
+        limit: i64,
+        offset: i64,
+        sort: Option<(String, bool)>,
+    ) -> sqlx::Result<Vec<JobRow>> {
+        self.list_filtered(None, None, limit, offset, sort).await
     }
 
     /// 过滤列出（D4）：按 status / host_id 可选过滤，全为 None 时等价 list_paged。
+    /// sort（P001-T1c）：`(field, desc)`——field 必须命中白名单（store::order_by），未命中回退默认。
+    /// 过滤条件下的总数（P001-T4 分页栏 total）。
+    pub async fn count_filtered(
+        &self,
+        status: Option<&str>,
+        host_id: Option<Uuid>,
+    ) -> sqlx::Result<i64> {
+        let mut qb =
+            sqlx::QueryBuilder::<sqlx::Postgres>::new("SELECT COUNT(*) FROM jobs WHERE 1=1");
+        if let Some(s) = status {
+            qb.push(" AND status = ").push_bind(s.to_string());
+        }
+        if let Some(h) = host_id {
+            qb.push(" AND host_id = ").push_bind(h);
+        }
+        let (n,): (i64,) = qb.build_query_as().fetch_one(self.db.pool()).await?;
+        Ok(n)
+    }
+
     pub async fn list_filtered(
         &self,
         status: Option<&str>,
         host_id: Option<Uuid>,
         limit: i64,
         offset: i64,
+        sort: Option<(String, bool)>,
     ) -> sqlx::Result<Vec<JobRow>> {
         let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
             "SELECT id, task_id, host_id, status, command, args, output, exit_code,
@@ -132,7 +150,25 @@ impl JobRepo {
         if let Some(h) = host_id {
             qb.push(" AND host_id = ").push_bind(h);
         }
-        qb.push(" ORDER BY started_at DESC NULLS LAST LIMIT ")
+        let (field, desc) = sort
+            .as_ref()
+            .map(|(f, d)| (f.as_str(), *d))
+            .unwrap_or(("started_at", true));
+        let order = super::order_by(
+            field,
+            desc,
+            &[
+                ("started_at", "started_at {dir} NULLS LAST"),
+                ("status", "status {dir}"),
+                ("host_id", "host_id {dir}"),
+                ("exit_code", "exit_code {dir}"),
+                ("command", "command {dir}"),
+            ],
+            "started_at DESC NULLS LAST",
+        );
+        qb.push(" ORDER BY ")
+            .push(order)
+            .push(" LIMIT ")
             .push_bind(limit)
             .push(" OFFSET ")
             .push_bind(offset);

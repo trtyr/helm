@@ -20,6 +20,8 @@ pub struct JobQuery {
     pub status: Option<String>,
     /// D4：按主机过滤
     pub host_id: Option<Uuid>,
+    /// P001-T1c：排序（`field` 或 `field:desc`；白名单字段，未命中回退默认）
+    pub sort: Option<String>,
 }
 
 fn default_page() -> i64 {
@@ -36,10 +38,13 @@ pub async fn list_jobs(
     Query(q): Query<JobQuery>,
 ) -> Result<Json<Value>, Error> {
     let offset = (q.page.max(1) - 1) * q.limit.max(1);
-    let jobs = JobRepo::new(state.db)
-        .list_filtered(q.status.as_deref(), q.host_id, q.limit.max(1), offset)
+    let sort = crate::store::parse_sort(q.sort.as_ref());
+    let repo = JobRepo::new(state.db);
+    let jobs = repo
+        .list_filtered(q.status.as_deref(), q.host_id, q.limit.max(1), offset, sort)
         .await?;
-    Ok(Json(json!({ "jobs": jobs })))
+    let total = repo.count_filtered(q.status.as_deref(), q.host_id).await?;
+    Ok(Json(json!({ "jobs": jobs, "total": total })))
 }
 
 /// 查询 Job：GET /api/v1/jobs/{id}

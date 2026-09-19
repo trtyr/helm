@@ -1,12 +1,13 @@
 import { useMemo } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { components } from "../../api/schema";
 import { api } from "../../api/client";
 import { relativeTime } from "../../lib/format";
 import { jobStatusMeta } from "../../lib/job";
 import { SkeletonRows } from "../../components/ui";
+import { SortableTh } from "../../components/tableControls";
+import { PaginationBar } from "../../components/pagination";
 
 type Job = components["schemas"]["Job"];
 type Host = components["schemas"]["Host"];
@@ -26,17 +27,31 @@ export default function Jobs() {
   const status = params.get("status") ?? "all";
   const hostFilter = params.get("host") ?? "";
   const page = Math.max(1, Number(params.get("page") ?? 1));
-  const limit = 20;
+  const limit = Math.max(1, Number(params.get("limit") ?? 20));
+  // 列表基座（P001-T1c）：排序走服务端（sort 参数），状态存 URL params
+  const sortField = params.get("sort") ?? "";
+  const sortDesc = sortField.endsWith(":desc");
+  const sortKey = sortField.replace(":desc", "");
+  const sort: { key: string; desc: boolean } | null = sortKey ? { key: sortKey, desc: sortDesc } : null;
+  const toggleSort = (key: string) => {
+    const next = new URLSearchParams(params);
+    if (sort?.key === key) {
+      if (sort.desc) next.delete("sort");
+      else next.set("sort", `${key}:desc`);
+    } else next.set("sort", key);
+    setParams(next, { replace: true });
+  };
 
   const jobsQuery = useQuery({
-    queryKey: ["jobs", page, status, hostFilter],
+    queryKey: ["jobs", page, status, hostFilter, sortField],
     queryFn: async () => {
       // D4：服务端过滤（status/host_id），不再前端筛当前页
       const sp = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (status !== "all") sp.set("status", status);
       if (hostFilter) sp.set("host_id", hostFilter);
-      const r = await api<{ jobs: Job[] }>(`/api/v1/jobs?${sp}`);
-      return { at: Date.now(), jobs: r.jobs ?? [] }; // now 在异步侧产生（render 纯度）
+      if (sortField) sp.set("sort", sortField);
+      const r = await api<{ jobs: Job[]; total?: number }>(`/api/v1/jobs?${sp}`);
+      return { at: Date.now(), jobs: r.jobs ?? [], total: r.total ?? 0 }; // now 在异步侧产生（render 纯度）
     },
     refetchInterval: (q) =>
       (q.state.data?.jobs ?? []).some((j) => j.status === "running" || j.status === "queued") ? 10_000 : false,
@@ -51,8 +66,8 @@ export default function Jobs() {
     return (id: string | undefined) => map.get(id ?? "") ?? "—";
   }, [hostsQuery.data]);
 
-  // D4：过滤在服务端完成，直接渲染返回集
-  const jobs = jobsQuery.data?.jobs ?? [];
+  // D4：过滤在服务端完成，直接渲染返回集（useMemo 防每渲染新数组触发下游 useMemo 重算）
+  const jobs = useMemo(() => jobsQuery.data?.jobs ?? [], [jobsQuery.data]);
   // 统计卡片：无过滤时即全量；有过滤时统计的是过滤后集合（语义：当前视图分布）
   const counts = useMemo(() => {
     const all = jobs;
@@ -117,11 +132,11 @@ export default function Jobs() {
           <thead>
             <tr className="border-b border-gray-400 text-label-13 text-gray-900">
               <th className="w-20 px-4 py-2.5 font-normal">编号</th>
-              <th className="px-4 py-2.5 font-normal">主机</th>
-              <th className="px-4 py-2.5 font-normal">命令</th>
-              <th className="px-4 py-2.5 font-normal">状态</th>
-              <th className="px-4 py-2.5 font-normal">退出码</th>
-              <th className="px-4 py-2.5 font-normal">时间</th>
+              <SortableTh className="px-4" label="主机" sortKey="host_id" sort={sort} onSort={toggleSort} />
+              <SortableTh className="px-4" label="命令" sortKey="command" sort={sort} onSort={toggleSort} />
+              <SortableTh className="px-4" label="状态" sortKey="status" sort={sort} onSort={toggleSort} />
+              <SortableTh className="px-4" label="退出码" sortKey="exit_code" sort={sort} onSort={toggleSort} />
+              <SortableTh className="px-4" label="时间" sortKey="started_at" sort={sort} onSort={toggleSort} />
             </tr>
           </thead>
           <tbody>
@@ -198,36 +213,7 @@ export default function Jobs() {
         </table>
 
         {/* 底栏分页 */}
-        <div className="flex h-12 items-center justify-between border-t border-gray-400 px-4 text-label-13 text-gray-900">
-          <span>
-            {status !== "all" || hostFilter
-              ? `过滤后 ${jobs.length} 条 · 第 ${page} 页`
-              : (jobsQuery.data?.jobs?.length ?? 0) > 0
-                ? `第 ${page} 页 · 本页 ${jobsQuery.data?.jobs?.length} 条`
-                : "无任务"}
-          </span>
-          <span className="flex items-center gap-1">
-            <button
-              type="button"
-              disabled={page <= 1}
-              onClick={() => patchParams({ page: String(page - 1) })}
-              aria-label="上一页"
-              className="flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 hover:bg-gray-200 disabled:opacity-30"
-            >
-              <ChevronLeft size={14} strokeWidth={1.5} />
-            </button>
-            <span className="font-mono">{page}</span>
-            <button
-              type="button"
-              disabled={(jobsQuery.data?.jobs ?? []).length < limit}
-              onClick={() => patchParams({ page: String(page + 1) })}
-              aria-label="下一页"
-              className="flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 hover:bg-gray-200 disabled:opacity-30"
-            >
-              <ChevronRight size={14} strokeWidth={1.5} />
-            </button>
-          </span>
-        </div>
+        <PaginationBar page={page} limit={limit} total={jobsQuery.data?.total ?? 0} onPatch={patchParams} />
       </div>
     </div>
   );

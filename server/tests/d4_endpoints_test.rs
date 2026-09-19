@@ -72,7 +72,7 @@ async fn jobs_list_filters_by_status_and_host() {
 
     // status 过滤
     let running = JobRepo::new(db.clone())
-        .list_filtered(Some("running"), None, 100, 0)
+        .list_filtered(Some("running"), None, 100, 0, None)
         .await
         .expect("filter status");
     assert!(running.iter().any(|j| j.id == ja.id));
@@ -83,7 +83,7 @@ async fn jobs_list_filters_by_status_and_host() {
 
     // host_id 过滤
     let of_b = JobRepo::new(db.clone())
-        .list_filtered(None, Some(host_b), 100, 0)
+        .list_filtered(None, Some(host_b), 100, 0, None)
         .await
         .expect("filter host");
     assert!(of_b.iter().all(|j| j.host_id == host_b));
@@ -91,7 +91,7 @@ async fn jobs_list_filters_by_status_and_host() {
 
     // 组合过滤
     let both = JobRepo::new(db.clone())
-        .list_filtered(Some("queued"), Some(host_b), 100, 0)
+        .list_filtered(Some("queued"), Some(host_b), 100, 0, None)
         .await
         .expect("filter both");
     assert!(both.iter().any(|j| j.id == jb.id));
@@ -102,7 +102,7 @@ async fn jobs_list_filters_by_status_and_host() {
 
     // 无过滤 = 全量（两台都有）
     let all = JobRepo::new(db.clone())
-        .list_filtered(None, None, 100, 0)
+        .list_filtered(None, None, 100, 0, None)
         .await
         .expect("no filter");
     assert!(all.iter().any(|j| j.id == ja.id) && all.iter().any(|j| j.id == jb.id));

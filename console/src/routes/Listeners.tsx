@@ -7,6 +7,8 @@ import { api } from "../api/client";
 import { toast } from "../lib/toast";
 import { relativeTime } from "../lib/format";
 import { SkeletonRows, StatusDot } from "../components/ui";
+import { useTableControls } from "../lib/useTableControls";
+import { SortableTh } from "../components/tableControls";
 
 type Listener = components["schemas"]["Listener"];
 
@@ -26,6 +28,18 @@ export default function Listeners() {
     refetchInterval: 30_000,
   });
   const listeners = listQuery.data?.listeners ?? [];
+
+  // 列表基座（P001-T1）：排序 + 搜索
+  const { search, setSearch, sort, toggleSort, visible } = useTableControls(listeners, {
+    columns: [
+      { key: "status", value: (l) => l.status ?? "" },
+      { key: "name", value: (l) => l.name ?? "" },
+      { key: "addr", value: (l) => l.addr ?? "" },
+      { key: "proto", value: (l) => l.proto ?? "" },
+      { key: "created_at", value: (l) => l.created_at ?? "" },
+    ],
+    searchText: (l) => `${l.name ?? ""} ${l.addr ?? ""} ${l.proto ?? ""}`,
+  });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["listeners"] });
 
@@ -71,15 +85,25 @@ export default function Listeners() {
         </button>
       </div>
 
+      <div className="flex items-center gap-2">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="搜索名称 / 地址 / 协议"
+          aria-label="搜索监听器"
+          className="h-8 w-56 rounded-md border border-gray-400 bg-gray-100 px-2.5 text-label-13 outline-none transition-colors duration-150 hover:border-gray-500 focus-visible:border-gray-600"
+        />
+      </div>
+
       <div className="overflow-hidden rounded-lg border border-gray-400 bg-background-100">
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-400 text-label-13 text-gray-900">
-              <th className="w-14 whitespace-nowrap px-3 py-2.5 font-normal">状态</th>
-              <th className="w-px whitespace-nowrap px-3 py-2.5 font-normal">名称</th>
-              <th className="w-full max-w-0 px-4 py-2.5 font-normal">地址</th>
-              <th className="w-px whitespace-nowrap px-3 py-2.5 font-normal">协议</th>
-              <th className="w-px whitespace-nowrap px-3 py-2.5 font-normal">创建时间</th>
+              <SortableTh className="w-14 whitespace-nowrap" label="状态" sortKey="status" sort={sort} onSort={toggleSort} />
+              <SortableTh className="w-px whitespace-nowrap" label="名称" sortKey="name" sort={sort} onSort={toggleSort} />
+              <SortableTh className="w-full max-w-0" label="地址" sortKey="addr" sort={sort} onSort={toggleSort} />
+              <SortableTh className="w-px whitespace-nowrap" label="协议" sortKey="proto" sort={sort} onSort={toggleSort} />
+              <SortableTh className="w-px whitespace-nowrap" label="创建时间" sortKey="created_at" sort={sort} onSort={toggleSort} />
               <th className="w-px whitespace-nowrap px-3 py-2.5 text-right font-normal">操作</th>
             </tr>
           </thead>
@@ -108,7 +132,7 @@ export default function Listeners() {
                 </td>
               </tr>
             ) : (
-              listeners.map((l) => {
+              visible.map((l) => {
                 const running = l.status === "running";
                 return (
                   <tr

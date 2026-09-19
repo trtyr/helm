@@ -911,6 +911,10 @@ paths:
           in: query
           description: 按主机过滤
           schema: { type: string, format: uuid }
+        - name: sort
+          in: query
+          description: 排序（`field` 或 `field:desc`；白名单：started_at/status/host_id/exit_code/command，未命中回退 started_at DESC NULLS LAST）
+          schema: { type: string }
       responses:
         "200":
           description: Job 列表
@@ -922,6 +926,9 @@ paths:
                   jobs:
                     type: array
                     items: { $ref: "#/components/schemas/Job" }
+                  total:
+                    type: integer
+                    description: 过滤条件下的总条数（P001-T4 分页栏）
 
   /api/v1/jobs/{id}:
     parameters:
@@ -1602,6 +1609,10 @@ paths:
         - name: limit
           in: query
           schema: { type: integer, default: 50 }
+        - name: sort
+          in: query
+          description: 排序（`field` 或 `field:desc`；白名单：created_at/actor/action/resource，未命中回退 created_at DESC）
+          schema: { type: string }
       responses:
         "200":
           description: 审计记录
@@ -1625,6 +1636,10 @@ paths:
         - name: limit
           in: query
           schema: { type: integer, default: 50 }
+        - name: sort
+          in: query
+          description: 排序（`field` 或 `field:desc`；白名单：created_at/metric_name/level/value/host_id，未命中回退 created_at DESC）
+          schema: { type: string }
       responses:
         "200":
           description: 告警列表
@@ -1652,6 +1667,10 @@ paths:
           in: query
           description: 只看未读（"true" / "1"）
           schema: { type: string }
+        - name: sort
+          in: query
+          description: 排序（`field` 或 `field:desc`；白名单：created_at/type/read，未命中回退 created_at DESC）
+          schema: { type: string }
       responses:
         "200":
           description: 通知列表（按时间倒序）
@@ -1663,6 +1682,9 @@ paths:
                   notifications:
                     type: array
                     items: { $ref: "#/components/schemas/Notification" }
+                  total:
+                    type: integer
+                    description: 过滤条件下的总条数（P001-T4 分页栏）
 
   /api/v1/notifications/unread-count:
     get:

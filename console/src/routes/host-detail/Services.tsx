@@ -6,6 +6,8 @@ import type { components } from "../../api/schema";
 import { api, pickAgent } from "../../api/client";
 import { useWsStream } from "../../api/ws";
 import { toast } from "../../lib/toast";
+import { useTableControls } from "../../lib/useTableControls";
+import { SortableTh } from "../../components/tableControls";
 
 type HostView = components["schemas"]["HostView"];
 type Agent = components["schemas"]["Agent"];
@@ -101,6 +103,19 @@ export default function Services() {
     });
   }, [servicesQuery.data, search, statusFilter]);
 
+  // 列表基座（P001-T1）：排序层（搜索/状态筛选沿用页面既有实现）
+  const { sort: svcSort, toggleSort: svcToggleSort, visible: svcVisible } = useTableControls(
+    services,
+    {
+      columns: [
+        { key: "name", value: (s) => s.name ?? "" },
+        { key: "description", value: (s) => s.display_name ?? s.description ?? "" },
+        { key: "status", value: (s) => s.status ?? "" },
+        { key: "pid", value: (s) => s.pid ?? 0 },
+      ],
+    },
+  );
+
   const counts = useMemo(() => {
     const all = servicesQuery.data?.services ?? [];
     return {
@@ -188,21 +203,21 @@ export default function Services() {
             <tr className="border-b border-gray-400 text-label-13 text-gray-900">
               {isSystemd ? (
                 <>
-                  <th className="w-44 px-4 py-2.5 font-normal">单元</th>
+                  <SortableTh className="w-44" label="单元" sortKey="name" sort={svcSort} onSort={svcToggleSort} />
                   <th className="px-4 py-2.5 font-normal">描述</th>
-                  <th className="w-24 px-4 py-2.5 font-normal">状态</th>
+                  <SortableTh className="w-24" label="状态" sortKey="status" sort={svcSort} onSort={svcToggleSort} />
                   <th className="w-24 px-4 py-2.5 font-normal">自启</th>
                   <th className="w-28 px-4 py-2.5 font-normal">运行时长</th>
-                  <th className="w-20 px-4 py-2.5 font-normal">PID</th>
+                  <SortableTh className="w-20" label="PID" sortKey="pid" sort={svcSort} onSort={svcToggleSort} />
                   <th className="w-32 px-4 py-2.5 text-right font-normal">操作</th>
                 </>
               ) : (
                 <>
-                  <th className="w-44 px-4 py-2.5 font-normal">服务名</th>
+                  <SortableTh className="w-44" label="服务名" sortKey="name" sort={svcSort} onSort={svcToggleSort} />
                   <th className="px-4 py-2.5 font-normal">显示名 / 描述</th>
-                  <th className="w-24 px-4 py-2.5 font-normal">状态</th>
+                  <SortableTh className="w-24" label="状态" sortKey="status" sort={svcSort} onSort={svcToggleSort} />
                   <th className="w-24 px-4 py-2.5 font-normal">启动类型</th>
-                  <th className="w-20 px-4 py-2.5 font-normal">PID</th>
+                  <SortableTh className="w-20" label="PID" sortKey="pid" sort={svcSort} onSort={svcToggleSort} />
                   <th className="w-32 px-4 py-2.5 text-right font-normal">操作</th>
                 </>
               )}
@@ -237,7 +252,7 @@ export default function Services() {
                 </td>
               </tr>
             ) : (
-              services.map((svc) => (
+              svcVisible.map((svc) => (
                 <tr
                   key={svc.name}
                   className="border-b border-gray-400/60 transition-colors duration-150 last:border-0 hover:bg-gray-100"

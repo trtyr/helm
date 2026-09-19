@@ -3,6 +3,7 @@
 use crate::application::notification_service::NotificationService;
 use crate::domain::Error;
 use crate::http::AppState;
+use crate::store::notification_repo::NotificationRepo;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use serde::Deserialize;
@@ -18,6 +19,8 @@ pub struct NotificationQuery {
     /// 只看未读（"true" / "1"）。
     #[serde(default)]
     pub unread: Option<String>,
+    /// P001-T1c：排序（`field` 或 `field:desc`；白名单字段，未命中回退默认）
+    pub sort: Option<String>,
 }
 
 fn default_page() -> i64 {
@@ -35,10 +38,12 @@ pub async fn list_notifications(
 ) -> Result<Json<Value>, Error> {
     let unread_only = matches!(q.unread.as_deref(), Some("true") | Some("1"));
     let offset = (q.page.max(1) - 1) * q.limit.max(1);
-    let rows = NotificationService::new(state.db, state.streams)
-        .list_paged(q.limit.max(1), offset, unread_only)
+    let sort = crate::store::parse_sort(q.sort.as_ref());
+    let rows = NotificationService::new(state.db.clone(), state.streams)
+        .list_paged(q.limit.max(1), offset, unread_only, sort)
         .await?;
-    Ok(Json(json!({ "notifications": rows })))
+    let total = NotificationRepo::new(state.db).count(unread_only).await?;
+    Ok(Json(json!({ "notifications": rows, "total": total })))
 }
 
 /// 未读数：GET /api/v1/notifications/unread-count

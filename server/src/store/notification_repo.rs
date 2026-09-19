@@ -87,19 +87,34 @@ impl NotificationRepo {
         limit: i64,
         offset: i64,
         unread_only: bool,
+        sort: Option<(String, bool)>,
     ) -> sqlx::Result<Vec<NotificationRow>> {
-        let sql = if unread_only {
-            "SELECT id, host_id, type, message, read, created_at
-             FROM notifications WHERE NOT read
-             ORDER BY created_at DESC LIMIT $1 OFFSET $2"
-        } else {
-            "SELECT id, host_id, type, message, read, created_at
-             FROM notifications
-             ORDER BY created_at DESC LIMIT $1 OFFSET $2"
-        };
-        sqlx::query_as::<_, NotificationRow>(sql)
-            .bind(limit)
-            .bind(offset)
+        let where_clause = if unread_only { " WHERE NOT read" } else { "" };
+        let (field, desc) = sort
+            .as_ref()
+            .map(|(f, d)| (f.as_str(), *d))
+            .unwrap_or(("created_at", true));
+        let order = super::order_by(
+            field,
+            desc,
+            &[
+                ("created_at", "created_at {dir}"),
+                ("type", "type {dir}"),
+                ("read", "read {dir}"),
+            ],
+            "created_at DESC",
+        );
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            "SELECT id, host_id, type, message, read, created_at FROM notifications",
+        );
+        qb.push(where_clause)
+            .push(" ORDER BY ")
+            .push(order)
+            .push(" LIMIT ")
+            .push_bind(limit)
+            .push(" OFFSET ")
+            .push_bind(offset);
+        qb.build_query_as::<NotificationRow>()
             .fetch_all(self.db.pool())
             .await
     }

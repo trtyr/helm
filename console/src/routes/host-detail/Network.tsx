@@ -7,6 +7,8 @@ import type { components } from "../../api/schema";
 import { api, pickAgent } from "../../api/client";
 import { ifaceKind } from "../../lib/net";
 import { toast } from "../../lib/toast";
+import { useTableControls } from "../../lib/useTableControls";
+import { SortableTh } from "../../components/tableControls";
 
 type HostView = components["schemas"]["HostView"];
 type Agent = components["schemas"]["Agent"];
@@ -314,6 +316,21 @@ function ConnectionsView({
     return list;
   }, [netQuery.data, proto, search]);
 
+  // 列表基座（P001-T1）：排序层（协议/搜索沿用页面既有实现）
+  const { sort: connSort, toggleSort: connToggleSort, visible: connVisible } = useTableControls(
+    connections,
+    {
+      columns: [
+        { key: "protocol", value: (c) => c.protocol ?? "" },
+        { key: "local", value: (c) => c.local ?? "" },
+        { key: "remote", value: (c) => c.remote ?? "" },
+        { key: "state", value: (c) => c.state ?? "" },
+        { key: "pid", value: (c) => c.pid ?? 0 },
+        { key: "process", value: (c) => c.process_name ?? "" },
+      ],
+    },
+  );
+
   const stateCounts = useMemo(() => {
     const all = netQuery.data?.connections ?? [];
     return {
@@ -378,12 +395,12 @@ function ConnectionsView({
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-400 text-label-13 text-gray-900">
-              <th className="w-16 whitespace-nowrap px-3 py-2.5 font-normal">协议</th>
-              <th className="w-1/3 px-4 py-2.5 font-normal">本地地址</th>
-              <th className="w-full max-w-0 px-4 py-2.5 font-normal">远程地址</th>
-              <th className="w-32 whitespace-nowrap px-3 py-2.5 font-normal">状态</th>
-              <th className="w-16 whitespace-nowrap px-3 py-2.5 text-right font-normal">PID</th>
-              <th className="w-44 max-w-44 whitespace-nowrap px-3 py-2.5 font-normal">进程</th>
+              <SortableTh className="w-16 whitespace-nowrap" label="协议" sortKey="protocol" sort={connSort} onSort={connToggleSort} />
+              <SortableTh className="w-1/3 px-4" label="本地地址" sortKey="local" sort={connSort} onSort={connToggleSort} />
+              <SortableTh className="w-full max-w-0 px-4" label="远程地址" sortKey="remote" sort={connSort} onSort={connToggleSort} />
+              <SortableTh className="w-32 whitespace-nowrap" label="状态" sortKey="state" sort={connSort} onSort={connToggleSort} />
+              <SortableTh className="w-16 whitespace-nowrap" label="PID" sortKey="pid" sort={connSort} onSort={connToggleSort} align="text-right" />
+              <SortableTh className="w-44 max-w-44 whitespace-nowrap" label="进程" sortKey="process" sort={connSort} onSort={connToggleSort} />
             </tr>
           </thead>
           <tbody>
@@ -400,7 +417,7 @@ function ConnectionsView({
                 </td>
               </tr>
             ) : (
-              connections.slice(0, 300).map((c, i) => {
+              connVisible.slice(0, 300).map((c, i) => {
                 const state = (c.state ?? "").toUpperCase();
                 return (
                   <tr

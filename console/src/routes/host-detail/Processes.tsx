@@ -7,6 +7,8 @@ import { api, pickAgent } from "../../api/client";
 import { formatDateTime, formatUptime } from "../../lib/format";
 import { humanSize } from "../../lib/paths";
 import { toast } from "../../lib/toast";
+import { useTableControls, type TableColumn } from "../../lib/useTableControls";
+import { SortableTh } from "../../components/tableControls";
 
 type HostView = components["schemas"]["HostView"];
 type Agent = components["schemas"]["Agent"];
@@ -47,6 +49,16 @@ const COLUMNS: {
   { key: "user", label: "用户", align: "", sortable: true, width: "w-px" },
   { key: "started", label: "已运行", align: "text-right", sortable: true, width: "w-px" },
   { key: "actions", label: "", align: "text-right", sortable: false, width: "w-px" },
+];
+
+/** 列表基座列定义（P001-T1）：useTableControls 的取值/筛选声明（status 枚举在组件内派生追加）。 */
+const PROC_TABLE_COLUMNS_BASE: TableColumn<ProcessInfo>[] = [
+  { key: "pid", value: (p) => p.pid ?? 0 },
+  { key: "name", value: (p) => p.name ?? "" },
+  { key: "cpu", value: (p) => p.cpu_percent ?? 0 },
+  { key: "mem", value: (p) => p.mem_bytes ?? 0 },
+  { key: "user", value: (p) => p.user ?? "" },
+  { key: "started", value: (p) => p.start_time_unix ?? 0 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -140,8 +152,6 @@ export function buildTreeRows(procs: ProcessInfo[], collapsed: Set<number>, keep
  */
 export default function Processes() {
   const { host } = useOutletContext<Ctx>();
-  const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "cpu", desc: true });
   const [interval, setIntervalOpt] = useState<IntervalOpt>(5_000);
   const [killTarget, setKillTarget] = useState<ProcessInfo | null>(null);
   const [detail, setDetail] = useState<ProcessInfo | null>(null);
@@ -190,7 +200,34 @@ export default function Processes() {
     },
   });
 
-  const all = listQuery.data?.processes ?? [];
+  const all = useMemo(() => listQuery.data?.processes ?? [], [listQuery.data]);
+
+  // 列表基座（P001-T1）：排序/搜索/枚举筛选统一控制
+  const statusOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of all) if (p.status) set.add(p.status);
+    return [...set].sort().map((s) => ({ value: s, label: s }));
+  }, [all]);
+  const procColumns: TableColumn<ProcessInfo>[] = useMemo(
+    () => [
+      ...PROC_TABLE_COLUMNS_BASE,
+      {
+        key: "status",
+        value: (p) => p.status ?? "",
+        enumOptions: () => statusOptions,
+        matchesEnum: (p, v) => (p.status ?? "") === v,
+      },
+    ],
+    [statusOptions],
+  );
+  const tc = useTableControls(all, {
+    columns: procColumns,
+    searchText: (p) => `${p.name ?? ""} ${p.pid ?? ""} ${p.user ?? ""}`,
+    defaultSort: { key: "cpu", desc: true },
+  });
+  const search = tc.search;
+  const setSearch = tc.setSearch;
+
   const procByName = useMemo(() => {
     const m = new Map<number, string>();
     for (const p of all) if (p.pid != null) m.set(p.pid, p.name ?? "");
@@ -226,28 +263,11 @@ export default function Processes() {
     return matched;
   }, [all, search]);
 
-  // 平铺视图：搜索 + 全维排序（CPU 降序默认）
-  const filtered = useMemo(() => {
-    let list = listQuery.data?.processes ?? [];
-    if (matchSet) list = list.filter((p) => matchSet.has(p.pid!));
-    const dir = sort.desc ? -1 : 1;
-    return [...list].sort((a, b) => {
-      switch (sort.key) {
-        case "cpu":
-          return ((a.cpu_percent ?? 0) - (b.cpu_percent ?? 0)) * dir;
-        case "mem":
-          return ((a.mem_bytes ?? 0) - (b.mem_bytes ?? 0)) * dir;
-        case "user":
-          return (a.user ?? "").localeCompare(b.user ?? "") * dir;
-        case "started":
-          return ((b.start_time_unix ?? 0) - (a.start_time_unix ?? 0)) * dir;
-        case "name":
-          return (a.name ?? "").localeCompare(b.name ?? "") * dir;
-        default:
-          return ((a.pid ?? 0) - (b.pid ?? 0)) * dir;
-      }
-    });
-  }, [listQuery.data, sort, matchSet]);
+  // 平铺视图：基座筛选/排序（hook）+ 树搜索命中过滤
+  const filtered = useMemo(
+    () => (matchSet ? tc.visible.filter((p) => matchSet.has(p.pid!)) : tc.visible),
+    [tc.visible, matchSet],
+  );
 
   // 树视图行
   const treeRows = useMemo(() => {
@@ -338,6 +358,17 @@ export default function Processes() {
             </button>
           )}
         </div>
+        <select
+          aria-label="按状态筛选"
+          value={tc.enumFilters.status ?? ""}
+          onChange={(e) => tc.setEnumFilter("status", e.target.value)}
+          className="h-8 rounded-md border border-gray-400 bg-gray-100 px-2 text-label-13 outline-none transition-colors duration-150 hover:border-gray-500"
+        >
+          <option value="">状态：全部</option>
+          {statusOptions.map((o) => (
+            <option key={o.value} value={o.value}>{o.value}</option>
+          ))}
+        </select>
         {/* 树形/平铺切换 */}
         <div className="flex h-8 items-center overflow-hidden rounded-md border border-gray-400">
           {(["tree", "flat"] as const).map((v) => (
@@ -414,21 +445,26 @@ export default function Processes() {
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-400 text-label-13 text-gray-900">
-              {COLUMNS.map(({ key, label, align, sortable, width }) => (
-                <th
-                  key={key}
-                  className={`${width} whitespace-nowrap px-3 py-2.5 font-normal ${align} ${
-                    sortable && !isTree ? "cursor-pointer select-none hover:text-gray-1000" : ""
-                  } ${key === "name" ? "max-w-0" : ""}`}
-                  onClick={
-                    sortable && !isTree
-                      ? () => setSort((s) => ({ key: key as SortKey, desc: s.key === key && !s.desc }))
-                      : undefined
-                  }
-                >
-                  {label} {sort.key === key && !isTree && (sort.desc ? "↓" : "↑")}
-                </th>
-              ))}
+              {COLUMNS.map(({ key, label, align, sortable, width }) =>
+                sortable && !isTree ? (
+                  <SortableTh
+                    key={key}
+                    label={label}
+                    sortKey={key}
+                    sort={tc.sort}
+                    onSort={tc.toggleSort}
+                    align={align}
+                    className={width === "w-full" ? "max-w-0" : ""}
+                  />
+                ) : (
+                  <th
+                    key={key}
+                    className={`${width} whitespace-nowrap px-3 py-2.5 font-normal ${align} ${key === "name" ? "max-w-0" : ""}`}
+                  >
+                    {label}
+                  </th>
+                ),
+              )}
             </tr>
           </thead>
           <tbody>

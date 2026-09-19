@@ -7,6 +7,8 @@ import { useWsStream } from "../api/ws";
 import { toast } from "../lib/toast";
 import { kindDot, markReadLocal, parseNotificationFrame, type NotificationItem } from "../lib/notificationStore";
 import { relativeTime } from "../lib/format";
+import { SortableTh } from "../components/tableControls";
+import { PaginationBar } from "../components/pagination";
 
 type Host = components["schemas"]["Host"];
 
@@ -18,7 +20,20 @@ export default function Notifications() {
   const kind = params.get("kind") ?? "all";
   const unreadOnly = params.get("unread") === "true";
   const page = Math.max(1, Number(params.get("page") ?? 1));
-  const limit = 20;
+  const limit = Math.max(1, Number(params.get("limit") ?? 20));
+  // 列表基座（P001-T1c）：排序走服务端（sort 参数），状态存 URL params
+  const sortField = params.get("sort") ?? "";
+  const sortDesc = sortField.endsWith(":desc");
+  const sortKey = sortField.replace(":desc", "");
+  const sort: { key: string; desc: boolean } | null = sortKey ? { key: sortKey, desc: sortDesc } : null;
+  const toggleSort = (key: string) => {
+    const next = new URLSearchParams(params);
+    if (sort?.key === key) {
+      if (sort.desc) next.delete("sort");
+      else next.set("sort", `${key}:desc`);
+    } else next.set("sort", key);
+    setParams(next, { replace: true });
+  };
   const queryClient = useQueryClient();
   const [confirmAll, setConfirmAll] = useState(false);
 
@@ -28,13 +43,14 @@ export default function Notifications() {
   });
 
   const listQuery = useQuery({
-    queryKey: ["notifications", "page", kind, unreadOnly, page],
+    queryKey: ["notifications", "page", kind, unreadOnly, page, sortField],
     queryFn: async () => {
       const q = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (kind !== "all") q.set("kind", kind);
       if (unreadOnly) q.set("unread", "true");
-      const r = await api<{ notifications: NotificationItem[] }>(`/api/v1/notifications?${q}`);
-      return { at: Date.now(), notifications: r.notifications ?? [] };
+      if (sortField) q.set("sort", sortField);
+      const r = await api<{ notifications: NotificationItem[]; total?: number }>(`/api/v1/notifications?${q}`);
+      return { at: Date.now(), notifications: r.notifications ?? [], total: r.total ?? 0 };
     },
     refetchInterval: 30_000,
   });
@@ -129,10 +145,10 @@ export default function Notifications() {
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-400 text-label-13 text-gray-900">
-              <th className="w-10 px-4 py-2 font-normal">状态</th>
-              <th className="px-4 py-2 font-normal">通知内容</th>
+              <SortableTh className="w-10 px-4 py-2" label="状态" sortKey="read" sort={sort} onSort={toggleSort} />
+              <SortableTh className="px-4 py-2" label="通知内容" sortKey="type" sort={sort} onSort={toggleSort} />
               <th className="px-4 py-2 font-normal">主机</th>
-              <th className="px-4 py-2 font-normal">时间</th>
+              <SortableTh className="px-4 py-2" label="时间" sortKey="created_at" sort={sort} onSort={toggleSort} />
               <th className="px-4 py-2" />
             </tr>
           </thead>
@@ -198,27 +214,7 @@ export default function Notifications() {
             )}
           </tbody>
         </table>
-        <div className="flex h-9 items-center justify-between border-t border-gray-400 px-4 font-mono text-label-13 text-gray-900">
-          <span>{items.length > 0 ? `第 ${page} 页` : ""}</span>
-          <span className="flex items-center gap-3">
-            <button
-              type="button"
-              disabled={page <= 1}
-              onClick={() => patchParams({ page: String(page - 1) })}
-              className="transition-colors duration-150 hover:text-gray-1000 disabled:opacity-30"
-            >
-              ‹ 上一页
-            </button>
-            <button
-              type="button"
-              disabled={items.length < limit}
-              onClick={() => patchParams({ page: String(page + 1) })}
-              className="transition-colors duration-150 hover:text-gray-1000 disabled:opacity-30"
-            >
-              下一页 ›
-            </button>
-          </span>
-        </div>
+        <PaginationBar page={page} limit={limit} total={listQuery.data?.total ?? 0} onPatch={patchParams} />
       </div>
 
       {/* 全部已读确认模态（规格 F60） */}

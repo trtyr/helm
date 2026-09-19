@@ -216,10 +216,11 @@ export default function Hosts() {
             )}
           </div>
         ) : (
+          <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
               <tr className="border-b border-gray-400 text-label-13 text-gray-900">
-                <th className="w-10 px-3 py-2.5">
+                <th className="w-10 px-4 py-2.5">
                   <input
                     type="checkbox"
                     aria-label="全选"
@@ -234,15 +235,15 @@ export default function Hosts() {
                     className="h-3.5 w-3.5 accent-blue-1000"
                   />
                 </th>
-                <th className="w-14 px-4 py-2.5 font-normal">状态</th>
-                <th className="px-4 py-2.5 font-normal">主机</th>
-                <th className="px-4 py-2.5 font-normal">心跳</th>
-                <th className="px-4 py-2.5 font-normal">外网 IP</th>
-                <th className="px-4 py-2.5 font-normal">内网 IP</th>
-                <th className="px-4 py-2.5 font-normal">操作系统</th>
-                <th className="px-4 py-2.5 font-normal">连接</th>
-                <th className="px-4 py-2.5 font-normal">标签</th>
-                <th className="px-4 py-2.5 text-right font-normal">操作</th>
+                <th className="w-16 px-4 py-2.5 font-normal whitespace-nowrap">状态</th>
+                <th className="px-4 py-2.5 font-normal whitespace-nowrap">主机</th>
+                <th className="px-4 py-2.5 font-normal whitespace-nowrap">心跳</th>
+                <th className="px-4 py-2.5 font-normal whitespace-nowrap">外网 IP</th>
+                <th className="px-4 py-2.5 font-normal whitespace-nowrap">内网 IP</th>
+                <th className="px-4 py-2.5 font-normal whitespace-nowrap">操作系统</th>
+                <th className="px-4 py-2.5 font-normal whitespace-nowrap">连接</th>
+                <th className="px-4 py-2.5 font-normal whitespace-nowrap">标签</th>
+                <th className="px-4 py-2.5 text-right font-normal whitespace-nowrap">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -261,6 +262,7 @@ export default function Hosts() {
                         aria-label={`选择 ${h.hostname}`}
                         checked={!!h.agent_id && selected.has(h.agent_id)}
                         disabled={!h.agent_id}
+                        onClick={(e) => e.stopPropagation()}
                         onChange={() => h.agent_id && toggleSel(h.agent_id)}
                         className="h-3.5 w-3.5 accent-blue-1000"
                       />
@@ -286,15 +288,15 @@ export default function Hosts() {
                       </div>
                     </td>
                     <td
-                      className="px-4 py-3 font-mono text-label-13 text-gray-900"
+                      className="px-4 py-3 font-mono text-label-13 text-gray-900 whitespace-nowrap"
                       title={h.last_seen ?? undefined}
                     >
                       {relativeTime(h.last_seen, now)}
                     </td>
-                    <td className="px-4 py-3 font-mono text-label-13 text-gray-1000">
+                    <td className="px-4 py-3 font-mono text-label-13 text-gray-1000 whitespace-nowrap">
                       {h.public_ip || "—"}
                     </td>
-                    <td className="px-4 py-3 font-mono text-label-13 text-gray-1000">
+                    <td className="px-4 py-3 font-mono text-label-13 text-gray-1000 whitespace-nowrap">
                       {localIp ? (
                         <span title={h.local_ips?.join("\n")}>
                           {localIp}
@@ -378,6 +380,7 @@ export default function Hosts() {
               })}
             </tbody>
           </table>
+          </div>
         )}
 
         {/* 底栏分页（非搜索态） */}

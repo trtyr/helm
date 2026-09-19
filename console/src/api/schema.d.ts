@@ -1671,6 +1671,8 @@ export interface paths {
                     status?: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out";
                     /** @description 按主机过滤 */
                     host_id?: string;
+                    /** @description 排序（`field` 或 `field:desc`；白名单：started_at/status/host_id/exit_code/command，未命中回退 started_at DESC NULLS LAST） */
+                    sort?: string;
                 };
                 header?: never;
                 path?: never;
@@ -1686,6 +1688,8 @@ export interface paths {
                     content: {
                         "application/json": {
                             jobs?: components["schemas"]["Job"][];
+                            /** @description 过滤条件下的总条数（P001-T4 分页栏） */
+                            total?: number;
                         };
                     };
                 };
@@ -3127,6 +3131,8 @@ export interface paths {
                 query?: {
                     page?: number;
                     limit?: number;
+                    /** @description 排序（`field` 或 `field:desc`；白名单：created_at/actor/action/resource，未命中回退 created_at DESC） */
+                    sort?: string;
                 };
                 header?: never;
                 path?: never;
@@ -3168,6 +3174,8 @@ export interface paths {
                 query?: {
                     page?: number;
                     limit?: number;
+                    /** @description 排序（`field` 或 `field:desc`；白名单：created_at/metric_name/level/value/host_id，未命中回退 created_at DESC） */
+                    sort?: string;
                 };
                 header?: never;
                 path?: never;
@@ -3211,6 +3219,8 @@ export interface paths {
                     limit?: number;
                     /** @description 只看未读（"true" / "1"） */
                     unread?: string;
+                    /** @description 排序（`field` 或 `field:desc`；白名单：created_at/type/read，未命中回退 created_at DESC） */
+                    sort?: string;
                 };
                 header?: never;
                 path?: never;
@@ -3226,6 +3236,8 @@ export interface paths {
                     content: {
                         "application/json": {
                             notifications?: components["schemas"]["Notification"][];
+                            /** @description 过滤条件下的总条数（P001-T4 分页栏） */
+                            total?: number;
                         };
                     };
                 };

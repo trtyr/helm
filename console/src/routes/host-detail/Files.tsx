@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { SortableTh } from "../../components/tableControls";
 import { useOutletContext } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowUp, ChevronRight, CornerDownLeft, Download, RefreshCw, Search, Upload, X } from "lucide-react";
@@ -46,7 +47,7 @@ export default function Files() {
   const [path, setPath] = useState("");
   const [jumpDraft, setJumpDraft] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
-  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "name", desc: false });
+  const [sort, setSort] = useState<{ key: SortKey; desc: boolean } | null>({ key: "name", desc: false });
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [uploadModal, setUploadModal] = useState(false);
   const [downloadTarget, setDownloadTarget] = useState<FileEntry | null>(null);
@@ -70,12 +71,20 @@ export default function Files() {
 
   const isDriveRootView = path === "" && (listQuery.data?.entries ?? []).some((e) => /^[A-Za-z]:\\?$/.test(e.name ?? ""));
 
+  // 列表基座（P001-T1）：三态排序循环（取消 = 仅目录优先、无列排序）
+  const toggleSort = (key: string) =>
+    setSort((s) => {
+      if (!s || s.key !== key) return { key: key as SortKey, desc: false };
+      return s.desc ? null : { key: s.key, desc: true };
+    });
+
   const sorted = useMemo(() => {
     const q = filter.trim().toLowerCase();
     let list = [...(listQuery.data?.entries ?? [])];
     if (q) list = list.filter((e) => (e.name ?? "").toLowerCase().includes(q));
     list.sort((a, b) => {
-      if (!!a.is_dir !== !!b.is_dir) return a.is_dir ? -1 : 1;
+      if (!!a.is_dir !== !!b.is_dir) return a.is_dir ? -1 : 1; // 目录恒优先（领域逻辑保留）
+      if (!sort) return 0;
       const dir = sort.desc ? -1 : 1;
       switch (sort.key) {
         case "size":
@@ -264,28 +273,11 @@ export default function Files() {
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-400 text-label-13 text-gray-900">
-              <th
-                className="cursor-pointer px-4 py-2 font-normal select-none hover:text-gray-1000"
-                onClick={() => setSort((s) => ({ key: "name", desc: s.key === "name" && !s.desc }))}
-              >
-                名称 {sort.key === "name" && (sort.desc ? "↓" : "↑")}
-              </th>
+              <SortableTh className="px-4 py-2" label="名称" sortKey="name" sort={sort} onSort={toggleSort} />
               <th className="px-4 py-2 font-normal">类型</th>
-              <th
-                className="cursor-pointer px-4 py-2 text-right font-normal select-none hover:text-gray-1000"
-                onClick={() => setSort((s) => ({ key: "size", desc: s.key === "size" && !s.desc }))}
-              >
-                大小 {sort.key === "size" && (sort.desc ? "↓" : "↑")}
-              </th>
+              <SortableTh className="px-4 py-2" align="text-right" label="大小" sortKey="size" sort={sort} onSort={toggleSort} />
               <th className="px-4 py-2 font-normal">{isDriveRootView ? "磁盘类型" : "权限"}</th>
-              <th
-                className="cursor-pointer px-4 py-2 font-normal select-none hover:text-gray-1000"
-                onClick={() =>
-                  setSort((s) => ({ key: "modified", desc: s.key === "modified" && !s.desc }))
-                }
-              >
-                修改时间 {sort.key === "modified" && (sort.desc ? "↓" : "↑")}
-              </th>
+              <SortableTh className="px-4 py-2" label="修改时间" sortKey="modified" sort={sort} onSort={toggleSort} />
               <th className="px-4 py-2" />
             </tr>
           </thead>

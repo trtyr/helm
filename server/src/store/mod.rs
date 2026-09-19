@@ -57,3 +57,28 @@ impl Db {
         &self.pool
     }
 }
+
+/// 解析 HTTP `sort` 查询参数（P001-T1c；格式 `field` 或 `field:desc`，空/缺失 = None）。
+pub fn parse_sort(sort: Option<&String>) -> Option<(String, bool)> {
+    let s = sort?.trim();
+    if s.is_empty() {
+        return None;
+    }
+    match s.rsplit_once(':') {
+        Some((f, "desc")) => Some((f.to_string(), true)),
+        Some((f, "asc")) => Some((f.to_string(), false)),
+        _ => Some((s.to_string(), false)),
+    }
+}
+
+/// 生成 ORDER BY 子句（P001-T1c）：`field` 必须命中白名单（防 SQL 注入），未命中回退默认。
+/// 白名单值是含 `{dir}` 占位符的列表达式模板（如 `"started_at {dir} NULLS LAST"`）。
+pub fn order_by(field: &str, desc: bool, allowed: &[(&str, &str)], fallback: &str) -> String {
+    let dir = if desc { "DESC" } else { "ASC" };
+    let tmpl = allowed
+        .iter()
+        .find(|(k, _)| *k == field)
+        .map(|(_, v)| *v)
+        .unwrap_or(fallback);
+    tmpl.replace("{dir}", dir)
+}

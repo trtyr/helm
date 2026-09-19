@@ -7,6 +7,8 @@ import { api, pickAgent } from "../../api/client";
 import { formatDateTime, formatDuration, relativeTime } from "../../lib/format";
 import { toast } from "../../lib/toast";
 import { intervalLabel, jobStatusMeta } from "../../lib/job";
+import { useTableControls } from "../../lib/useTableControls";
+import { SortableTh } from "../../components/tableControls";
 
 type HostView = components["schemas"]["HostView"];
 type Agent = components["schemas"]["Agent"];
@@ -72,6 +74,24 @@ export default function Tasks() {
     const q = search.trim().toLowerCase();
     const cmdline = [j.command, ...(j.args ?? [])].join(" ").toLowerCase();
     return cmdline.includes(q) || (j.id ?? "").toLowerCase().includes(q);
+  });
+
+  // 列表基座（P001-T1）：排序层（状态枚举/搜索沿用页面既有实现）
+  const { sort: jobSort, toggleSort: jobToggleSort, visible: jobVisible } = useTableControls(shown, {
+    columns: [
+      { key: "started_at", value: (j) => j.started_at ?? "" },
+      { key: "cmdline", value: (j) => (j.command ?? "") + (j.args ?? []).join(" ") },
+      { key: "kind", value: (j) => (j.task_id ? "定时" : "快速") },
+      { key: "status", value: (j) => j.status ?? "" },
+      { key: "exit_code", value: (j) => (j.exit_code == null ? null : j.exit_code) },
+      {
+        key: "duration",
+        value: (j) =>
+          j.started_at && j.finished_at
+            ? new Date(j.finished_at).getTime() - new Date(j.started_at).getTime()
+            : null,
+      },
+    ],
   });
 
   const offline = !host.online;
@@ -159,12 +179,12 @@ export default function Tasks() {
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-400 text-label-13 text-gray-900">
-              <th className="w-44 px-4 py-2.5 font-normal">时间</th>
-              <th className="px-4 py-2.5 font-normal">命令行</th>
-              <th className="w-16 px-4 py-2.5 font-normal">类型</th>
-              <th className="w-20 px-4 py-2.5 font-normal">状态</th>
-              <th className="w-16 px-4 py-2.5 font-normal">退出码</th>
-              <th className="w-20 px-4 py-2.5 font-normal">耗时</th>
+              <SortableTh className="w-44 px-4" label="时间" sortKey="started_at" sort={jobSort} onSort={jobToggleSort} />
+              <SortableTh className="px-4" label="命令行" sortKey="cmdline" sort={jobSort} onSort={jobToggleSort} />
+              <SortableTh className="w-16 px-4" label="类型" sortKey="kind" sort={jobSort} onSort={jobToggleSort} />
+              <SortableTh className="w-20 px-4" label="状态" sortKey="status" sort={jobSort} onSort={jobToggleSort} />
+              <SortableTh className="w-16 px-4" label="退出码" sortKey="exit_code" sort={jobSort} onSort={jobToggleSort} align="text-right" />
+              <SortableTh className="w-20 px-4" label="耗时" sortKey="duration" sort={jobSort} onSort={jobToggleSort} align="text-right" />
             </tr>
           </thead>
           <tbody>
@@ -183,7 +203,7 @@ export default function Tasks() {
                 </td>
               </tr>
             ) : (
-              shown.map((job) => {
+              jobVisible.map((job) => {
                 const meta = jobStatusMeta(job.status);
                 const cmdline = [job.command, ...(job.args ?? [])].join(" ");
                 return (

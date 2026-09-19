@@ -60,16 +60,41 @@ impl AlertRepo {
         .await
     }
 
-    /// 分页列出告警。
-    pub async fn list_paged(&self, limit: i64, offset: i64) -> sqlx::Result<Vec<AlertRow>> {
-        sqlx::query_as::<_, AlertRow>(
-            "SELECT id, host_id, metric_name, threshold, value, level, created_at
-             FROM alerts ORDER BY created_at DESC LIMIT $1 OFFSET $2",
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(self.db.pool())
-        .await
+    /// 分页列出告警。sort（P001-T1c）：白名单字段排序，未命中回退 created_at DESC。
+    pub async fn list_paged(
+        &self,
+        limit: i64,
+        offset: i64,
+        sort: Option<(String, bool)>,
+    ) -> sqlx::Result<Vec<AlertRow>> {
+        let (field, desc) = sort
+            .as_ref()
+            .map(|(f, d)| (f.as_str(), *d))
+            .unwrap_or(("created_at", true));
+        let order = super::order_by(
+            field,
+            desc,
+            &[
+                ("created_at", "created_at {dir}"),
+                ("metric_name", "metric_name {dir}"),
+                ("level", "level {dir}"),
+                ("value", "value {dir}"),
+                ("host_id", "host_id {dir}"),
+            ],
+            "created_at DESC",
+        );
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            "SELECT id, host_id, metric_name, threshold, value, level, created_at FROM alerts ",
+        );
+        qb.push(" ORDER BY ")
+            .push(order)
+            .push(" LIMIT ")
+            .push_bind(limit)
+            .push(" OFFSET ")
+            .push_bind(offset);
+        qb.build_query_as::<AlertRow>()
+            .fetch_all(self.db.pool())
+            .await
     }
 
     /// 删除指定时间之前的告警（时序保留）。

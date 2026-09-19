@@ -85,9 +85,10 @@ impl NotificationService {
         limit: i64,
         offset: i64,
         unread_only: bool,
+        sort: Option<(String, bool)>,
     ) -> Result<Vec<NotificationRow>> {
         Ok(NotificationRepo::new(self.db.clone())
-            .list_paged(limit, offset, unread_only)
+            .list_paged(limit, offset, unread_only, sort)
             .await?)
     }
 

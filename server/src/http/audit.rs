@@ -14,6 +14,8 @@ pub struct AuditQuery {
     pub page: i64,
     #[serde(default = "default_limit")]
     pub limit: i64,
+    /// P001-T1c：排序（`field` 或 `field:desc`；白名单字段，未命中回退默认）
+    pub sort: Option<String>,
 }
 
 fn default_page() -> i64 {
@@ -30,8 +32,9 @@ pub async fn list_audit(
     Query(q): Query<AuditQuery>,
 ) -> Result<Json<Value>, Error> {
     let offset = (q.page.max(1) - 1) * q.limit.max(1);
+    let sort = crate::store::parse_sort(q.sort.as_ref());
     let rows = AuditService::new(state.db)
-        .list_paged(q.limit.max(1), offset)
+        .list_paged(q.limit.max(1), offset, sort)
         .await?;
     Ok(Json(json!({ "audit": rows })))
 }

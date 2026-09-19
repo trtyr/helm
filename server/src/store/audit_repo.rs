@@ -60,16 +60,40 @@ impl AuditRepo {
         .await
     }
 
-    /// 分页列出审计记录。
-    pub async fn list_paged(&self, limit: i64, offset: i64) -> sqlx::Result<Vec<AuditRow>> {
-        sqlx::query_as::<_, AuditRow>(
-            "SELECT id, actor, action, resource, detail, created_at
-             FROM audit_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2",
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(self.db.pool())
-        .await
+    /// 分页列出审计记录。sort（P001-T1c）：白名单字段排序，未命中回退 created_at DESC。
+    pub async fn list_paged(
+        &self,
+        limit: i64,
+        offset: i64,
+        sort: Option<(String, bool)>,
+    ) -> sqlx::Result<Vec<AuditRow>> {
+        let (field, desc) = sort
+            .as_ref()
+            .map(|(f, d)| (f.as_str(), *d))
+            .unwrap_or(("created_at", true));
+        let order = super::order_by(
+            field,
+            desc,
+            &[
+                ("created_at", "created_at {dir}"),
+                ("actor", "actor {dir}"),
+                ("action", "action {dir}"),
+                ("resource", "resource {dir}"),
+            ],
+            "created_at DESC",
+        );
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            "SELECT id, actor, action, resource, detail, created_at FROM audit_logs ",
+        );
+        qb.push(" ORDER BY ")
+            .push(order)
+            .push(" LIMIT ")
+            .push_bind(limit)
+            .push(" OFFSET ")
+            .push_bind(offset);
+        qb.build_query_as::<AuditRow>()
+            .fetch_all(self.db.pool())
+            .await
     }
 
     /// retention（C1）：删除 `cutoff` 之前的审计记录，返回删除行数。
