@@ -40,15 +40,17 @@ impl AlertService {
         Ok(AlertRepo::new(self.db.clone()).list(limit).await?)
     }
 
-    /// 分页列出告警。sort（P001-T1c）透传仓储层。
+    /// 分页列出告警。sort（P001-T1c）透传仓储层；q/level（P001-T1）搜索与级别过滤。
     pub async fn list_paged(
         &self,
         limit: i64,
         offset: i64,
         sort: Option<(String, bool)>,
+        q: Option<&str>,
+        level: Option<&str>,
     ) -> Result<Vec<AlertRow>> {
         Ok(AlertRepo::new(self.db.clone())
-            .list_paged(limit, offset, sort)
+            .list_paged(limit, offset, sort, q, level)
             .await?)
     }
 }

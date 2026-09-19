@@ -4,7 +4,7 @@ import { Info } from "lucide-react";
 import type { components } from "../api/schema";
 import { api } from "../api/client";
 import { relativeTime } from "../lib/format";
-import { SortableTh } from "../components/tableControls";
+import { SortableTh, TableToolbar } from "../components/tableControls";
 
 type Alert = components["schemas"]["Alert"];
 type Host = components["schemas"]["Host"];
@@ -28,11 +28,26 @@ export default function Alerts() {
     setParams(next, { replace: true });
   };
 
+  // 列表基座（P001-T1）：搜索/级别筛选走服务端（q/level 参数），状态存 URL params
+  const q = params.get("q") ?? "";
+  const levelFilter = params.get("level") ?? "";
+  const patchFilter = (patch: Record<string, string | null>) => {
+    const next = new URLSearchParams(params);
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === null || v === "") next.delete(k);
+      else next.set(k, v);
+    }
+    next.delete("page"); // 筛选变化回第一页
+    setParams(next, { replace: true });
+  };
+
   const alertsQuery = useQuery({
-    queryKey: ["alerts", page, sortField],
+    queryKey: ["alerts", page, sortField, q, levelFilter],
     queryFn: async () => {
       const sp = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (sortField) sp.set("sort", sortField);
+      if (q) sp.set("q", q);
+      if (levelFilter) sp.set("level", levelFilter);
       const r = await api<{ alerts: Alert[] }>(`/api/v1/alerts?${sp}`);
       return { at: Date.now(), alerts: r.alerts ?? [] };
     },
@@ -61,6 +76,21 @@ export default function Alerts() {
         <Info size={14} strokeWidth={1.5} className="shrink-0 text-blue-1000" />
         当前阈值固定：cpu.usage / mem.percent / disk.usage &gt; 90%（后端暂无配置接口）
       </div>
+
+      {/* 工具行（列表基座：搜索 + 级别枚举下拉，筛选走服务端 q/level） */}
+      <TableToolbar
+        search={q}
+        onSearch={(v) => patchFilter({ q: v })}
+        filters={[
+          {
+            key: "level",
+            label: "级别",
+            value: levelFilter,
+            options: [{ value: "warning", label: "warning" }],
+            onChange: (v) => patchFilter({ level: v }),
+          },
+        ]}
+      />
 
       <div className="overflow-hidden rounded-lg border border-gray-400">
         <table className="w-full text-left">

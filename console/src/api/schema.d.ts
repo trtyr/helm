@@ -3133,6 +3133,10 @@ export interface paths {
                     limit?: number;
                     /** @description 排序（`field` 或 `field:desc`；白名单：created_at/actor/action/resource，未命中回退 created_at DESC） */
                     sort?: string;
+                    /** @description 模糊搜索（actor/resource/detail ILIKE） */
+                    q?: string;
+                    /** @description 动作精确过滤 */
+                    action?: string;
                 };
                 header?: never;
                 path?: never;
@@ -3176,6 +3180,10 @@ export interface paths {
                     limit?: number;
                     /** @description 排序（`field` 或 `field:desc`；白名单：created_at/metric_name/level/value/host_id，未命中回退 created_at DESC） */
                     sort?: string;
+                    /** @description 模糊搜索（metric_name ILIKE） */
+                    q?: string;
+                    /** @description 级别精确过滤（info/warn/critical） */
+                    level?: string;
                 };
                 header?: never;
                 path?: never;
@@ -3221,6 +3229,8 @@ export interface paths {
                     unread?: string;
                     /** @description 排序（`field` 或 `field:desc`；白名单：created_at/type/read，未命中回退 created_at DESC） */
                     sort?: string;
+                    /** @description 模糊搜索（message ILIKE） */
+                    q?: string;
                 };
                 header?: never;
                 path?: never;

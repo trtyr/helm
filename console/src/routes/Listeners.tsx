@@ -29,17 +29,28 @@ export default function Listeners() {
   });
   const listeners = listQuery.data?.listeners ?? [];
 
-  // 列表基座（P001-T1）：排序 + 搜索
-  const { search, setSearch, sort, toggleSort, visible } = useTableControls(listeners, {
-    columns: [
-      { key: "status", value: (l) => l.status ?? "" },
-      { key: "name", value: (l) => l.name ?? "" },
-      { key: "addr", value: (l) => l.addr ?? "" },
-      { key: "proto", value: (l) => l.proto ?? "" },
-      { key: "created_at", value: (l) => l.created_at ?? "" },
-    ],
-    searchText: (l) => `${l.name ?? ""} ${l.addr ?? ""} ${l.proto ?? ""}`,
-  });
+  // 列表基座（P001-T1）：排序 + 搜索 + 协议枚举下拉
+  const { search, setSearch, sort, toggleSort, enumFilters, setEnumFilter, visible } = useTableControls(
+    listeners,
+    {
+      columns: [
+        { key: "status", value: (l) => l.status ?? "" },
+        { key: "name", value: (l) => l.name ?? "" },
+        { key: "addr", value: (l) => l.addr ?? "" },
+        {
+          key: "proto",
+          value: (l) => l.proto ?? "",
+          enumOptions: () => [
+            { value: "tcp", label: "TCP" },
+            { value: "udp", label: "UDP" },
+          ],
+          matchesEnum: (l, v) => (l.proto ?? "").toLowerCase() === v,
+        },
+        { key: "created_at", value: (l) => l.created_at ?? "" },
+      ],
+      searchText: (l) => `${l.name ?? ""} ${l.addr ?? ""} ${l.proto ?? ""}`,
+    },
+  );
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["listeners"] });
 
@@ -93,6 +104,16 @@ export default function Listeners() {
           aria-label="搜索监听器"
           className="h-8 w-56 rounded-md border border-gray-400 bg-gray-100 px-2.5 text-label-13 outline-none transition-colors duration-150 hover:border-gray-500 focus-visible:border-gray-600"
         />
+        <select
+          aria-label="按协议筛选"
+          value={enumFilters.proto ?? ""}
+          onChange={(e) => setEnumFilter("proto", e.target.value)}
+          className="h-8 rounded-md border border-gray-400 bg-gray-100 px-2 text-label-13 outline-none transition-colors duration-150 hover:border-gray-500"
+        >
+          <option value="">协议：全部</option>
+          <option value="tcp">协议：TCP</option>
+          <option value="udp">协议：UDP</option>
+        </select>
       </div>
 
       <div className="overflow-hidden rounded-lg border border-gray-400 bg-background-100">

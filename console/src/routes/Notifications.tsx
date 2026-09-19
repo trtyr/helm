@@ -42,13 +42,16 @@ export default function Notifications() {
     if (parseNotificationFrame(raw)) queryClient.invalidateQueries({ queryKey: ["notifications"] });
   });
 
+  // 列表基座（P001-T1）：内容搜索走服务端（q 参数），状态存 URL params
+  const searchQ = params.get("q") ?? "";
   const listQuery = useQuery({
-    queryKey: ["notifications", "page", kind, unreadOnly, page, sortField, limit],
+    queryKey: ["notifications", "page", kind, unreadOnly, page, sortField, limit, searchQ],
     queryFn: async () => {
       const q = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (kind !== "all") q.set("kind", kind);
       if (unreadOnly) q.set("unread", "true");
       if (sortField) q.set("sort", sortField);
+      if (searchQ) q.set("q", searchQ);
       const r = await api<{ notifications: NotificationItem[]; total?: number }>(`/api/v1/notifications?${q}`);
       return { at: Date.now(), notifications: r.notifications ?? [], total: r.total ?? 0 };
     },
@@ -130,6 +133,13 @@ export default function Notifications() {
           );
         })}
         <span className="flex-1" />
+        <input
+          value={searchQ}
+          onChange={(e) => patchParams({ q: e.target.value || null })}
+          placeholder="搜索通知内容"
+          aria-label="搜索通知"
+          className="h-7 w-44 rounded-md border border-gray-400 bg-gray-100 px-2.5 text-label-12 outline-none transition-colors duration-150 hover:border-gray-500 focus-visible:border-gray-600"
+        />
         <label className="flex cursor-pointer items-center gap-2 text-label-13 text-gray-900">
           <input
             type="checkbox"

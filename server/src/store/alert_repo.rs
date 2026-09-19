@@ -61,11 +61,14 @@ impl AlertRepo {
     }
 
     /// 分页列出告警。sort（P001-T1c）：白名单字段排序，未命中回退 created_at DESC。
+    /// q（P001-T1）：metric_name 模糊搜索；level：级别精确过滤。
     pub async fn list_paged(
         &self,
         limit: i64,
         offset: i64,
         sort: Option<(String, bool)>,
+        q: Option<&str>,
+        level: Option<&str>,
     ) -> sqlx::Result<Vec<AlertRow>> {
         let (field, desc) = sort
             .as_ref()
@@ -84,8 +87,22 @@ impl AlertRepo {
             "created_at DESC",
         );
         let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
-            "SELECT id, host_id, metric_name, threshold, value, level, created_at FROM alerts ",
+            "SELECT id, host_id, metric_name, threshold, value, level, created_at FROM alerts",
         );
+        if let Some(l) = level {
+            qb.push(" WHERE level = ").push_bind(l.to_string());
+        }
+        if let Some(kw) = q {
+            let pat = format!("%{kw}%");
+            qb.push(if level.is_some() {
+                " AND ("
+            } else {
+                " WHERE ("
+            })
+            .push("metric_name ILIKE ")
+            .push_bind(pat)
+            .push(")");
+        }
         qb.push(" ORDER BY ")
             .push(order)
             .push(" LIMIT ")

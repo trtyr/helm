@@ -32,6 +32,11 @@ export interface TableControlsOptions<T> {
   searchText?: (row: T) => string;
   /** 默认排序（如 { key: "cpu", desc: true }）。 */
   defaultSort?: { key: string; desc: boolean };
+  /**
+   * 领域优先排序（如文件列表目录恒在前、自启动 severity 优先）。
+   * 返回非 0 时恒最优先；null 态（未点列头）时仅按 preSort 排。
+   */
+  preSort?: (a: T, b: T) => number;
 }
 
 export function useTableControls<T>(rows: T[], opts: TableControlsOptions<T>) {
@@ -59,20 +64,24 @@ export function useTableControls<T>(rows: T[], opts: TableControlsOptions<T>) {
       const col = opts.columns.find((c) => c.key === k);
       if (col?.matchesEnum) out = out.filter((r) => col.matchesEnum!(r, v));
     }
-    if (sort) {
-      const col = opts.columns.find((c) => c.key === sort.key);
-      if (col?.value) {
-        out = [...out].sort((a, b) => {
-          const va = col.value!(a);
-          const vb = col.value!(b);
-          if (va == null && vb == null) return 0;
-          if (va == null) return 1; // null 恒排尾部，不随方向翻转
-          if (vb == null) return -1;
-          const dir = sort.desc ? -1 : 1;
-          if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
-          return String(va).localeCompare(String(vb)) * dir;
-        });
-      }
+    const pre = opts.preSort;
+    const sortCol = sort ? opts.columns.find((c) => c.key === sort.key) : undefined;
+    if (pre || (sort && sortCol?.value)) {
+      out = [...out].sort((a, b) => {
+        if (pre) {
+          const vp = pre(a, b);
+          if (vp !== 0) return vp; // 领域优先级恒最优先（目录在前/severity 优先）
+        }
+        if (!sort || !sortCol?.value) return 0;
+        const va = sortCol.value(a);
+        const vb = sortCol.value(b);
+        if (va == null && vb == null) return 0;
+        if (va == null) return 1; // null 恒排尾部，不随方向翻转
+        if (vb == null) return -1;
+        const dir = sort.desc ? -1 : 1;
+        if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
+        return String(va).localeCompare(String(vb)) * dir;
+      });
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -1613,6 +1613,14 @@ paths:
           in: query
           description: 排序（`field` 或 `field:desc`；白名单：created_at/actor/action/resource，未命中回退 created_at DESC）
           schema: { type: string }
+        - name: q
+          in: query
+          description: 模糊搜索（actor/resource/detail ILIKE）
+          schema: { type: string }
+        - name: action
+          in: query
+          description: 动作精确过滤
+          schema: { type: string }
       responses:
         "200":
           description: 审计记录
@@ -1639,6 +1647,14 @@ paths:
         - name: sort
           in: query
           description: 排序（`field` 或 `field:desc`；白名单：created_at/metric_name/level/value/host_id，未命中回退 created_at DESC）
+          schema: { type: string }
+        - name: q
+          in: query
+          description: 模糊搜索（metric_name ILIKE）
+          schema: { type: string }
+        - name: level
+          in: query
+          description: 级别精确过滤（info/warn/critical）
           schema: { type: string }
       responses:
         "200":
@@ -1670,6 +1686,10 @@ paths:
         - name: sort
           in: query
           description: 排序（`field` 或 `field:desc`；白名单：created_at/type/read，未命中回退 created_at DESC）
+          schema: { type: string }
+        - name: q
+          in: query
+          description: 模糊搜索（message ILIKE）
           schema: { type: string }
       responses:
         "200":

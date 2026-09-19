@@ -54,7 +54,7 @@ async fn cleanup(db: &Db, hostname: &str) {
 
 /// 按本测试 host 过滤计数（count/list 是全局口径，避免并行测试与历史残留污染断言）。
 async fn count_for(repo: &NotificationRepo, host_id: Uuid, unread_only: bool) -> usize {
-    repo.list_paged(1000, 0, unread_only, None)
+    repo.list_paged(1000, 0, unread_only, None, None)
         .await
         .unwrap()
         .iter()
@@ -239,7 +239,7 @@ async fn list_unread_filter_and_mark_all_read() {
     // unread 过滤 + 分页（按本 host 过滤断言）
     assert_eq!(count_for(&repo, host_id, true).await, 3);
     let unread = repo
-        .list_paged(1000, 0, true, None)
+        .list_paged(1000, 0, true, None, None)
         .await
         .unwrap()
         .into_iter()

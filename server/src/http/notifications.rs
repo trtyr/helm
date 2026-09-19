@@ -21,6 +21,8 @@ pub struct NotificationQuery {
     pub unread: Option<String>,
     /// P001-T1c：排序（`field` 或 `field:desc`；白名单字段，未命中回退默认）
     pub sort: Option<String>,
+    /// P001-T1：message 模糊搜索
+    pub q: Option<String>,
 }
 
 fn default_page() -> i64 {
@@ -40,7 +42,7 @@ pub async fn list_notifications(
     let offset = (q.page.max(1) - 1) * q.limit.max(1);
     let sort = crate::store::parse_sort(q.sort.as_ref());
     let rows = NotificationService::new(state.db.clone(), state.streams)
-        .list_paged(q.limit.max(1), offset, unread_only, sort)
+        .list_paged(q.limit.max(1), offset, unread_only, sort, q.q.as_deref())
         .await?;
     let total = NotificationRepo::new(state.db).count(unread_only).await?;
     Ok(Json(json!({ "notifications": rows, "total": total })))

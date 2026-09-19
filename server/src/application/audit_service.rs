@@ -34,15 +34,17 @@ impl AuditService {
         Ok(AuditRepo::new(self.db.clone()).list(limit).await?)
     }
 
-    /// 分页列出审计记录。sort（P001-T1c）透传仓储层。
+    /// 分页列出审计记录。sort（P001-T1c）透传仓储层；q/action（P001-T1）搜索与动作过滤。
     pub async fn list_paged(
         &self,
         limit: i64,
         offset: i64,
         sort: Option<(String, bool)>,
+        q: Option<&str>,
+        action: Option<&str>,
     ) -> Result<Vec<crate::store::audit_repo::AuditRow>> {
         Ok(AuditRepo::new(self.db.clone())
-            .list_paged(limit, offset, sort)
+            .list_paged(limit, offset, sort, q, action)
             .await?)
     }
 }

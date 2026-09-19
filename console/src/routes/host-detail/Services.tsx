@@ -1,13 +1,13 @@
 import { useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Play, RefreshCw, RotateCw, Search, Square, X } from "lucide-react";
+import { Play, RefreshCw, RotateCw, Square } from "lucide-react";
 import type { components } from "../../api/schema";
 import { api, pickAgent } from "../../api/client";
 import { useWsStream } from "../../api/ws";
 import { toast } from "../../lib/toast";
 import { useTableControls } from "../../lib/useTableControls";
-import { SortableTh } from "../../components/tableControls";
+import { SortableTh, TableToolbar } from "../../components/tableControls";
 
 type HostView = components["schemas"]["HostView"];
 type Agent = components["schemas"]["Agent"];
@@ -41,8 +41,6 @@ const STATUS_LABEL: Record<StatusFilter, string> = {
  * 启动/停止/重启直接作用于目标机原生服务。 */
 export default function Services() {
   const { host } = useOutletContext<Ctx>();
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [auto, setAuto] = useState(true);
   const [pendingOp, setPendingOp] = useState<string | null>(null);
 
@@ -89,32 +87,34 @@ export default function Services() {
     },
   });
 
-  const services = useMemo(() => {
-    const list = servicesQuery.data?.services ?? [];
-    const q = search.trim().toLowerCase();
-    return list.filter((s) => {
-      if (statusFilter !== "all" && s.status !== statusFilter) return false;
-      if (!q) return true;
-      return (
-        (s.name ?? "").toLowerCase().includes(q) ||
-        (s.display_name ?? "").toLowerCase().includes(q) ||
-        (s.description ?? "").toLowerCase().includes(q)
-      );
-    });
-  }, [servicesQuery.data, search, statusFilter]);
-
-  // 列表基座（P001-T1）：排序层（搜索/状态筛选沿用页面既有实现）
-  const { sort: svcSort, toggleSort: svcToggleSort, visible: svcVisible } = useTableControls(
-    services,
-    {
-      columns: [
-        { key: "name", value: (s) => s.name ?? "" },
-        { key: "description", value: (s) => s.display_name ?? s.description ?? "" },
-        { key: "status", value: (s) => s.status ?? "" },
-        { key: "pid", value: (s) => s.pid ?? 0 },
-      ],
-    },
-  );
+  // 列表基座（P001-T1）：三层统一走 hook（搜索 / 状态枚举 / 排序）
+  const serviceList = useMemo(() => servicesQuery.data?.services ?? [], [servicesQuery.data]);
+  const {
+    search: svcSearch,
+    setSearch: svcSetSearch,
+    sort: svcSort,
+    toggleSort: svcToggleSort,
+    enumFilters: svcEnumFilters,
+    setEnumFilter: svcSetEnumFilter,
+    visible: svcVisible,
+  } = useTableControls(serviceList, {
+    columns: [
+      { key: "name", value: (s) => s.name ?? "" },
+      { key: "description", value: (s) => s.display_name ?? s.description ?? "" },
+      {
+        key: "status",
+        value: (s) => s.status ?? "",
+        enumOptions: () => [
+          { value: "running", label: STATUS_LABEL.running },
+          { value: "stopped", label: STATUS_LABEL.stopped },
+          { value: "failed", label: STATUS_LABEL.failed },
+        ],
+        matchesEnum: (s, v) => s.status === v,
+      },
+      { key: "pid", value: (s) => s.pid ?? 0 },
+    ],
+    searchText: (s) => `${s.name ?? ""} ${s.display_name ?? ""} ${s.description ?? ""}`,
+  });
 
   const counts = useMemo(() => {
     const all = servicesQuery.data?.services ?? [];
@@ -138,43 +138,24 @@ export default function Services() {
     <div className="flex flex-col gap-4">
       {/* D4：常驻服务（Server 下发的自建服务）+ 状态实时流 */}
       <ManagedServices hostId={host.id ?? ""} />
-      {/* 工具行 */}
-      <div className="flex flex-wrap items-center gap-2">
-        {(["all", "running", "stopped", "failed"] as const).map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => setStatusFilter(s)}
-            aria-pressed={statusFilter === s}
-            className={`h-7 rounded-full border px-3 font-mono text-label-12 transition-colors duration-150 ${
-              statusFilter === s
-                ? "border-gray-1000 bg-gray-200 text-gray-1000"
-                : "border-gray-500 text-gray-900 hover:border-gray-600"
-            }`}
-          >
-            {STATUS_LABEL[s]}
-          </button>
-        ))}
-        <div className="relative ml-auto">
-          <Search size={13} strokeWidth={1.5} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-900" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索服务名 / 描述"
-            aria-label="搜索服务"
-            className="h-8 w-52 rounded-md border border-gray-400 bg-gray-100 pl-8 pr-7 text-label-13 outline-none transition-colors duration-150 hover:border-gray-500 focus-visible:border-gray-600"
-          />
-          {search && (
-            <button
-              type="button"
-              aria-label="清除搜索"
-              onClick={() => setSearch("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-900 hover:text-gray-1000"
-            >
-              <X size={12} strokeWidth={1.5} />
-            </button>
-          )}
-        </div>
+      {/* 工具行（列表基座：搜索 + 状态枚举下拉统一走基座工具栏） */}
+      <TableToolbar
+        search={svcSearch}
+        onSearch={svcSetSearch}
+        filters={[
+          {
+            key: "status",
+            label: "状态",
+            value: svcEnumFilters.status ?? "",
+            options: [
+              { value: "running", label: STATUS_LABEL.running },
+              { value: "stopped", label: STATUS_LABEL.stopped },
+              { value: "failed", label: STATUS_LABEL.failed },
+            ],
+            onChange: (v) => svcSetEnumFilter("status", v),
+          },
+        ]}
+      >
         <button
           type="button"
           aria-label={auto ? "关闭自动刷新" : "开启自动刷新"}
@@ -195,7 +176,7 @@ export default function Services() {
         >
           <RefreshCw size={14} strokeWidth={1.5} className={servicesQuery.isFetching ? "animate-spin" : ""} />
         </button>
-      </div>
+      </TableToolbar>
 
       <div className="overflow-visible rounded-lg border border-gray-400 bg-background-100">
         <table className="w-full text-left">
@@ -245,10 +226,10 @@ export default function Services() {
                   </button>
                 </td>
               </tr>
-            ) : services.length === 0 ? (
+            ) : serviceList.length === 0 ? (
               <tr>
                 <td colSpan={colCount} className="px-4 py-10 text-center text-label-13 text-gray-900">
-                  {search || statusFilter !== "all" ? "没有匹配的服务" : "未发现系统服务"}
+                  {svcSearch || svcEnumFilters.status ? "没有匹配的服务" : "未发现系统服务"}
                 </td>
               </tr>
             ) : (

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { SortableTh } from "../../components/tableControls";
+import { useTableControls } from "../../lib/useTableControls";
 import { useOutletContext } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowUp, ChevronRight, CornerDownLeft, Download, RefreshCw, Search, Upload, X } from "lucide-react";
@@ -14,8 +15,6 @@ type FileEntry = components["schemas"]["FileEntry"];
 interface Ctx {
   host: HostView;
 }
-
-type SortKey = "name" | "size" | "modified";
 
 interface Transfer {
   id: number;
@@ -47,7 +46,6 @@ export default function Files() {
   const [path, setPath] = useState("");
   const [jumpDraft, setJumpDraft] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
-  const [sort, setSort] = useState<{ key: SortKey; desc: boolean } | null>({ key: "name", desc: false });
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [uploadModal, setUploadModal] = useState(false);
   const [downloadTarget, setDownloadTarget] = useState<FileEntry | null>(null);
@@ -71,32 +69,32 @@ export default function Files() {
 
   const isDriveRootView = path === "" && (listQuery.data?.entries ?? []).some((e) => /^[A-Za-z]:\\?$/.test(e.name ?? ""));
 
-  // 列表基座（P001-T1）：三态排序循环（取消 = 仅目录优先、无列排序）
-  const toggleSort = (key: string) =>
-    setSort((s) => {
-      if (!s || s.key !== key) return { key: key as SortKey, desc: false };
-      return s.desc ? null : { key: s.key, desc: true };
-    });
-
-  const sorted = useMemo(() => {
+  // 列表基座（P001-T1）：排序/枚举走 hook；目录恒优先为领域 preSort（取消列排序时仅按目录优先）
+  const filteredEntries = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    let list = [...(listQuery.data?.entries ?? [])];
-    if (q) list = list.filter((e) => (e.name ?? "").toLowerCase().includes(q));
-    list.sort((a, b) => {
-      if (!!a.is_dir !== !!b.is_dir) return a.is_dir ? -1 : 1; // 目录恒优先（领域逻辑保留）
-      if (!sort) return 0;
-      const dir = sort.desc ? -1 : 1;
-      switch (sort.key) {
-        case "size":
-          return ((a.size ?? 0) - (b.size ?? 0)) * dir;
-        case "modified":
-          return ((a.modified_unix_ms ?? 0) - (b.modified_unix_ms ?? 0)) * dir;
-        default:
-          return (a.name ?? "").localeCompare(b.name ?? "") * dir;
-      }
-    });
-    return list;
-  }, [listQuery.data, filter, sort]);
+    const list = [...(listQuery.data?.entries ?? [])];
+    return q ? list.filter((e) => (e.name ?? "").toLowerCase().includes(q)) : list;
+  }, [listQuery.data, filter]);
+
+  const fileTc = useTableControls<FileEntry>(filteredEntries, {
+    columns: [
+      { key: "name", value: (e) => e.name ?? "" },
+      { key: "size", value: (e) => e.size ?? 0 },
+      { key: "modified", value: (e) => e.modified_unix_ms ?? 0 },
+      {
+        key: "type",
+        enumOptions: () => [
+          { value: "dir", label: "目录" },
+          { value: "file", label: "文件" },
+        ],
+        matchesEnum: (e, v) => (v === "dir" ? !!e.is_dir : !e.is_dir),
+      },
+    ],
+    preSort: (a, b) => (!!a.is_dir !== !!b.is_dir ? (a.is_dir ? -1 : 1) : 0),
+  });
+  const sorted = fileTc.visible;
+  const toggleSort = fileTc.toggleSort;
+  const sort = fileTc.sort;
 
   function pushTransfer(t: Omit<Transfer, "id">) {
     const id = Date.now() + Math.random();
@@ -249,6 +247,16 @@ export default function Files() {
           <span className="text-label-13 text-gray-900">
             {atRoot ? "此电脑 · 全部驱动器" : crumbLabel(path)}
           </span>
+          <select
+            aria-label="按类型筛选"
+            value={fileTc.enumFilters.type ?? ""}
+            onChange={(e) => fileTc.setEnumFilter("type", e.target.value)}
+            className="ml-2 h-7 rounded-md border border-gray-400 bg-gray-100 px-1.5 text-label-12 outline-none transition-colors duration-150 hover:border-gray-500"
+          >
+            <option value="">全部类型</option>
+            <option value="dir">目录</option>
+            <option value="file">文件</option>
+          </select>
           <div className="relative ml-auto">
             <Search size={13} strokeWidth={1.5} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-900" />
             <input

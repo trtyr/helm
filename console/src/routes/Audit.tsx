@@ -6,9 +6,33 @@ import type { components } from "../api/schema";
 import { api } from "../api/client";
 import { auditResource } from "../lib/audit";
 import { SkeletonRows } from "../components/ui";
-import { SortableTh } from "../components/tableControls";
+import { SortableTh, TableToolbar } from "../components/tableControls";
 
 type Audit = components["schemas"]["Audit"];
+
+/** 审计动作枚举（server 写入的真实值集合，下拉筛选用）。 */
+const AUDIT_ACTIONS = [
+  "agent.deregister",
+  "agent.tags",
+  "agent.uninstall",
+  "api_key_create",
+  "exec",
+  "exec.batch",
+  "exec.run",
+  "file_download",
+  "file_upload",
+  "forward.exec",
+  "host_delete",
+  "ir.autorun_action",
+  "ir.evidence",
+  "ir.fs_timeline",
+  "ir.memscan_start",
+  "ir.scan",
+  "ir.snapshots_compare",
+  "ir.snapshots_list",
+  "ir.snapshots_save",
+  "login",
+];
 
 /** /audit 审计日志（规格 audit.md F62/F63：列表 + 行展开 JSON 树）。 */
 export default function Audit() {
@@ -32,11 +56,27 @@ export default function Audit() {
     setExpanded(null); // 展开状态跨排序不保留
   };
 
+  // 列表基座（P001-T1）：搜索/动作筛选走服务端（q/action 参数），状态存 URL params
+  const q = params.get("q") ?? "";
+  const actionFilter = params.get("action") ?? "";
+  const patchFilter = (patch: Record<string, string | null>) => {
+    const next = new URLSearchParams(params);
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === null || v === "") next.delete(k);
+      else next.set(k, v);
+    }
+    next.delete("page"); // 筛选变化回第一页
+    setParams(next, { replace: true });
+    setExpanded(null);
+  };
+
   const auditQuery = useQuery({
-    queryKey: ["audit", page, sortField],
+    queryKey: ["audit", page, sortField, q, actionFilter],
     queryFn: async () => {
       const sp = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (sortField) sp.set("sort", sortField);
+      if (q) sp.set("q", q);
+      if (actionFilter) sp.set("action", actionFilter);
       const r = await api<{ audit: Audit[] }>(`/api/v1/audit?${sp}`);
       return r.audit ?? [];
     },
@@ -53,6 +93,21 @@ export default function Audit() {
   return (
     <div className="flex flex-col gap-5">
       <p className="-mt-1 text-copy-13 text-gray-900">关键操作的历史记录（登录 / 执行 / 文件 / 主机 / 监听器）</p>
+
+      {/* 工具行（列表基座：搜索 + 动作枚举下拉，筛选走服务端 q/action） */}
+      <TableToolbar
+        search={q}
+        onSearch={(v) => patchFilter({ q: v })}
+        filters={[
+          {
+            key: "action",
+            label: "动作",
+            value: actionFilter,
+            options: AUDIT_ACTIONS.map((a) => ({ value: a, label: a })),
+            onChange: (v) => patchFilter({ action: v }),
+          },
+        ]}
+      />
 
       {/* 列表卡 */}
       <div className="overflow-hidden rounded-lg border border-gray-400 bg-background-100">

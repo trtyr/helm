@@ -82,14 +82,15 @@ impl NotificationRepo {
     }
 
     /// 分页列出通知（按时间倒序；`unread_only` 只看未读）。
+    /// q（P001-T1）：message 模糊搜索。
     pub async fn list_paged(
         &self,
         limit: i64,
         offset: i64,
         unread_only: bool,
         sort: Option<(String, bool)>,
+        q: Option<&str>,
     ) -> sqlx::Result<Vec<NotificationRow>> {
-        let where_clause = if unread_only { " WHERE NOT read" } else { "" };
         let (field, desc) = sort
             .as_ref()
             .map(|(f, d)| (f.as_str(), *d))
@@ -107,8 +108,16 @@ impl NotificationRepo {
         let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
             "SELECT id, host_id, type, message, read, created_at FROM notifications",
         );
-        qb.push(where_clause)
-            .push(" ORDER BY ")
+        if unread_only {
+            qb.push(" WHERE NOT read");
+        }
+        if let Some(kw) = q {
+            qb.push(if unread_only { " AND (" } else { " WHERE (" })
+                .push("message ILIKE ")
+                .push_bind(format!("%{kw}%"))
+                .push(")");
+        }
+        qb.push(" ORDER BY ")
             .push(order)
             .push(" LIMIT ")
             .push_bind(limit)

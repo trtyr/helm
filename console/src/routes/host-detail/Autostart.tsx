@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "../../lib/toast";
+import { SortableTh } from "../../components/tableControls";
+import { useTableControls } from "../../lib/useTableControls";
 import type { components } from "../../api/schema";
 import { api, pickAgent } from "../../api/client";
 
@@ -202,7 +204,7 @@ export default function Autostart() {
     return m;
   }, [findings]);
 
-  const filtered = useMemo(() => {
+  const baseFiltered = useMemo(() => {
     let list = diff ? [...diff.added, ...diff.removed] : findings;
     if (!diff) {
       if (cat !== "全部") list = list.filter((f) => f.category === cat);
@@ -221,15 +223,24 @@ export default function Autostart() {
         ),
       );
     }
-    return [...list].sort((a, b) => {
-      const sev = SEV_ORDER(a.severity ?? "info") - SEV_ORDER(b.severity ?? "info");
-      if (sev !== 0) return sev;
-      return (
-        (a.category ?? "").localeCompare(b.category ?? "") ||
-        (a.name ?? "").localeCompare(b.name ?? "")
-      );
-    });
+    return list;
   }, [findings, cat, keyword, hideMicrosoft, diff]);
+
+  // 列表基座（P001-T1）：列头排序走 hook；severity→category→name 为领域 preSort（取消列排序时回领域序）
+  const tc = useTableControls(baseFiltered, {
+    columns: [
+      { key: "severity", value: (f) => f.severity ?? "" },
+      { key: "name", value: (f) => f.name ?? "" },
+      { key: "publisher", value: (f) => f.publisher ?? "" },
+      { key: "mtime", value: (f) => f.mtime ?? "" },
+      { key: "path", value: (f) => f.path ?? "" },
+    ],
+    preSort: (a, b) =>
+      SEV_ORDER(a.severity ?? "info") - SEV_ORDER(b.severity ?? "info") ||
+      (a.category ?? "").localeCompare(b.category ?? "") ||
+      (a.name ?? "").localeCompare(b.name ?? ""),
+  });
+  const filtered = tc.visible;
 
   const criticalCount = findings.filter((f) => f.severity === "critical").length;
   const isDiffRow = (f: IrFinding) =>
@@ -342,12 +353,12 @@ export default function Autostart() {
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-400 text-label-13 text-gray-900">
-              <th className="w-16 whitespace-nowrap px-3 py-2.5 font-normal">级别</th>
-              <th className="w-52 whitespace-nowrap px-3 py-2.5 font-normal">条目</th>
-              <th className="w-40 whitespace-nowrap px-3 py-2.5 font-normal">发布者</th>
+              <SortableTh className="w-16" label="级别" sortKey="severity" sort={tc.sort} onSort={tc.toggleSort} />
+              <SortableTh className="w-52" label="条目" sortKey="name" sort={tc.sort} onSort={tc.toggleSort} />
+              <SortableTh className="w-40" label="发布者" sortKey="publisher" sort={tc.sort} onSort={tc.toggleSort} />
               <th className="w-20 whitespace-nowrap px-3 py-2.5 font-normal">签名</th>
-              <th className="w-28 whitespace-nowrap px-3 py-2.5 font-normal">文件时间</th>
-              <th className="w-full max-w-0 px-4 py-2.5 font-normal">路径</th>
+              <SortableTh className="w-28" label="文件时间" sortKey="mtime" sort={tc.sort} onSort={tc.toggleSort} />
+              <SortableTh className="w-full max-w-0" label="路径" sortKey="path" sort={tc.sort} onSort={tc.toggleSort} />
               <th className="w-24 whitespace-nowrap px-3 py-2.5 font-normal">操作</th>
             </tr>
           </thead>
