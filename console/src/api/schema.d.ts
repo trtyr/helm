@@ -333,7 +333,32 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /** 查询单台主机（详情页单查） */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["parameters"]["HostId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 主机详情 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            host?: components["schemas"]["Host"];
+                        };
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
         /** 更新主机 */
         put: {
             parameters: {
@@ -913,105 +938,6 @@ export interface paths {
                         "application/json": {
                             ok?: boolean;
                             error?: string | null;
-                        };
-                    };
-                };
-                400: components["responses"]["InvalidArgument"];
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/ir/file-meta": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** 文件元数据按需查询（SHA256/大小/mtime） */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": {
-                        agent_id: string;
-                        path: string;
-                    };
-                };
-            };
-            responses: {
-                /** @description 文件元数据 */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            path?: string;
-                            sha256?: string;
-                            size?: number;
-                            mtime?: string;
-                            error?: string | null;
-                        };
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/ir/vt": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** VirusTotal 查杀查询（按 SHA256，结果缓存 7 天，需 HELM_VT_API_KEY） */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": {
-                        sha256: string;
-                    };
-                };
-            };
-            responses: {
-                /** @description 查杀结果 */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            sha256?: string;
-                            /** @description 恶意+可疑引擎数；-1 = VT 未收录 */
-                            positives?: number;
-                            total?: number;
-                            permalink?: string;
-                            cached?: boolean;
                         };
                     };
                 };
@@ -1735,12 +1661,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 分页列出 Job */
+        /** 分页列出 Job（支持 status / host_id 过滤） */
         get: {
             parameters: {
                 query?: {
                     page?: number;
                     limit?: number;
+                    /** @description 按状态过滤（queued/running/succeeded/failed/cancelled/timed_out） */
+                    status?: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out";
+                    /** @description 按主机过滤 */
+                    host_id?: string;
                 };
                 header?: never;
                 path?: never;
@@ -1812,6 +1742,65 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/jobs/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["JobId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 取消 Job（EN-64）
+         * @description queued → 直接收敛为 cancelled；running → 在线 agent 下发 JobCancel 真中断
+         *     （杀目标机进程并回 ExecResult(cancelled=true)），离线则置 cancelled 并记补偿
+         *     （agent 重连后补杀残留进程）。终态 job 返回 400。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["parameters"]["JobId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 已受理取消（cancelled 恒 true） */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            cancelled?: boolean;
+                            /** @description JobCancel 是否已送达在线 agent（真中断） */
+                            delivered?: boolean;
+                            /** @description agent 离线时是否已记补偿（重连后补杀） */
+                            compensated?: boolean;
+                        };
+                    };
+                };
+                /** @description job 已处于终态（invalid_argument） */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/jobs/{id}/stream": {
         parameters: {
             query: {
@@ -1848,6 +1837,66 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mcp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * MCP JSON-RPC 2.0 端点（AI 接入，单工具 helm）
+         * @description 单工具 `helm`：`op` 渐进式调用（`catalog` 编目 → 逐 op loopback 透传既有 HTTP 面）。
+         *     认证：JWT 或 API key（scope 裁剪，空 scopes = 全功能；api-keys/账号端点无 scope、
+         *     永远 JWT-only）。请求体为 JSON-RPC 2.0 消息（initialize / tools/list / tools/call）；
+         *     工具级错误亦返回 200 + isError。详见 engram projects/helm「接口契约/mcp」。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            responses: {
+                /** @description JSON-RPC 2.0 响应 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": Record<string, never>;
+                    };
+                };
+                /** @description 未认证 */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description scope 不足（fail-closed） */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -2796,6 +2845,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/services/stream": {
+        parameters: {
+            query: {
+                token: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 服务状态实时流（WebSocket）。连接即推一次全量快照 （{"snapshot":[...]}），此后 agent 上报的状态变更为增量 （{"service_id","status","pid","exit_code"}）。 */
+        get: {
+            parameters: {
+                query: {
+                    token: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description WebSocket 升级成功 */
+                101: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/processes/list": {
         parameters: {
             query?: never;
@@ -3422,87 +3509,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/skill": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** 下载运维 skill 完整包（zip；JWT / API key 均可，决策 011） */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description zip 包（内嵌 SKILL.md + scripts/ + references/） */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/zip": string;
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/skill/manifest": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Skill 包清单（版本 + 文件 + sha256，用于升级对比） */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description 包清单 */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            name?: string;
-                            version?: string;
-                            file_count?: number;
-                            files?: {
-                                path?: string;
-                                size?: number;
-                                sha256?: string;
-                            }[];
-                        };
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3876,7 +3882,7 @@ export interface components {
          * @description 功能域 scope（api-keys/账号管理永远 JWT-only，不设 scope）
          * @enum {string}
          */
-        ApiKeyScope: "hosts" | "exec" | "files" | "services" | "processes" | "metrics" | "notifications" | "listeners" | "forward" | "proxy" | "ir" | "agent-gen" | "audit" | "skill";
+        ApiKeyScope: "hosts" | "exec" | "files" | "services" | "processes" | "metrics" | "notifications" | "listeners" | "forward" | "proxy" | "ir" | "agent-gen" | "audit";
         Account: {
             username?: string;
             /** @enum {string} */

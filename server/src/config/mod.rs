@@ -94,10 +94,6 @@ pub struct Config {
     /// Agent 源码工作区目录（现场编译生成 Agent 用；Server 须能在此目录执行 cargo）
     #[arg(long, env = "HELM_AGENT_SOURCE_DIR", default_value = ".")]
     pub agent_source_dir: String,
-
-    /// VirusTotal API key（启动项 VT 查杀联动；空 = 禁用 VT 功能）
-    #[arg(long, env = "HELM_VT_API_KEY", default_value = "")]
-    pub vt_api_key: String,
 }
 
 impl Config {

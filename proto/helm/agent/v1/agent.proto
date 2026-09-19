@@ -489,13 +489,16 @@ message AutorunsActionResult {
   optional string error = 3;
 }
 
-// Server → Agent：文件元数据按需查询（SHA256/大小/mtime，供 VirusTotal 查杀）。
+// Server → Agent：文件元数据按需查询（SHA256/大小/mtime）。
+// 【已废弃 2026-09-19】VirusTotal 查杀功能移除（commit 27ca048），本消息不再被构造/消费；
+// 定义保留以维持 wire 兼容与 buf breaking 门禁（tag 占位勿复用）。
 message FileMetaQuery {
   string request_id = 1;
   string path = 2;
 }
 
 // Agent → Server：文件元数据结果。
+// 【已废弃 2026-09-19】随 FileMetaQuery 废弃（VirusTotal 查杀移除），不再被构造/消费；tag 占位勿复用。
 message FileMetaResult {
   string request_id = 1;
   string path = 2;

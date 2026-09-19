@@ -215,8 +215,6 @@ pub fn scope_for(path: &str) -> Option<&'static str> {
         | "/api/v1/ir/fs-timeline"
         | "/api/v1/ir/evidence"
         | "/api/v1/ir/autorun-action"
-        | "/api/v1/ir/file-meta"
-        | "/api/v1/ir/vt"
         | "/api/v1/ir/snapshots"
         | "/api/v1/ir/snapshots/compare"
         | "/api/v1/ir/snapshots/{id}" => Some(s::IR),

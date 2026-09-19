@@ -61,7 +61,6 @@ pub struct AppState {
     pub agent_gen: crate::application::agent_generator::AgentGenService,
     pub proxy_service: crate::application::proxy_service::ProxyService,
     pub conn_registry: ConnectionRegistry,
-    pub vt_api_key: String,
     /// HTTP 监听端口（MCP loopback 自调用用）。
     pub http_port: u16,
 }
@@ -101,7 +100,6 @@ pub async fn serve(
         ),
         proxy_service: crate::application::proxy_service::ProxyService::new(),
         conn_registry: registry,
-        vt_api_key: config.vt_api_key.clone(),
         http_port: config
             .http_addr
             .rsplit(':')
@@ -179,8 +177,6 @@ pub async fn serve(
         .route("/ir/evidence", post(p2::evidence))
         .route("/exec/batch", post(p2::batch_exec))
         .route("/ir/autorun-action", post(ir_ops::autorun_action))
-        .route("/ir/file-meta", post(ir_ops::file_meta))
-        .route("/ir/vt", post(ir_ops::vt_lookup))
         .route(
             "/ir/snapshots",
             post(ir_ops::create_snapshot).get(ir_ops::list_snapshots),

@@ -57,7 +57,7 @@ impl Error {
             Error::NotFound(_) => "resource not found".into(),
             Error::Unauthorized(_) => "unauthorized".into(),
             Error::Forbidden(_) => "forbidden".into(),
-            // InvalidArgument 的细节是服务端编写的校验提示（如"未配置 HELM_VT_API_KEY"），对客户端有用且安全
+            // InvalidArgument 的细节是服务端编写的校验提示（如"缺少必填参数"），对客户端有用且安全
             Error::InvalidArgument(m) => std::borrow::Cow::Borrowed(m.as_str()),
             Error::NotConnected(m) => std::borrow::Cow::Borrowed(m.as_str()),
             Error::Storage(_) | Error::Io(_) | Error::Internal(_) => "internal server error".into(),

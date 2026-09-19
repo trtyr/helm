@@ -539,63 +539,6 @@ paths:
         "400":
           $ref: "#/components/responses/InvalidArgument"
 
-  /api/v1/ir/file-meta:
-    post:
-      tags: [ir]
-      summary: 文件元数据按需查询（SHA256/大小/mtime）
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [agent_id, path]
-              properties:
-                agent_id: { type: string }
-                path: { type: string }
-      responses:
-        "200":
-          description: 文件元数据
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  path: { type: string }
-                  sha256: { type: string }
-                  size: { type: integer }
-                  mtime: { type: string }
-                  error: { type: string, nullable: true }
-
-  /api/v1/ir/vt:
-    post:
-      tags: [ir]
-      summary: VirusTotal 查杀查询（按 SHA256，结果缓存 7 天，需 HELM_VT_API_KEY）
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [sha256]
-              properties:
-                sha256: { type: string }
-      responses:
-        "200":
-          description: 查杀结果
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  sha256: { type: string }
-                  positives: { type: integer, description: 恶意+可疑引擎数；-1 = VT 未收录 }
-                  total: { type: integer }
-                  permalink: { type: string }
-                  cached: { type: boolean }
-        "400":
-          $ref: "#/components/responses/InvalidArgument"
-
   /api/v1/ir/snapshots:
     post:
       tags: [ir]

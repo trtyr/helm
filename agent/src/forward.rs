@@ -206,10 +206,6 @@ impl ForwardAgentService for ForwardAgentServiceImpl {
                             crate::ir::autoruns_action(&req.request_id, &req.action, &req.op_key);
                         let _ = tx.send(msg).await;
                     }
-                    Some(server_message::Kind::FileMetaQuery(req)) => {
-                        let msg = crate::ir::file_meta(&req.request_id, &req.path);
-                        let _ = tx.send(msg).await;
-                    }
                     Some(server_message::Kind::IrScan(req)) => {
                         let msg = crate::ir::ir_scan(&req.request_id, &req.types);
                         let _ = tx.send(msg).await;

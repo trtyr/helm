@@ -266,12 +266,6 @@ impl InboundCtx {
                     .complete(&rid, QueryResponse::FsTimeline(result))
                     .await;
             }
-            Some(agent_message::Kind::FileMetaResult(result)) => {
-                let rid = result.request_id.clone();
-                self.query
-                    .complete(&rid, QueryResponse::FileMeta(result))
-                    .await;
-            }
             Some(agent_message::Kind::ProxyConnected(result)) => {
                 crate::grpc::proxy_registry::registry()
                     .connected(&result.conn_id, result.ok, result.error)

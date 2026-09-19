@@ -1,4 +1,4 @@
-//! IR 操作端点：启动项操作（禁用/启用/删除）+ 快照基线对比 + VirusTotal 查杀 + 文件元数据。
+//! IR 操作端点：启动项操作（禁用/启用/删除）+ 快照基线对比。
 
 use crate::application::audit_service::AuditService;
 use crate::application::auth_service::Claims;
@@ -49,33 +49,6 @@ pub async fn autorun_action(
         )
         .await;
     Ok(Json(json!({ "ok": ok, "error": error })))
-}
-
-// ---------------------------------------------------------------------------
-// 文件元数据（SHA256，供 VT 查杀）
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Deserialize)]
-pub struct FileMetaBody {
-    pub agent_id: String,
-    pub path: String,
-}
-
-/// 文件元数据：POST /api/v1/ir/file-meta
-pub async fn file_meta(
-    State(state): State<AppState>,
-    Json(body): Json<FileMetaBody>,
-) -> Result<Json<Value>, Error> {
-    let r = service(&state)
-        .file_meta(&body.agent_id, &body.path)
-        .await?;
-    Ok(Json(json!({
-        "path": r.path,
-        "sha256": r.sha256,
-        "size": r.size,
-        "mtime": r.mtime,
-        "error": r.error,
-    })))
 }
 
 // ---------------------------------------------------------------------------
@@ -248,94 +221,6 @@ fn diff_findings(base: Value, target: Value) -> (Vec<Value>, Vec<Value>) {
 
 fn parse_uuid(s: &str) -> Result<sqlx::types::Uuid, Error> {
     sqlx::types::Uuid::parse_str(s).map_err(|_| Error::InvalidArgument(format!("无效快照 id: {s}")))
-}
-
-// ---------------------------------------------------------------------------
-// VirusTotal 查杀（按 SHA256，服务端缓存）
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Deserialize)]
-pub struct VtLookupBody {
-    pub sha256: String,
-}
-
-/// VT 查询：POST /api/v1/ir/vt
-/// 需要配置 HELM_VT_API_KEY；结果缓存于 ir_vt_cache（7 天内复用）。
-pub async fn vt_lookup(
-    State(state): State<AppState>,
-    Json(body): Json<VtLookupBody>,
-) -> Result<Json<Value>, Error> {
-    let sha = body.sha256.trim().to_ascii_lowercase();
-    if sha.len() != 64 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(Error::InvalidArgument("需要 64 位十六进制 SHA256".into()));
-    }
-    let permalink = format!("https://www.virustotal.com/gui/file/{sha}");
-
-    // 缓存命中（7 天内）
-    if let Ok(Some(c)) = crate::store::ir_repo::get_vt_cache(state.db.pool(), &sha).await {
-        let age = chrono::Utc::now().signed_duration_since(c.checked_at);
-        if age < chrono::Duration::days(7) {
-            return Ok(Json(json!({
-                "sha256": sha, "positives": c.positives, "total": c.total,
-                "permalink": permalink, "cached": true,
-            })));
-        }
-    }
-
-    let key = &state.vt_api_key;
-    if key.is_empty() {
-        return Err(Error::InvalidArgument(
-            "未配置 VirusTotal API key（HELM_VT_API_KEY 环境变量）".into(),
-        ));
-    }
-
-    let client = reqwest::Client::new();
-    let url = format!("https://www.virustotal.com/api/v3/files/{sha}");
-    let resp = client
-        .get(&url)
-        .header("x-apikey", key.as_str())
-        .timeout(std::time::Duration::from_secs(20))
-        .send()
-        .await
-        .map_err(|e| Error::Internal(format!("VT 请求失败: {e}")))?;
-
-    if resp.status() == reqwest::StatusCode::NOT_FOUND {
-        // VT 未收录：positives=-1 表示未知样本
-        let _ = crate::store::ir_repo::upsert_vt_cache(state.db.pool(), &sha, -1, 0).await;
-        return Ok(Json(json!({
-            "sha256": sha, "positives": -1, "total": 0,
-            "permalink": permalink, "cached": false,
-        })));
-    }
-    if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-        return Err(Error::InvalidArgument(
-            "VT 配额超限（公共 API 每分钟 4 次），稍后再试".into(),
-        ));
-    }
-    if !resp.status().is_success() {
-        return Err(Error::Internal(format!("VT 返回状态 {}", resp.status())));
-    }
-    let v: Value = resp
-        .json()
-        .await
-        .map_err(|e| Error::Internal(format!("VT 解析失败: {e}")))?;
-    let stats = &v["data"]["attributes"]["last_analysis_stats"];
-    let malicious = stats["malicious"].as_i64().unwrap_or(0);
-    let suspicious = stats["suspicious"].as_i64().unwrap_or(0);
-    let undetected = stats["undetected"].as_i64().unwrap_or(0);
-    let total = malicious + suspicious + undetected;
-    let positives = malicious + suspicious;
-    let _ = crate::store::ir_repo::upsert_vt_cache(
-        state.db.pool(),
-        &sha,
-        positives as i32,
-        total as i32,
-    )
-    .await;
-    Ok(Json(json!({
-        "sha256": sha, "positives": positives, "total": total,
-        "permalink": permalink, "cached": false,
-    })))
 }
 
 // ---------------------------------------------------------------------------

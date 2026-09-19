@@ -43,7 +43,6 @@
 | **批量操作** | 多主机同时下发命令，逐 agent 建任务跟踪 |
 | **证据包** | 一键收集进程/网络/服务/自启动/日志 JSON 下载 |
 | **权限检测** | 管理员/root 自动检测，前端徽章显示 |
-| **VirusTotal** | 按文件 SHA256 查杀（待 HELM_VT_API_KEY 配置） |
 | **页面缓存** | 自启动项/系统日志秒开（ir_page_cache 服务端缓存） |
 
 详见 engram「应急响应」分类（原 docs/ir-capabilities.md）。
@@ -59,9 +58,9 @@ server/               # Server 控制端（axum + tonic + sqlx）
   src/grpc            #   gRPC 适配层（Agent 连入）
   src/http            #   HTTP API 适配层（控制台）
   src/store           #   持久化层（sqlx + Postgres）
-  migrations/         #   数据库迁移（17 个版本）
+  migrations/         #   数据库迁移（18 个版本）
 agent/                # Agent 被控端（tokio，跨平台）
-  src/ir/             #   IR 应急响应模块（自启动/内存扫描/文件时间线/操作等 17 个模块）
+  src/ir/             #   IR 应急响应模块（自启动/内存扫描/文件时间线/操作等 16 个模块）
   src/privilege.rs    #   权限检测（SeDebugPrivilege / Administrators 组）
 console/              # 前端控制台（Vite + React；pnpm 独立工作流）
 deploy/               # 部署模板（systemd unit + Windows nssm 脚本）
@@ -150,7 +149,7 @@ Bearer 值为 JWT 或 `helm_` 前缀 API key（决策 010）均可认证；WebSo
 | POST | `/api/v1/files/list` | 列目录 |
 | POST | `/api/v1/tasks/script` | 脚本执行 |
 | POST | `/api/v1/tasks/schedule` | 定时任务 |
-| POST | `/api/v1/mcp` | MCP JSON-RPC 端点（AI 单工具 `helm` 接入，49 op，scope 授权；见 engram「接口契约/mcp」） |
+| POST | `/api/v1/mcp` | MCP JSON-RPC 端点（AI 单工具 `helm` 接入，47 op，scope 授权；见 engram「接口契约/mcp」） |
 | POST | `/api/v1/forward/exec` | 正向连接执行命令 |
 | GET/POST | `/api/v1/listeners` | 列出 / 创建监听器 |
 | PUT/DELETE | `/api/v1/listeners/{id}` | 更新 / 删除监听器 |
@@ -196,7 +195,6 @@ Bearer 值为 JWT 或 `helm_` 前缀 API key（决策 010）均可认证；WebSo
 | `HELM_ISSUE_CERT` | 关 | 离线签发 agent 证书三件套后退出（`--issue-cert`，forward 预置用） |
 | `HELM_ISSUE_AGENT_ID` / `HELM_ISSUE_SAN` / `HELM_ISSUE_OUT_DIR` | 空 | issue-cert 参数：agent 标识 / SAN 列表 / 输出目录 |
 | `HELM_AGENT_SOURCE_DIR` | `.` | Agent 源码工作区目录（「生成 Agent」现场编译用；须能在此目录执行 cargo） |
-| `HELM_VT_API_KEY` | 空 | VirusTotal API key（`/api/v1/ir/vt` 查杀；结果缓存 7 天） |
 | `HELM_CROSS_TOOLS_DIR` | 未设 | musl 交叉工具链目录（缺省 `<源码工作区>/.cargo-musl/bin`） |
 
 ### Agent
@@ -236,4 +234,4 @@ python3 scripts/check_docs.py     # 文档现状陈述与代码一致性校验
   运行部署 / 约定 / 现状与门禁 / 应急响应 / 规划决策树（原 docs/*.md 与 docs/plantree 全树，
   2026-09-15 迁入）。经 engram MCP（`projects` 工具 `doc_search` / `doc_get`，project_name=helm）检索。
 - [docs/README.md](docs/README.md) — 本地文档指针索引（分类 → engram 文档对照表）。
-- [docs/openapi.yaml](docs/openapi.yaml) — HTTP API 契约（OpenAPI 3.0.3，73 端点；机器契约保留本地）。
+- [docs/openapi.yaml](docs/openapi.yaml) — HTTP API 契约（OpenAPI 3.0.3，71 端点；机器契约保留本地）。

@@ -12,13 +12,6 @@ interface Ctx {
   host: components["schemas"]["HostView"];
 }
 
-interface VtResult {
-  positives: number;
-  total: number;
-  permalink: string;
-  error?: string;
-}
-
 interface DiffState {
   added: IrFinding[];
   removed: IrFinding[];
@@ -75,7 +68,7 @@ function fmtTime(unix?: string | null): string {
 
 /** 自启动项持久化全景——对标 Sysinternals Autoruns：
  *  分类标签 + 文件厂商/签名校验 + 禁用/启用/删除（AutorunsDisabled 机制）+
- *  基线快照对比 + VirusTotal 查杀。 */
+ *  基线快照对比。 */
 export default function Autostart() {
   const { host } = useOutletContext<Ctx>();
   const queryClient = useQueryClient();
@@ -83,7 +76,6 @@ export default function Autostart() {
   const [keyword, setKeyword] = useState("");
   const [hideMicrosoft, setHideMicrosoft] = useState(false);
   const [diff, setDiff] = useState<DiffState | null>(null);
-  const [vt, setVt] = useState<Record<string, VtResult | "loading">>({});
 
   const agentsQuery = useQuery({
     queryKey: ["agents"],
@@ -166,32 +158,6 @@ export default function Autostart() {
           : `确认启用自启动项「${name}」？`;
     if (!window.confirm(confirmText)) return;
     actionMutation.mutate({ action, key: f.opKey ?? "" });
-  };
-
-  // ---- VirusTotal 查杀 ----
-  const vtCheck = async (f: IrFinding) => {
-    if (!f.path || !agent) return;
-    if (vt[f.path] === "loading") return;
-    setVt((m) => ({ ...m, [f.path!]: "loading" }));
-    try {
-      const meta = await api<{ sha256: string; error?: string | null }>("/api/v1/ir/file-meta", {
-        method: "POST",
-        body: { agent_id: agent.id, path: f.path },
-      });
-      if (meta.error || !meta.sha256) throw new Error(meta.error ?? "无法读取文件");
-      const r = await api<VtResult & { cached: boolean }>("/api/v1/ir/vt", {
-        method: "POST",
-        body: { sha256: meta.sha256 },
-      });
-      setVt((m) => ({ ...m, [f.path!]: r }));
-    } catch (e) {
-      toast((e as Error).message, "error");
-      setVt((m) => {
-        const n = { ...m };
-        delete n[f.path!];
-        return n;
-      });
-    }
   };
 
   // ---- 基线对比 ----
@@ -454,29 +420,6 @@ export default function Autostart() {
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">
                       <div className="flex items-center gap-1.5">
-                        {f.path && (
-                          <button
-                            type="button"
-                            title="VirusTotal 查杀"
-                            disabled={vt[f.path] === "loading"}
-                            onClick={() => vtCheck(f)}
-                            className={`rounded px-1.5 py-0.5 text-label-12 ${
-                              vt[f.path] && vt[f.path] !== "loading"
-                                ? (vt[f.path] as VtResult).positives > 0
-                                  ? "bg-red-1000/10 text-red-1000"
-                                  : (vt[f.path] as VtResult).positives === 0
-                                    ? "bg-green-1000/10 text-green-1000"
-                                    : "bg-gray-200 text-gray-900"
-                                : "border border-gray-500 text-gray-900 hover:bg-gray-200"
-                            }`}
-                          >
-                            {vt[f.path] === "loading"
-                              ? "…"
-                              : vt[f.path]
-                                ? `${(vt[f.path] as VtResult).positives < 0 ? "未知" : `${(vt[f.path] as VtResult).positives}/${(vt[f.path] as VtResult).total}`}`
-                                : "VT"}
-                          </button>
-                        )}
                         {f.opKey && (
                           <>
                             <button

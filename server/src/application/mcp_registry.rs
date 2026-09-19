@@ -542,24 +542,6 @@ pub static OPS: &[OpDef] = &[
         "与基线快照对比，diff 出新增/移除项",
         &[("id", "基线快照 uuid"), ("agent_id", "agent_id")]
     ),
-    op!(
-        "ir.vt",
-        "ir",
-        Os::Windows,
-        "POST",
-        "/api/v1/ir/vt",
-        "VirusTotal 按 SHA256 查杀",
-        &[("agent_id", "agent_id"), ("path", "文件路径")]
-    ),
-    op!(
-        "ir.file_meta",
-        "ir",
-        Os::Windows,
-        "POST",
-        "/api/v1/ir/file-meta",
-        "文件元数据（SHA256，取证速查）",
-        &[("agent_id", "agent_id"), ("path", "文件路径")]
-    ),
     // -- agent-gen 域 --
     op!(
         "agent_gen.create",

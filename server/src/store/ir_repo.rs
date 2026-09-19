@@ -1,4 +1,4 @@
-//! IR 快照（基线对比）与 VirusTotal 查杀缓存仓储。
+//! IR 快照（基线对比）仓储。
 
 use sqlx::PgPool;
 
@@ -26,15 +26,6 @@ pub struct IrSnapshotFull {
     pub findings: serde_json::Value,
     pub entry_count: i32,
     pub created_at: DateTime<Utc>,
-}
-
-/// VT 查杀缓存行。
-#[derive(Debug, serde::Serialize, sqlx::FromRow)]
-pub struct IrVtCacheRow {
-    pub sha256: String,
-    pub positives: i32,
-    pub total: i32,
-    pub checked_at: DateTime<Utc>,
 }
 
 pub async fn insert_snapshot(
@@ -80,32 +71,6 @@ pub async fn delete_snapshot(pool: &PgPool, id: Uuid) -> sqlx::Result<u64> {
         .execute(pool)
         .await?;
     Ok(r.rows_affected())
-}
-
-/// 读取 VT 缓存（7 天过期由调用方判断）。
-pub async fn get_vt_cache(pool: &PgPool, sha256: &str) -> sqlx::Result<Option<IrVtCacheRow>> {
-    sqlx::query_as("SELECT sha256, positives, total, checked_at FROM ir_vt_cache WHERE sha256 = $1")
-        .bind(sha256)
-        .fetch_optional(pool)
-        .await
-}
-
-pub async fn upsert_vt_cache(
-    pool: &PgPool,
-    sha256: &str,
-    positives: i32,
-    total: i32,
-) -> sqlx::Result<()> {
-    sqlx::query(
-        "INSERT INTO ir_vt_cache (sha256, positives, total) VALUES ($1, $2, $3)
-         ON CONFLICT (sha256) DO UPDATE SET positives = EXCLUDED.positives, total = EXCLUDED.total, checked_at = now()",
-    )
-    .bind(sha256)
-    .bind(positives)
-    .bind(total)
-    .execute(pool)
-    .await?;
-    Ok(())
 }
 
 /// 页面级缓存行（最后一次扫描结果）。

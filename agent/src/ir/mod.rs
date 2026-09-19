@@ -24,8 +24,6 @@ mod browser;
 #[cfg(windows)]
 mod events;
 #[cfg(windows)]
-mod filemeta;
-#[cfg(windows)]
 mod files;
 #[cfg(windows)]
 mod fs_timeline;
@@ -186,30 +184,6 @@ pub fn autoruns_action(request_id: &str, action: &str, op_key: &str) -> AgentMes
                     request_id: request_id.to_string(),
                     ok: false,
                     error: Some("启动项操作当前仅支持 Windows 主机".into()),
-                },
-            )),
-        }
-    }
-}
-
-/// 文件元数据按需查询（SHA256/大小/mtime）。
-pub fn file_meta(request_id: &str, path: &str) -> AgentMessage {
-    #[cfg(windows)]
-    {
-        filemeta::file_meta(request_id, path)
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = path;
-        AgentMessage {
-            kind: Some(agent_message::Kind::FileMetaResult(
-                helm_proto::pb::FileMetaResult {
-                    request_id: request_id.to_string(),
-                    path: path.to_string(),
-                    sha256: String::new(),
-                    size: 0,
-                    mtime: String::new(),
-                    error: Some("仅支持 Windows 主机".into()),
                 },
             )),
         }

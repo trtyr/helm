@@ -158,20 +158,15 @@ def main() -> None:
     tool_op(ka, {"op": "notifications.list"}, 16)
     print("[7] notifications.list OK")
 
-    # [8] IR：Windows 文件元数据（sha256）
-    is_err, meta = call_tool(ka, {"op": "ir.file_meta", "os": "windows", "args": {"agent_id": win, "path": "C:\\Windows\\System32\\cmd.exe"}}, 17)
-    assert not is_err and (meta.get("sha256") or meta.get("size")), meta
-    print("[8] ir.file_meta OK")
-
-    # [9] os 不匹配：Windows 专属 op 传 linux
+    # [8] os 不匹配：Windows 专属 op 传 linux
     is_err, msg = call_tool(ka, {"op": "ir.scan", "os": "linux", "args": {"agent_id": win}}, 18)
     assert is_err and "windows" in msg, msg
-    print("[9] os 不匹配拒绝 OK")
+    print("[8] os 不匹配拒绝 OK")
 
-    # [10] scope 越权：B（只有 metrics）调 exec.run
+    # [9] scope 越权：B（只有 metrics）调 exec.run
     is_err, msg = call_tool(kb, {"op": "exec.run", "args": {"agent_id": win, "command": "echo"}}, 19)
     assert is_err and "'exec'" in msg and "scope" in msg, msg
-    print("[10] scope 越权拒绝 OK")
+    print("[9] scope 越权拒绝 OK")
 
     # [11] 审计溯源：MCP 发起的 exec 以 api-key:<name> 落审计
     audit = tool_op(ka, {"op": "audit.list", "args": {"limit": 50}}, 20)["audit"]

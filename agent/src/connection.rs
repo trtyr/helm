@@ -289,10 +289,6 @@ async fn connect_once(config: &Config) -> Result<()> {
                 let msg = crate::ir::autoruns_action(&req.request_id, &req.action, &req.op_key);
                 let _ = tx.send(msg).await;
             }
-            Some(server_message::Kind::FileMetaQuery(req)) => {
-                let msg = crate::ir::file_meta(&req.request_id, &req.path);
-                let _ = tx.send(msg).await;
-            }
             other => {
                 tracing::debug!(agent_id = %config.agent_id, ?other, "server message (later phase)");
             }
