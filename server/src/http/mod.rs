@@ -219,9 +219,35 @@ pub async fn serve(
             auth::require_auth,
         ));
 
+    // 前后端一体化前置检查（HELM_WEB_DIST_DIR）：GET /mcp 回 MCP 页依赖它。
+    let web_dist: Option<std::path::PathBuf> = if config.web_dist_dir.is_empty() {
+        None
+    } else {
+        let d = std::path::PathBuf::from(&config.web_dist_dir);
+        if !d.join("index.html").is_file() {
+            return Err(anyhow::anyhow!(
+                "web_dist_dir {:?} 不存在 index.html（先构建 console：pnpm --dir console build）",
+                d
+            ));
+        }
+        Some(d)
+    };
+
     let app = Router::new()
         .route("/healthz", get(health::healthz))
-        .route("/mcp", post(mcp::mcp))
+        .route("/mcp", {
+            // GET → console 的 MCP 页（前端路由 deep link，需 HELM_WEB_DIST_DIR）；POST → JSON-RPC。
+            let dist = web_dist.clone();
+            post(mcp::mcp).get(move || async move {
+                use axum::response::IntoResponse;
+                match dist.as_ref() {
+                    Some(d) => mcp_console(d.clone()).await,
+                    None => {
+                        (axum::http::StatusCode::METHOD_NOT_ALLOWED, "not found").into_response()
+                    }
+                }
+            })
+        })
         .route("/api/v1/auth/login", post(auth::login))
         .route("/api/v1/agents/{id}/terminal", get(terminal::terminal))
         .route(
@@ -246,20 +272,13 @@ pub async fn serve(
     let listener = tokio::net::TcpListener::bind(&config.http_addr).await?;
     tracing::info!(addr = %config.http_addr, "http listening");
 
-    if config.web_dist_dir.is_empty() {
-        axum::serve(listener, app).await?;
-    } else {
+    if let Some(dist) = web_dist {
         // 前后端一体化（HELM_WEB_DIST_DIR）：同一端口托管控制台静态资源 + SPA fallback。
         // API 语义保留：/api、/mcp、/healthz 未匹配仍返回 404，不落回 index.html。
-        let dist = std::path::PathBuf::from(&config.web_dist_dir);
-        if !dist.join("index.html").is_file() {
-            return Err(anyhow::anyhow!(
-                "web_dist_dir {:?} 不存在 index.html（先构建 console：pnpm --dir console build）",
-                dist
-            ));
-        }
         tracing::info!(dist = %dist.display(), "serving console static files");
         let app = app.fallback(move |req| web_static(dist.clone(), req));
+        axum::serve(listener, app).await?;
+    } else {
         axum::serve(listener, app).await?;
     }
     Ok(())
@@ -325,6 +344,20 @@ async fn web_static(
     // SPA fallback：前端 history 路由刷新回 index.html
     match tokio::fs::read(dist.join("index.html")).await {
         Ok(bytes) => serve(bytes.into(), "text/html; charset=utf-8", false),
+        Err(_) => (axum::http::StatusCode::NOT_FOUND, "not found").into_response(),
+    }
+}
+
+/// GET /mcp → console 的 MCP 页面（前端 /mcp 路由 deep link；JSON-RPC 只走 POST）。
+async fn mcp_console(dist: std::path::PathBuf) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    match tokio::fs::read(dist.join("index.html")).await {
+        Ok(bytes) => axum::response::Response::builder()
+            .status(axum::http::StatusCode::OK)
+            .header(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")
+            .header(axum::http::header::CACHE_CONTROL, "no-cache")
+            .body(axum::body::Body::from(bytes))
+            .unwrap(),
         Err(_) => (axum::http::StatusCode::NOT_FOUND, "not found").into_response(),
     }
 }
