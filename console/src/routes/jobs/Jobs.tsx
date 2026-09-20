@@ -8,6 +8,7 @@ import { jobStatusMeta } from "../../lib/job";
 import { SkeletonRows } from "../../components/ui";
 import { SortableTh } from "../../components/tableControls";
 import { PaginationBar } from "../../components/pagination";
+import { FilterBar } from "../../components/filterBar";
 
 type Job = components["schemas"]["Job"];
 type Host = components["schemas"]["Host"];
@@ -25,7 +26,10 @@ export default function Jobs() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const status = params.get("status") ?? "all";
-  const hostFilter = params.get("host") ?? "";
+  const hostFilter = params.get("host_id") ?? params.get("host") ?? "";
+  const range = params.get("range") ?? "";
+  const from = params.get("from") ?? "";
+  const to = params.get("to") ?? "";
   const page = Math.max(1, Number(params.get("page") ?? 1));
   const limit = Math.max(1, Number(params.get("limit") ?? 20));
   // 列表基座（P001-T1c）：排序走服务端（sort 参数），状态存 URL params
@@ -43,13 +47,15 @@ export default function Jobs() {
   };
 
   const jobsQuery = useQuery({
-    queryKey: ["jobs", page, limit, status, hostFilter, sortField],
+    queryKey: ["jobs", page, limit, status, hostFilter, sortField, from, to],
     queryFn: async () => {
-      // D4：服务端过滤（status/host_id），不再前端筛当前页
+      // D4：服务端过滤（status/host_id），不再前端筛当前页；P003 T7 加时间范围
       const sp = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (status !== "all") sp.set("status", status);
       if (hostFilter) sp.set("host_id", hostFilter);
       if (sortField) sp.set("sort", sortField);
+      if (from) sp.set("from", from);
+      if (to) sp.set("to", to);
       const r = await api<{ jobs: Job[]; total?: number }>(`/api/v1/jobs?${sp}`);
       return { at: Date.now(), jobs: r.jobs ?? [], total: r.total ?? 0 }; // now 在异步侧产生（render 纯度）
     },
@@ -112,10 +118,15 @@ export default function Jobs() {
               {FILTER_LABEL[s]} {counts[s as keyof typeof counts]}
             </button>
           ))}
+          <FilterBar
+            hideHost
+            value={{ range, from, to, host_id: hostFilter }}
+            onPatch={patchParams}
+          />
           <select
             aria-label="按主机过滤"
             value={hostFilter}
-            onChange={(e) => patchParams({ host: e.target.value })}
+            onChange={(e) => patchParams({ host_id: e.target.value })}
             disabled={hostsQuery.isError}
             className="ml-auto h-8 rounded-md border border-gray-400 bg-gray-100 px-2 text-label-13 outline-none transition-colors duration-150 hover:border-gray-500 disabled:opacity-40"
           >
@@ -164,7 +175,7 @@ export default function Jobs() {
                   ) : (
                     <>
                       没有匹配的任务 ·{" "}
-                      <button type="button" onClick={() => patchParams({ status: null, host: null })} className="text-blue-1000 hover:underline">
+                      <button type="button" onClick={() => patchParams({ status: null, host: null, host_id: null, range: null, from: null, to: null })} className="text-blue-1000 hover:underline">
                         清除过滤
                       </button>
                     </>

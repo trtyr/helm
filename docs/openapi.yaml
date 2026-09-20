@@ -915,6 +915,14 @@ paths:
           in: query
           description: 排序（`field` 或 `field:desc`；白名单：started_at/status/host_id/exit_code/command，未命中回退 started_at DESC NULLS LAST）
           schema: { type: string }
+        - name: from
+          in: query
+          description: RFC3339 时间范围起始（含）
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          description: RFC3339 时间范围结束（含）
+          schema: { type: string, format: date-time }
       responses:
         "200":
           description: Job 列表
@@ -1670,6 +1678,14 @@ paths:
           in: query
           description: 动作精确过滤
           schema: { type: string }
+        - name: from
+          in: query
+          description: RFC3339 时间范围起始（含）
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          description: RFC3339 时间范围结束（含）
+          schema: { type: string, format: date-time }
       responses:
         "200":
           description: 审计记录

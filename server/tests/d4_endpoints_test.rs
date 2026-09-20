@@ -72,7 +72,7 @@ async fn jobs_list_filters_by_status_and_host() {
 
     // status 过滤
     let running = JobRepo::new(db.clone())
-        .list_filtered(Some("running"), None, 100, 0, None)
+        .list_filtered(Some("running"), None, None, None, 100, 0, None)
         .await
         .expect("filter status");
     assert!(running.iter().any(|j| j.id == ja.id));
@@ -83,7 +83,7 @@ async fn jobs_list_filters_by_status_and_host() {
 
     // host_id 过滤
     let of_b = JobRepo::new(db.clone())
-        .list_filtered(None, Some(host_b), 100, 0, None)
+        .list_filtered(None, Some(host_b), None, None, 100, 0, None)
         .await
         .expect("filter host");
     assert!(of_b.iter().all(|j| j.host_id == host_b));
@@ -91,7 +91,7 @@ async fn jobs_list_filters_by_status_and_host() {
 
     // 组合过滤
     let both = JobRepo::new(db.clone())
-        .list_filtered(Some("queued"), Some(host_b), 100, 0, None)
+        .list_filtered(Some("queued"), Some(host_b), None, None, 100, 0, None)
         .await
         .expect("filter both");
     assert!(both.iter().any(|j| j.id == jb.id));
@@ -102,10 +102,64 @@ async fn jobs_list_filters_by_status_and_host() {
 
     // 无过滤 = 全量（两台都有）
     let all = JobRepo::new(db.clone())
-        .list_filtered(None, None, 100, 0, None)
+        .list_filtered(None, None, None, None, 100, 0, None)
         .await
         .expect("no filter");
     assert!(all.iter().any(|j| j.id == ja.id) && all.iter().any(|j| j.id == jb.id));
+}
+
+#[tokio::test]
+async fn job_time_range_filter_mirrors_count() {
+    // P003 T7：from/to 时间范围过滤 + count/list 同范围镜像断言
+    let db = common::connect().await;
+    let host = seed_host(&db).await;
+    let repo = JobRepo::new(db.clone());
+
+    let j = repo.create(host, "true", &[]).await.expect("create");
+    // created_at 回填 2 小时前
+    sqlx::query("UPDATE jobs SET created_at = now() - interval '2 hours' WHERE id = $1")
+        .bind(j.id)
+        .execute(db.pool())
+        .await
+        .expect("backdate");
+
+    let hour_ago = chrono::Utc::now() - chrono::Duration::hours(1);
+    let three_hours_ago = chrono::Utc::now() - chrono::Duration::hours(3);
+
+    // from = 1 小时前：2 小时前的 job 不命中（边界正确）
+    let list_after = repo
+        .list_filtered(Some("queued"), None, Some(hour_ago), None, 100, 0, None)
+        .await
+        .expect("list from");
+    let count_after = repo
+        .count_filtered(Some("queued"), None, Some(hour_ago), None)
+        .await
+        .expect("count from");
+    assert_eq!(
+        list_after.len() as i64,
+        count_after,
+        "count/list 同范围镜像（status+from）"
+    );
+    assert!(
+        !list_after.iter().any(|r| r.id == j.id),
+        "2 小时前的 job 不应命中 from=1 小时前"
+    );
+
+    // from = 3 小时前：命中 + 镜像
+    let list_in = repo
+        .list_filtered(None, Some(host), Some(three_hours_ago), None, 100, 0, None)
+        .await
+        .expect("list from wide");
+    let count_in = repo
+        .count_filtered(None, Some(host), Some(three_hours_ago), None)
+        .await
+        .expect("count from wide");
+    assert_eq!(
+        list_in.len() as i64,
+        count_in,
+        "count/list 同范围镜像（host+from）"
+    );
+    assert!(list_in.iter().any(|r| r.id == j.id), "3 小时前的窗口应命中");
 }
 
 #[tokio::test]

@@ -7,6 +7,7 @@ import { api } from "../api/client";
 import { auditResource } from "../lib/audit";
 import { SkeletonRows } from "../components/ui";
 import { SortableTh, TableToolbar } from "../components/tableControls";
+import { FilterBar } from "../components/filterBar";
 
 type Audit = components["schemas"]["Audit"];
 
@@ -59,6 +60,9 @@ export default function Audit() {
   // 列表基座（P001-T1）：搜索/动作筛选走服务端（q/action 参数），状态存 URL params
   const q = params.get("q") ?? "";
   const actionFilter = params.get("action") ?? "";
+  const range = params.get("range") ?? "";
+  const from = params.get("from") ?? "";
+  const to = params.get("to") ?? "";
   const patchFilter = (patch: Record<string, string | null>) => {
     const next = new URLSearchParams(params);
     for (const [k, v] of Object.entries(patch)) {
@@ -71,12 +75,14 @@ export default function Audit() {
   };
 
   const auditQuery = useQuery({
-    queryKey: ["audit", page, sortField, q, actionFilter],
+    queryKey: ["audit", page, sortField, q, actionFilter, from, to],
     queryFn: async () => {
       const sp = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (sortField) sp.set("sort", sortField);
       if (q) sp.set("q", q);
       if (actionFilter) sp.set("action", actionFilter);
+      if (from) sp.set("from", from);
+      if (to) sp.set("to", to);
       const r = await api<{ audit: Audit[] }>(`/api/v1/audit?${sp}`);
       return r.audit ?? [];
     },
@@ -108,6 +114,9 @@ export default function Audit() {
           },
         ]}
       />
+
+      {/* 时间范围（P003 T7 FilterBar；审计无 host 维度故 hideHost） */}
+      <FilterBar hideHost value={{ range, from, to, host_id: "" }} onPatch={patchFilter} />
 
       {/* 列表卡 */}
       <div className="overflow-hidden rounded-lg border border-gray-400 bg-background-100">

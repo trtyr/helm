@@ -35,6 +35,7 @@ impl AuditService {
     }
 
     /// 分页列出审计记录。sort（P001-T1c）透传仓储层；q/action（P001-T1）搜索与动作过滤。
+    #[allow(clippy::too_many_arguments)]
     pub async fn list_paged(
         &self,
         limit: i64,
@@ -42,9 +43,11 @@ impl AuditService {
         sort: Option<(String, bool)>,
         q: Option<&str>,
         action: Option<&str>,
+        from: Option<chrono::DateTime<chrono::Utc>>,
+        to: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<Vec<crate::store::audit_repo::AuditRow>> {
         Ok(AuditRepo::new(self.db.clone())
-            .list_paged(limit, offset, sort, q, action)
+            .list_paged(limit, offset, sort, q, action, from, to)
             .await?)
     }
 }

@@ -20,6 +20,10 @@ pub struct AuditQuery {
     pub q: Option<String>,
     /// P001-T1：动作精确过滤
     pub action: Option<String>,
+    /// P003 T7：时间范围起始（RFC3339，按 created_at 过滤）
+    pub from: Option<String>,
+    /// P003 T7：时间范围结束（RFC3339，含）
+    pub to: Option<String>,
 }
 
 fn default_page() -> i64 {
@@ -44,6 +48,8 @@ pub async fn list_audit(
             sort,
             q.q.as_deref(),
             q.action.as_deref(),
+            crate::store::parse_rfc3339(q.from.as_ref()),
+            crate::store::parse_rfc3339(q.to.as_ref()),
         )
         .await?;
     Ok(Json(json!({ "audit": rows })))

@@ -109,16 +109,19 @@ impl JobRepo {
         offset: i64,
         sort: Option<(String, bool)>,
     ) -> sqlx::Result<Vec<JobRow>> {
-        self.list_filtered(None, None, limit, offset, sort).await
+        self.list_filtered(None, None, None, None, limit, offset, sort)
+            .await
     }
 
     /// 过滤列出（D4）：按 status / host_id 可选过滤，全为 None 时等价 list_paged。
     /// sort（P001-T1c）：`(field, desc)`——field 必须命中白名单（store::order_by），未命中回退默认。
-    /// 过滤条件下的总数（P001-T4 分页栏 total）。
+    /// 过滤条件下的总数（P001-T4 分页栏 total）。镜像 list_filtered 的全部 WHERE 分支。
     pub async fn count_filtered(
         &self,
         status: Option<&str>,
         host_id: Option<Uuid>,
+        from: Option<chrono::DateTime<Utc>>,
+        to: Option<chrono::DateTime<Utc>>,
     ) -> sqlx::Result<i64> {
         let mut qb =
             sqlx::QueryBuilder::<sqlx::Postgres>::new("SELECT COUNT(*) FROM jobs WHERE 1=1");
@@ -128,14 +131,23 @@ impl JobRepo {
         if let Some(h) = host_id {
             qb.push(" AND host_id = ").push_bind(h);
         }
+        if let Some(f) = from {
+            qb.push(" AND created_at >= ").push_bind(f);
+        }
+        if let Some(t) = to {
+            qb.push(" AND created_at <= ").push_bind(t);
+        }
         let (n,): (i64,) = qb.build_query_as().fetch_one(self.db.pool()).await?;
         Ok(n)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn list_filtered(
         &self,
         status: Option<&str>,
         host_id: Option<Uuid>,
+        from: Option<chrono::DateTime<Utc>>,
+        to: Option<chrono::DateTime<Utc>>,
         limit: i64,
         offset: i64,
         sort: Option<(String, bool)>,
@@ -149,6 +161,12 @@ impl JobRepo {
         }
         if let Some(h) = host_id {
             qb.push(" AND host_id = ").push_bind(h);
+        }
+        if let Some(f) = from {
+            qb.push(" AND created_at >= ").push_bind(f);
+        }
+        if let Some(t) = to {
+            qb.push(" AND created_at <= ").push_bind(t);
         }
         let (field, desc) = sort
             .as_ref()

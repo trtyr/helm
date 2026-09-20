@@ -74,6 +74,12 @@ pub fn parse_sort(sort: Option<&String>) -> Option<(String, bool)> {
 
 /// 生成 ORDER BY 子句（P001-T1c）：`field` 必须命中白名单（防 SQL 注入），未命中回退默认。
 /// 白名单值是含 `{dir}` 占位符的列表达式模板（如 `"started_at {dir} NULLS LAST"`）。
+/// 解析 RFC3339 查询参数（P003 T7 from/to 时间范围过滤；解析失败返回 None）。
+pub fn parse_rfc3339(s: Option<&String>) -> Option<chrono::DateTime<chrono::Utc>> {
+    s.and_then(|v| chrono::DateTime::parse_from_rfc3339(v).ok())
+        .map(|d| d.with_timezone(&chrono::Utc))
+}
+
 pub fn order_by(field: &str, desc: bool, allowed: &[(&str, &str)], fallback: &str) -> String {
     let dir = if desc { "DESC" } else { "ASC" };
     let tmpl = allowed

@@ -62,6 +62,7 @@ impl AuditRepo {
 
     /// 分页列出审计记录。sort（P001-T1c）：白名单字段排序，未命中回退 created_at DESC。
     /// q（P001-T1）：actor/resource/detail 模糊搜索；action：动作精确过滤。
+    #[allow(clippy::too_many_arguments)]
     pub async fn list_paged(
         &self,
         limit: i64,
@@ -69,6 +70,8 @@ impl AuditRepo {
         sort: Option<(String, bool)>,
         q: Option<&str>,
         action: Option<&str>,
+        from: Option<chrono::DateTime<chrono::Utc>>,
+        to: Option<chrono::DateTime<chrono::Utc>>,
     ) -> sqlx::Result<Vec<AuditRow>> {
         let (field, desc) = sort
             .as_ref()
@@ -86,25 +89,27 @@ impl AuditRepo {
             "created_at DESC",
         );
         let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
-            "SELECT id, actor, action, resource, detail, created_at FROM audit_logs",
+            "SELECT id, actor, action, resource, detail, created_at FROM audit_logs WHERE 1=1",
         );
         if let Some(a) = action {
-            qb.push(" WHERE action = ").push_bind(a.to_string());
+            qb.push(" AND action = ").push_bind(a.to_string());
         }
         if let Some(kw) = q {
             let pat = format!("%{kw}%");
-            qb.push(if action.is_some() {
-                " AND ("
-            } else {
-                " WHERE ("
-            })
-            .push("actor ILIKE ")
-            .push_bind(pat.clone())
-            .push(" OR resource ILIKE ")
-            .push_bind(pat.clone())
-            .push(" OR detail ILIKE ")
-            .push_bind(pat)
-            .push(")");
+            qb.push(" AND (")
+                .push("actor ILIKE ")
+                .push_bind(pat.clone())
+                .push(" OR resource ILIKE ")
+                .push_bind(pat.clone())
+                .push(" OR detail ILIKE ")
+                .push_bind(pat)
+                .push(")");
+        }
+        if let Some(f) = from {
+            qb.push(" AND created_at >= ").push_bind(f);
+        }
+        if let Some(t) = to {
+            qb.push(" AND created_at <= ").push_bind(t);
         }
         qb.push(" ORDER BY ")
             .push(order)

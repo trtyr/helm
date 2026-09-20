@@ -22,6 +22,10 @@ pub struct JobQuery {
     pub host_id: Option<Uuid>,
     /// P001-T1c：排序（`field` 或 `field:desc`；白名单字段，未命中回退默认）
     pub sort: Option<String>,
+    /// P003 T7：时间范围起始（RFC3339，按 created_at 过滤）
+    pub from: Option<String>,
+    /// P003 T7：时间范围结束（RFC3339，含）
+    pub to: Option<String>,
 }
 
 fn default_page() -> i64 {
@@ -41,9 +45,24 @@ pub async fn list_jobs(
     let sort = crate::store::parse_sort(q.sort.as_ref());
     let repo = JobRepo::new(state.db);
     let jobs = repo
-        .list_filtered(q.status.as_deref(), q.host_id, q.limit.max(1), offset, sort)
+        .list_filtered(
+            q.status.as_deref(),
+            q.host_id,
+            crate::store::parse_rfc3339(q.from.as_ref()),
+            crate::store::parse_rfc3339(q.to.as_ref()),
+            q.limit.max(1),
+            offset,
+            sort,
+        )
         .await?;
-    let total = repo.count_filtered(q.status.as_deref(), q.host_id).await?;
+    let total = repo
+        .count_filtered(
+            q.status.as_deref(),
+            q.host_id,
+            crate::store::parse_rfc3339(q.from.as_ref()),
+            crate::store::parse_rfc3339(q.to.as_ref()),
+        )
+        .await?;
     Ok(Json(json!({ "jobs": jobs, "total": total })))
 }
 
