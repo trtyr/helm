@@ -298,9 +298,14 @@ async fn connect_once(
         deps.db.clone(),
     );
     let mut kick_rx = registration.kick_rx;
+    let mut disc_reason = "stream_closed";
+    let mut disc_detail = String::new();
     loop {
         tokio::select! {
-            _ = stop_rx.recv() => break,
+            _ = stop_rx.recv() => {
+                disc_reason = "stopped";
+                break;
+            }
             // 被同 id 新注册顶掉：立即退出释放流（watch::Ref 非 Send，包 async 块丢弃）
             _ = async {
                 let _ = kick_rx.wait_for(|kicked| *kicked).await;
@@ -311,13 +316,15 @@ async fn connect_once(
                     Ok(None) => break,
                     Err(e) => {
                         tracing::warn!(agent_id = %agent_id, error = %e, "forward inbound stream error");
+                        disc_reason = "transport_error";
+                        disc_detail = e.to_string();
                         break;
                     }
                 }
             }
         }
     }
-    ctx.on_disconnect().await;
+    ctx.on_disconnect(disc_reason, &disc_detail).await;
     anyhow::bail!("stream closed")
 }
 

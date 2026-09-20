@@ -14,6 +14,7 @@ pub mod listener_repo;
 pub mod metric_repo;
 pub mod notification_repo;
 pub mod service_repo;
+pub mod status_event_repo;
 pub mod task_repo;
 pub mod user_repo;
 

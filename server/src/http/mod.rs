@@ -15,6 +15,7 @@ pub mod ir;
 pub mod ir_ops;
 pub mod jobs;
 pub mod listeners;
+pub mod logs;
 pub mod mcp;
 pub mod metrics;
 pub mod notifications;
@@ -123,6 +124,7 @@ pub async fn serve(
         .route("/hosts/{id}/tags", post(hosts::set_host_tags))
         .route("/exec", post(exec::exec))
         .route("/jobs", get(jobs::list_jobs))
+        .route("/logs/events", get(logs::list_events))
         .route("/jobs/{id}", get(jobs::get_job))
         .route("/jobs/{id}/cancel", post(jobs::cancel_job))
         .route("/metrics", get(metrics::list_metrics))

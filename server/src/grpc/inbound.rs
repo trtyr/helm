@@ -290,9 +290,9 @@ impl InboundCtx {
         }
     }
 
-    /// 连接结束：身份校验式注销 + 下线通知（断连即发，决策 009）。
-    /// 被顶掉的旧连接（重复注册后 kick）退出时身份不匹配：不注销、不发通知。
-    pub async fn on_disconnect(&self) {
+    /// 连接结束：身份校验式注销 + 下线通知 + 状态事件落库（断连即发，决策 009 / P003 T1）。
+    /// 被顶掉的旧连接（重复注册后 kick）退出时身份不匹配：不注销、不发通知、不落库。
+    pub async fn on_disconnect(&self, reason: &str, detail: &str) {
         if !self
             .registry
             .unregister_if_current(&self.agent_id, &self.kick_tx)
@@ -304,8 +304,17 @@ impl InboundCtx {
             );
             return;
         }
-        tracing::info!(agent_id = %self.agent_id, "agent disconnected");
+        tracing::info!(agent_id = %self.agent_id, reason, "agent disconnected");
         if let Some(host_id) = self.host_id {
+            // P003 T1：状态事件落库（与通知同点同语义；detail 截断防超长 error 链）
+            let events = crate::store::status_event_repo::StatusEventRepo::new(self.db.clone());
+            let detail = detail.chars().take(500).collect::<String>();
+            if let Err(e) = events
+                .insert(&host_id.to_string(), "offline", reason, &detail)
+                .await
+            {
+                tracing::warn!(agent_id = %self.agent_id, error = ?e, "status event insert failed");
+            }
             let svc = crate::application::notification_service::NotificationService::new(
                 self.db.clone(),
                 self.streams.clone(),

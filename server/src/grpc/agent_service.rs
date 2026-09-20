@@ -239,6 +239,14 @@ impl AgentService for AgentServiceImpl {
             && !deferred_offline
             && registration.replaced.is_none()
         {
+            // P003 T1：上线状态事件落库（与通知同点同语义）
+            let events = crate::store::status_event_repo::StatusEventRepo::new(self.db.clone());
+            if let Err(e) = events
+                .insert(&hid.to_string(), "online", "registered", "")
+                .await
+            {
+                tracing::warn!(agent_id = %agent_id, error = ?e, "status event insert failed");
+            }
             let svc = crate::application::notification_service::NotificationService::new(
                 self.db.clone(),
                 self.streams.clone(),
@@ -282,6 +290,8 @@ impl AgentService for AgentServiceImpl {
                 db,
             );
             let mut kick_rx = registration.kick_rx;
+            let mut disc_reason = "stream_closed";
+            let mut disc_detail = String::new();
             loop {
                 tokio::select! {
                     // 被同 id 新注册顶掉：立即退出并释放流（不入流则旧 HTTP/2 流复位不了，TCP 泄漏）
@@ -294,12 +304,14 @@ impl AgentService for AgentServiceImpl {
                         Ok(None) => break,
                         Err(e) => {
                             tracing::warn!(agent_id = %agent_id_inner, error = %e, "inbound stream error");
+                            disc_reason = "transport_error";
+                            disc_detail = e.to_string();
                             break;
                         }
                     }
                 }
             }
-            ctx.on_disconnect().await;
+            ctx.on_disconnect(disc_reason, &disc_detail).await;
         });
 
         let outbound = ReceiverStream::new(rx).map(Ok);
