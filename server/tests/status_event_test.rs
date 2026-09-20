@@ -34,20 +34,23 @@ async fn count_and_list_mirror_filters() {
 
     // 全量可见（不假设表为空——并行库共享）
     let all = repo
-        .list_paged(None, None, None, None, None, 100, 0)
+        .list_paged(None, None, None, None, None, None, 100, 0)
         .await
         .unwrap();
-    let total = repo.count_filtered(None, None, None, None).await.unwrap();
+    let total = repo
+        .count_filtered(None, None, None, None, None)
+        .await
+        .unwrap();
     assert!(all.len() >= 3, "至少 3 条 fixture: {}", all.len());
     assert_eq!(all.len() as i64, total, "list 长度必须等于 count（全量）");
 
     // host 过滤：count 与 list 长度镜像
     let list_a = repo
-        .list_paged(None, Some("se-alpha"), None, None, None, 100, 0)
+        .list_paged(None, Some("se-alpha"), None, None, None, None, 100, 0)
         .await
         .unwrap();
     let count_a = repo
-        .count_filtered(None, Some("se-alpha"), None, None)
+        .count_filtered(None, Some("se-alpha"), None, None, None)
         .await
         .unwrap();
     assert_eq!(list_a.len() as i64, count_a, "host 过滤 count/list 镜像");
@@ -55,11 +58,11 @@ async fn count_and_list_mirror_filters() {
 
     // q 过滤：命中 reason（count/list 镜像 + 内容断言；reason 值本测试独有，防跨测试残留）
     let list_q = repo
-        .list_paged(Some("se_mirror"), None, None, None, None, 100, 0)
+        .list_paged(Some("se_mirror"), None, None, None, None, None, 100, 0)
         .await
         .unwrap();
     let count_q = repo
-        .count_filtered(Some("se_mirror"), None, None, None)
+        .count_filtered(Some("se_mirror"), None, None, None, None)
         .await
         .unwrap();
     assert_eq!(list_q.len() as i64, count_q, "q 过滤 count/list 镜像");

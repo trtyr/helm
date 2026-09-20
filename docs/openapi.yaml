@@ -1621,6 +1621,10 @@ paths:
           in: query
           description: 主机精确过滤
           schema: { type: string }
+        - name: event
+          in: query
+          description: 事件类型过滤（online | offline）
+          schema: { type: string, enum: [online, offline] }
         - name: from
           in: query
           description: RFC3339 起始时间（含）
@@ -2255,6 +2259,11 @@ components:
         reason: { type: string, description: "registered / transport_error / stream_closed / stopped" }
         detail: { type: string }
         created_at: { type: string, format: date-time }
+        ended_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: 同主机下一事件时间（LEAD 窗口）；offline 行据此计算离线时长
     Alert:
       type: object
       properties:

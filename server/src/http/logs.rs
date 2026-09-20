@@ -19,6 +19,8 @@ pub struct EventQuery {
     pub sort: Option<String>,
     pub q: Option<String>,
     pub host_id: Option<String>,
+    /// 事件类型过滤（online | offline）
+    pub event: Option<String>,
     /// RFC3339 起始时间（含）。
     pub from: Option<String>,
     /// RFC3339 结束时间（含）。
@@ -54,6 +56,7 @@ pub async fn list_events(
         .list_paged(
             q.q.as_deref(),
             q.host_id.as_deref(),
+            q.event.as_deref(),
             from,
             to,
             sort,
@@ -62,7 +65,13 @@ pub async fn list_events(
         )
         .await?;
     let total = repo
-        .count_filtered(q.q.as_deref(), q.host_id.as_deref(), from, to)
+        .count_filtered(
+            q.q.as_deref(),
+            q.host_id.as_deref(),
+            q.event.as_deref(),
+            from,
+            to,
+        )
         .await?;
     Ok(Json(serde_json::json!({ "events": rows, "total": total })))
 }
