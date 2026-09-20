@@ -26,7 +26,7 @@ const NAV = [
   { to: "/dashboard", label: "仪表盘", icon: Gauge, match: ["/dashboard"] },
   { to: "/hosts", label: "主机", icon: HardDrive, match: ["/hosts"] },
   { to: "/notifications", label: "通知", icon: Bell, match: ["/notifications", "/alerts"] },
-  { to: "/jobs", label: "任务", icon: ListChecks, match: ["/jobs", "/audit"] },
+  { to: "/logs", label: "日志", icon: ListChecks, match: ["/logs", "/jobs", "/audit"] },
   { to: "/listeners", label: "监听器", icon: RadioTower, match: ["/listeners"] },
   { to: "/mcp", label: "MCP", icon: Plug, match: ["/mcp"] },
 ] as const;

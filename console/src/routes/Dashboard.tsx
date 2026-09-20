@@ -82,7 +82,7 @@ function TaskRow({ j, at }: { j: Job; at: number | undefined }) {
   const active = j.status === "running" || j.status === "queued";
   return (
     <Link
-      to={j.id ? `/jobs/${j.id}` : "/jobs"}
+      to={j.id ? `/logs/jobs/${j.id}` : "/logs/jobs"}
       className="flex h-8 items-center gap-3 rounded px-2 text-label-13 transition-colors duration-150 hover:bg-gray-200"
     >
       <span className="w-16 shrink-0 font-mono text-label-12 text-gray-900">{j.id?.slice(0, 8) ?? "—"}</span>
@@ -286,7 +286,7 @@ export default function Dashboard() {
         <section className="rounded-lg border border-gray-400 p-6">
           <div className="flex items-center justify-between">
             <h2 className="text-heading-16">活动任务流</h2>
-            <Link to="/jobs" className="text-label-13 text-blue-1000 hover:underline">
+            <Link to="/logs/jobs" className="text-label-13 text-blue-1000 hover:underline">
               全部 →
             </Link>
           </div>

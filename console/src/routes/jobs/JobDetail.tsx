@@ -108,7 +108,7 @@ export default function JobDetail() {
     return (
       <div className="rounded-lg border border-gray-400 p-10 text-center">
         <p className="text-label-13 text-red-1000">任务不存在</p>
-        <Link to="/jobs" className="mt-3 inline-block text-label-13 text-blue-1000 hover:underline">
+        <Link to="/logs/jobs" className="mt-3 inline-block text-label-13 text-blue-1000 hover:underline">
           返回任务列表
         </Link>
       </div>
@@ -127,7 +127,7 @@ export default function JobDetail() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center gap-4">
-        <Link to="/jobs" className="text-label-13 text-gray-900 transition-colors duration-150 hover:text-gray-1000">
+        <Link to="/logs/jobs" className="text-label-13 text-gray-900 transition-colors duration-150 hover:text-gray-1000">
           ← 返回任务列表
         </Link>
         <span className="flex-1" />

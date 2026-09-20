@@ -1,7 +1,13 @@
-import { Navigate, createBrowserRouter } from "react-router-dom";
+import { Navigate, createBrowserRouter, useParams } from "react-router-dom";
 import AppLayout from "./layouts/AppLayout";
 import { RequireAuth } from "./layouts/RequireAuth";
 import { NotFound, RouteError } from "./routes/placeholder";
+
+/** 旧 /jobs/:id 书签重定向到日志中心（P003 T5）。 */
+function JobIdRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/logs/jobs/${id}`} replace />;
+}
 
 /** 路由树（决策 003）：/login 公开；受保护路由挂在 AppLayout 下。 */
 export const router = createBrowserRouter([
@@ -132,29 +138,35 @@ export const router = createBrowserRouter([
             ],
           },
           {
-            path: "jobs",
+            path: "logs",
             lazy: async () => {
-              const { default: JobsLayout } = await import("./routes/jobs/JobsLayout");
-              return { Component: JobsLayout };
+              const { default: LogsLayout } = await import("./routes/logs/LogsLayout");
+              return { Component: LogsLayout };
             },
             children: [
-              { index: true, lazy: async () => {
+              { index: true, element: <Navigate to="jobs" replace /> },
+              { path: "jobs", lazy: async () => {
                 const { default: Jobs } = await import("./routes/jobs/Jobs");
                 return { Component: Jobs };
+              } },
+              { path: "jobs/:id", lazy: async () => {
+                const { default: JobDetail } = await import("./routes/jobs/JobDetail");
+                return { Component: JobDetail };
               } },
               { path: "audit", lazy: async () => {
                 const { default: Audit } = await import("./routes/Audit");
                 return { Component: Audit };
               } },
+              { path: "events", lazy: async () => {
+                const { default: Events } = await import("./routes/logs/Events");
+                return { Component: Events };
+              } },
             ],
           },
-          {
-            path: "jobs/:id",
-            lazy: async () => {
-              const { default: JobDetail } = await import("./routes/jobs/JobDetail");
-              return { Component: JobDetail };
-            },
-          },
+          // 旧 URL 兼容重定向（P003 T5：日志中心重构，旧书签不断链）
+          { path: "jobs", element: <Navigate to="/logs/jobs" replace /> },
+          { path: "jobs/audit", element: <Navigate to="/logs/audit" replace /> },
+          { path: "jobs/:id", element: <JobIdRedirect /> },
           {
             path: "notifications",
             lazy: async () => {
@@ -178,7 +190,7 @@ export const router = createBrowserRouter([
           { path: "alerts", element: <Navigate to="/notifications/alerts" replace /> },
           {
             path: "audit",
-            element: <Navigate to="/jobs/audit" replace />,
+            element: <Navigate to="/logs/audit" replace />,
           },
           {
             path: "listeners",

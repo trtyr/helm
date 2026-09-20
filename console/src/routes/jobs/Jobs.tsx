@@ -177,7 +177,7 @@ export default function Jobs() {
                 return (
                   <tr
                     key={job.id}
-                    onClick={() => navigate(`/jobs/${job.id}`)}
+                    onClick={() => navigate(`/logs/jobs/${job.id}`)}
                     className="cursor-pointer border-b border-gray-400/60 transition-colors duration-150 last:border-0 hover:bg-gray-100"
                   >
                     <td className="px-4 py-3 font-mono text-label-13 text-gray-900" title={job.id}>
