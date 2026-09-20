@@ -15,6 +15,7 @@ pub mod listener_service;
 pub mod mcp_registry;
 pub mod metric_sink;
 pub mod notification_service;
+pub mod offline_alert_sweeper;
 pub mod online_status;
 pub mod process_service;
 pub mod proxy_service;

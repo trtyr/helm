@@ -105,6 +105,12 @@ pub async fn run() -> Result<()> {
     // pending_offline TTL 清理（F1）：挂起下线/注销超 7 天无人认领则作废并告警
     application::job_sweeper::spawn_pending_offline_ttl_sweeper(db.clone());
 
+    // 离线升级告警（P003 T2）：offline 持续超阈值升级 alerts；HELM_OFFLINE_ALERT_MINS=0 禁用
+    application::offline_alert_sweeper::spawn_offline_alert_sweeper(
+        db.clone(),
+        config.offline_alert_mins,
+    );
+
     // 恢复已落库的定时任务
     let exec = application::exec_service::ExecService::new(db.clone(), registry.clone());
     application::scheduler::resume_scheduled(db.clone(), exec).await?;

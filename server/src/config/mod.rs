@@ -61,6 +61,11 @@ pub struct Config {
     )]
     pub mcp_tier: u8,
 
+    /// 离线升级告警阈值（P003 T2，分钟，默认 30）：主机最新事件为 offline 且持续超此
+    /// 时长则升级写 alerts（区别于断连即发的抖动通知）；0 = 禁用
+    #[arg(long, env = "HELM_OFFLINE_ALERT_MINS", default_value = "30")]
+    pub offline_alert_mins: u64,
+
     /// 数据库连接池容量（C3，默认 10）：按 Agent 数与控制台并发调大
     #[arg(long, env = "HELM_DB_MAX_CONNECTIONS", default_value = "10")]
     pub db_max_connections: u32,

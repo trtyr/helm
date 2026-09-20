@@ -58,7 +58,7 @@ server/               # Server 控制端（axum + tonic + sqlx）
   src/grpc            #   gRPC 适配层（Agent 连入）
   src/http            #   HTTP API 适配层（控制台）
   src/store           #   持久化层（sqlx + Postgres）
-  migrations/         #   数据库迁移（19 个版本）
+  migrations/         #   数据库迁移（20 个版本）
 agent/                # Agent 被控端（tokio，跨平台）
   src/ir/             #   IR 应急响应模块（自启动/内存扫描/文件时间线/操作等 16 个模块）
   src/privilege.rs    #   权限检测（SeDebugPrivilege / Administrators 组）

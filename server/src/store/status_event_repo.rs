@@ -16,6 +16,18 @@ pub struct StatusEventRow {
     pub created_at: DateTime<Utc>,
 }
 
+/// 每主机最新事件行（DISTINCT ON 查询用，含 escalated 标记）。
+#[derive(Debug, FromRow)]
+pub struct LatestEventRow {
+    pub id: Uuid,
+    pub host_id: String,
+    pub event: String,
+    pub escalated: bool,
+    pub reason: String,
+    pub detail: String,
+    pub created_at: DateTime<Utc>,
+}
+
 /// 状态事件仓储。
 #[derive(Clone)]
 pub struct StatusEventRepo {
@@ -91,6 +103,26 @@ impl StatusEventRepo {
         push_filters(&mut qb, q, host_id, from, to);
         let (n,): (i64,) = qb.build_query_as().fetch_one(self.db.pool()).await?;
         Ok(n)
+    }
+
+    /// 每主机最新事件（P003 T2：供离线升级告警判定「当前仍离线」）。
+    pub async fn latest_per_host(&self) -> sqlx::Result<Vec<LatestEventRow>> {
+        sqlx::query_as::<_, LatestEventRow>(
+            "SELECT DISTINCT ON (host_id) id, host_id, event, escalated, reason, detail, created_at \
+             FROM status_events \
+             ORDER BY host_id, created_at DESC",
+        )
+        .fetch_all(self.db.pool())
+        .await
+    }
+
+    /// 标记 offline 事件已升级为告警（P003 T2，防重复触发）。
+    pub async fn mark_escalated(&self, id: Uuid) -> sqlx::Result<()> {
+        sqlx::query("UPDATE status_events SET escalated = true WHERE id = $1")
+            .bind(id)
+            .execute(self.db.pool())
+            .await?;
+        Ok(())
     }
 }
 
