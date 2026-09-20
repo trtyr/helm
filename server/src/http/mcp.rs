@@ -115,7 +115,7 @@ async fn dispatch(
         "initialize" => Ok(initialize_result()),
         "notifications/initialized" => Ok(json!(null)),
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(tools_list(key_scopes)),
+        "tools/list" => Ok(tools_list(state, key_scopes)),
         "tools/call" => tools_call(state, key_scopes, token, msg.get("params")).await,
         "prompts/list" => Ok(json!({ "prompts": [] })),
         "resources/list" => Ok(json!({ "resources": [] })),
@@ -149,12 +149,12 @@ fn initialize_result() -> Value {
     })
 }
 
-/// 单工具：描述里内嵌 scope 裁剪后的 op 索引（渐进式第一层）。
-fn tools_list(key_scopes: &[String]) -> Value {
+/// 单工具：描述里内嵌 scope 裁剪后的 op 索引（渐进式第一层，P002 T4 按 tier 收缩）。
+fn tools_list(state: &AppState, key_scopes: &[String]) -> Value {
     json!({
         "tools": [{
             "name": TOOL_NAME,
-            "description": mcp_registry::tool_description(key_scopes),
+            "description": mcp_registry::tool_description(key_scopes, state.mcp_tier),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -195,7 +195,12 @@ async fn tools_call(
             ),
             None => None,
         };
-        return tool_ok(mcp_registry::catalog_json(key_scopes, domain, os));
+        return tool_ok(mcp_registry::catalog_json(
+            key_scopes,
+            domain,
+            os,
+            state.mcp_tier,
+        ));
     }
 
     let Some(def) = mcp_registry::find(op) else {

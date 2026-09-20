@@ -65,51 +65,7 @@ macro_rules! op {
 
 /// 全量操作注册表（按域分组）。新增能力 = 加一条 + 在 http::auth::scope_for 编目。
 pub static OPS: &[OpDef] = &[
-    // -- hosts 域 --
-    op!(
-        "hosts.list",
-        "hosts",
-        Os::Any,
-        "GET",
-        "/api/v1/hosts",
-        "主机列表（含在线状态/系统版本/标签）",
-        &[
-            ("page", "页码，默认 1"),
-            ("limit", "每页条数，默认 20"),
-            ("tag", "按标签过滤（可选）")
-        ]
-    ),
-    op!(
-        "agent.tags",
-        "hosts",
-        Os::Any,
-        "PUT",
-        "/api/v1/agents/{id}/tags",
-        "给 agent 打标签",
-        &[("id", "agent_id"), ("tags", "标签数组")]
-    ),
-    op!(
-        "agent.deregister",
-        "hosts",
-        Os::Any,
-        "DELETE",
-        "/api/v1/agents/{id}",
-        "注销 agent（删档案；破坏性）",
-        &[("id", "agent_id")]
-    ),
-    op!(
-        "agent.uninstall",
-        "hosts",
-        Os::Any,
-        "POST",
-        "/api/v1/agents/{id}/uninstall",
-        "卸载 agent（下发自毁指令；破坏性）",
-        &[
-            ("id", "agent_id"),
-            ("remove_binary", "是否删除目标机上的二进制，默认 false")
-        ]
-    ),
-    // -- exec 域 --
+    // -- host 域：对主机做的一切（host_id/agent_id 为第一参数）--
     op!(
         "exec.run",
         "exec",
@@ -181,7 +137,19 @@ pub static OPS: &[OpDef] = &[
             ("interval_secs", "间隔秒数")
         ]
     ),
-    // -- files 域 --
+    op!(
+        "forward.exec",
+        "forward",
+        Os::Any,
+        "POST",
+        "/api/v1/forward/exec",
+        "正向连接执行（Server 主动拨号 agent）",
+        &[
+            ("hostname", "主机名或 agent_addr"),
+            ("command", "命令"),
+            ("args", "参数数组（可选）")
+        ]
+    ),
     op!(
         "files.upload",
         "files",
@@ -217,7 +185,6 @@ pub static OPS: &[OpDef] = &[
         "列目标机目录",
         &[("agent_id", "agent_id"), ("path", "目录路径")]
     ),
-    // -- services 域 --
     op!(
         "sys_services.list",
         "services",
@@ -291,7 +258,6 @@ pub static OPS: &[OpDef] = &[
         "删除托管服务（破坏性）",
         &[("id", "服务 uuid")]
     ),
-    // -- processes 域 --
     op!(
         "processes.list",
         "processes",
@@ -319,140 +285,6 @@ pub static OPS: &[OpDef] = &[
         "网络信息（网卡 + 连接表）",
         &[("agent_id", "agent_id")]
     ),
-    // -- metrics 域 --
-    op!(
-        "metrics.list",
-        "metrics",
-        Os::Any,
-        "GET",
-        "/api/v1/metrics",
-        "指标查询（cpu/mem/disk 序列）",
-        &[("host_id", "主机 uuid"), ("limit", "点数上限（可选）")]
-    ),
-    op!(
-        "alerts.list",
-        "metrics",
-        Os::Any,
-        "GET",
-        "/api/v1/alerts",
-        "告警列表",
-        &[("page", "页码（可选）"), ("limit", "条数（可选）")]
-    ),
-    // -- notifications 域 --
-    op!(
-        "notifications.list",
-        "notifications",
-        Os::Any,
-        "GET",
-        "/api/v1/notifications",
-        "通知列表",
-        &[("page", "页码（可选）"), ("limit", "条数（可选）")]
-    ),
-    op!(
-        "notifications.read",
-        "notifications",
-        Os::Any,
-        "POST",
-        "/api/v1/notifications/{id}/read",
-        "标记通知已读",
-        &[("id", "通知 uuid")]
-    ),
-    op!(
-        "notifications.read_all",
-        "notifications",
-        Os::Any,
-        "POST",
-        "/api/v1/notifications/read-all",
-        "全部标记已读",
-        &[]
-    ),
-    // -- listeners 域 --
-    op!(
-        "listeners.list",
-        "listeners",
-        Os::Any,
-        "GET",
-        "/api/v1/listeners",
-        "gRPC 监听器列表",
-        &[]
-    ),
-    op!(
-        "listeners.create",
-        "listeners",
-        Os::Any,
-        "POST",
-        "/api/v1/listeners",
-        "创建 gRPC 监听器",
-        &[
-            ("name", "名称"),
-            ("addr", "监听地址（如 0.0.0.0:50051）"),
-            ("proto", "协议，grpc")
-        ]
-    ),
-    op!(
-        "listeners.action",
-        "listeners",
-        Os::Any,
-        "POST",
-        "/api/v1/listeners/{id}/{action}",
-        "监听器 start/stop",
-        &[("id", "监听器 uuid"), ("action", "start|stop")]
-    ),
-    op!(
-        "listeners.delete",
-        "listeners",
-        Os::Any,
-        "DELETE",
-        "/api/v1/listeners/{id}",
-        "删除监听器（破坏性）",
-        &[("id", "监听器 uuid")]
-    ),
-    // -- forward 域 --
-    op!(
-        "forward.exec",
-        "forward",
-        Os::Any,
-        "POST",
-        "/api/v1/forward/exec",
-        "正向连接执行（Server 主动拨号 agent）",
-        &[
-            ("hostname", "主机名或 agent_addr"),
-            ("command", "命令"),
-            ("args", "参数数组（可选）")
-        ]
-    ),
-    // -- proxy 域 --
-    op!(
-        "proxies.list",
-        "proxy",
-        Os::Any,
-        "GET",
-        "/api/v1/proxies",
-        "活跃 SOCKS5 代理列表",
-        &[]
-    ),
-    op!(
-        "proxies.create",
-        "proxy",
-        Os::Any,
-        "POST",
-        "/api/v1/proxies",
-        "为 agent 开 SOCKS5 代理（Server 本地监听，流量经 agent 出站）",
-        &[
-            ("agent_id", "agent_id"),
-            ("listen_addr", "Server 侧监听地址，默认 127.0.0.1:1080")
-        ]
-    ),
-    op!(
-        "proxies.stop",
-        "proxy",
-        Os::Any,
-        "DELETE",
-        "/api/v1/proxies/{id}",
-        "停止代理",
-        &[("id", "代理 uuid")]
-    ),
-    // -- ir 域（全部 Windows 专属）--
     op!(
         "ir.scan",
         "ir",
@@ -542,7 +374,120 @@ pub static OPS: &[OpDef] = &[
         "与基线快照对比，diff 出新增/移除项",
         &[("id", "基线快照 uuid"), ("agent_id", "agent_id")]
     ),
-    // -- agent-gen 域 --
+    // -- platform 域：平台自身管理 --
+    op!(
+        "hosts.list",
+        "hosts",
+        Os::Any,
+        "GET",
+        "/api/v1/hosts",
+        "主机列表（含在线状态/系统版本/标签）",
+        &[
+            ("page", "页码，默认 1"),
+            ("limit", "每页条数，默认 20"),
+            ("tag", "按标签过滤（可选）")
+        ]
+    ),
+    op!(
+        "agent.tags",
+        "hosts",
+        Os::Any,
+        "PUT",
+        "/api/v1/agents/{id}/tags",
+        "给 agent 打标签",
+        &[("id", "agent_id"), ("tags", "标签数组")]
+    ),
+    op!(
+        "agent.deregister",
+        "hosts",
+        Os::Any,
+        "DELETE",
+        "/api/v1/agents/{id}",
+        "注销 agent（删档案；破坏性）",
+        &[("id", "agent_id")]
+    ),
+    op!(
+        "agent.uninstall",
+        "hosts",
+        Os::Any,
+        "POST",
+        "/api/v1/agents/{id}/uninstall",
+        "卸载 agent（下发自毁指令；破坏性）",
+        &[
+            ("id", "agent_id"),
+            ("remove_binary", "是否删除目标机上的二进制，默认 false")
+        ]
+    ),
+    op!(
+        "listeners.list",
+        "listeners",
+        Os::Any,
+        "GET",
+        "/api/v1/listeners",
+        "gRPC 监听器列表",
+        &[]
+    ),
+    op!(
+        "listeners.create",
+        "listeners",
+        Os::Any,
+        "POST",
+        "/api/v1/listeners",
+        "创建 gRPC 监听器",
+        &[
+            ("name", "名称"),
+            ("addr", "监听地址（如 0.0.0.0:50051）"),
+            ("proto", "协议，grpc")
+        ]
+    ),
+    op!(
+        "listeners.action",
+        "listeners",
+        Os::Any,
+        "POST",
+        "/api/v1/listeners/{id}/{action}",
+        "监听器 start/stop",
+        &[("id", "监听器 uuid"), ("action", "start|stop")]
+    ),
+    op!(
+        "listeners.delete",
+        "listeners",
+        Os::Any,
+        "DELETE",
+        "/api/v1/listeners/{id}",
+        "删除监听器（破坏性）",
+        &[("id", "监听器 uuid")]
+    ),
+    op!(
+        "proxies.list",
+        "proxy",
+        Os::Any,
+        "GET",
+        "/api/v1/proxies",
+        "活跃 SOCKS5 代理列表",
+        &[]
+    ),
+    op!(
+        "proxies.create",
+        "proxy",
+        Os::Any,
+        "POST",
+        "/api/v1/proxies",
+        "为 agent 开 SOCKS5 代理（Server 本地监听，流量经 agent 出站）",
+        &[
+            ("agent_id", "agent_id"),
+            ("listen_addr", "Server 侧监听地址，默认 127.0.0.1:1080")
+        ]
+    ),
+    op!(
+        "proxies.stop",
+        "proxy",
+        Os::Any,
+        "DELETE",
+        "/api/v1/proxies/{id}",
+        "停止代理",
+        &[("id", "代理 uuid")]
+    ),
     op!(
         "agent_gen.create",
         "agent-gen",
@@ -566,16 +511,6 @@ pub static OPS: &[OpDef] = &[
         "/api/v1/agent-gen/{id}",
         "查询编译任务状态与日志尾",
         &[("id", "任务 uuid")]
-    ),
-    // -- audit 域 --
-    op!(
-        "audit.list",
-        "audit",
-        Os::Any,
-        "GET",
-        "/api/v1/audit",
-        "审计日志（谁在什么时候对什么做了什么）",
-        &[("page", "页码（可选）"), ("limit", "条数（可选）")]
     ),
 ];
 
@@ -607,14 +542,28 @@ pub fn placeholders(path: &str) -> Vec<&str> {
 }
 
 /// 工具描述里的紧凑 op 索引（scope 裁剪后，按 os 分组）。
-pub fn tool_description(scopes: &[String]) -> String {
-    let ops = allowed_ops(scopes, None);
+/// 工具描述（P002 T4 分层）：tier 1 不展开清单（catalog 发现）/
+/// tier 2 仅 host 域（对主机做的一切，ir 带 windows 专属标注）/ tier 3 全量。
+pub fn tool_description(scopes: &[String], tier: u8) -> String {
+    let ops: Vec<&OpDef> = allowed_ops(scopes, None)
+        .into_iter()
+        .filter(|o| match tier {
+            1 => false,
+            2 => top_group(o.name) == "host",
+            _ => true,
+        })
+        .collect();
     let mut text = String::from(
         "helm 集中式运维平台操作工具。可管理主机/agent、执行命令、传输文件、\
-         管控服务与进程、查指标告警、应急响应（IR，仅 Windows）等。\n\
+         管控服务与进程、应急响应（IR，仅 Windows）等。\n\
          渐进式用法：先调 {\"op\":\"catalog\"} 获取完整参数说明；\
-         每次调用结果尾部附 available_ops 提示。\n\n可用操作：\n",
+         每次调用结果尾部附 available_ops 提示。\n\n",
     );
+    if ops.is_empty() {
+        text.push_str("当前分层未展开操作清单；调用 {\"op\":\"catalog\"} 查看可用操作。\n");
+        return text;
+    }
+    text.push_str("可用操作：\n");
     for group in [Os::Any, Os::Windows, Os::Linux] {
         let group_ops: Vec<&OpDef> = ops.iter().copied().filter(|o| o.os == group).collect();
         if group_ops.is_empty() {
@@ -631,8 +580,17 @@ pub fn tool_description(scopes: &[String]) -> String {
 }
 
 /// catalog op 的完整编目（scope 裁剪 + 可选 domain/os 过滤）。
-pub fn catalog_json(scopes: &[String], domain: Option<&str>, os: Option<Os>) -> Value {
-    let mut by_scope: Vec<(String, Vec<Value>)> = Vec::new();
+/// op 所属组（P002 两域极简：host = 对主机做的一切 / platform = 平台自身管理）。
+/// platform 显式清单，其余默认 host（新增 op 的默认语义 = 操作目标主机）。
+fn top_group(name: &str) -> &'static str {
+    match name.split('.').next().unwrap_or("") {
+        "hosts" | "agent" | "listeners" | "proxies" | "agent_gen" => "platform",
+        _ => "host",
+    }
+}
+
+pub fn catalog_json(scopes: &[String], domain: Option<&str>, os: Option<Os>, tier: u8) -> Value {
+    let mut by_group: Vec<(String, Vec<Value>)> = Vec::new();
     for op in allowed_ops(scopes, os) {
         if let Some(d) = domain {
             let prefix = format!("{d}.");
@@ -654,18 +612,20 @@ pub fn catalog_json(scopes: &[String], domain: Option<&str>, os: Option<Os>) -> 
             "summary": op.summary,
             "params": params,
         });
-        match by_scope.iter_mut().find(|(s, _)| *s == op.scope) {
+        let group = top_group(op.name);
+        match by_group.iter_mut().find(|(g, _)| *g == group) {
             Some((_, list)) => list.push(entry),
-            None => by_scope.push((op.scope.to_string(), vec![entry])),
+            None => by_group.push((group.to_string(), vec![entry])),
         }
     }
-    let domains: Value = by_scope
+    let domains: Value = by_group
         .into_iter()
-        .map(|(scope, ops)| json!({ "scope": scope, "ops": ops }))
+        .map(|(group, ops)| json!({ "group": group, "ops": ops }))
         .collect();
     json!({
         "tool": "helm",
         "total": allowed_ops(scopes, os).len(),
+        "tier": tier,
         "domains": domains,
         "hint": "调用方式：{\"op\": \"<操作名>\", \"os\": \"linux\"|\"windows\"（OS 专属操作必填）, \"args\": {...}}；路径占位符（如 {id}）直接放在 args 里"
     })
@@ -719,15 +679,43 @@ mod tests {
         assert!(!restricted.iter().any(|o| o.name == "ir.scan"));
         assert!(restricted.iter().any(|o| o.name == "exec.run"));
         assert!(
-            !tool_description(&["exec".to_string()]).contains("ir.scan"),
+            !tool_description(&["exec".to_string()], 3).contains("ir.scan"),
             "受限 key 的工具描述不应出现未授权 op"
         );
     }
 
     #[test]
+    fn tool_description_respects_tier() {
+        // tier 1：清单不展开，catalog 发现提示仍在
+        let t1 = tool_description(&[], 1);
+        assert!(!t1.contains("exec.run"), "tier 1 不应列 op 清单");
+        assert!(t1.contains("catalog"), "tier 1 仍应提示 catalog 发现");
+
+        // tier 2：host 域全量（ir 即暴露且带 windows 标注），platform 域不出现
+        let t2 = tool_description(&[], 2);
+        assert!(t2.contains("exec.run"));
+        assert!(
+            t2.contains("ir.scan"),
+            "ir 应在 tier 2 即暴露（Windows 主机语义，owner 拍板）"
+        );
+        assert!(
+            t2.contains("windows 专属"),
+            "ir 应带 windows 专属标注（暴露但警示，Q2 倾向）"
+        );
+        assert!(
+            !t2.contains("listeners.create"),
+            "tier 2 不应含 platform 域 op"
+        );
+
+        // tier 3：全量（含 platform 管理能力）
+        let t3 = tool_description(&[], 3);
+        assert!(t3.contains("exec.run") && t3.contains("listeners.create"));
+    }
+
+    #[test]
     fn catalog_respects_os_filter() {
         // 当前注册表无 Linux 专属 op：Linux 过滤 = Any 全保留 + Windows 全剔除
-        let catalog = catalog_json(&[], None, Some(Os::Linux)).to_string();
+        let catalog = catalog_json(&[], None, Some(Os::Linux), 3).to_string();
         assert!(
             !catalog.contains("\"os\":\"windows\""),
             "Linux 过滤后不应含 windows op"

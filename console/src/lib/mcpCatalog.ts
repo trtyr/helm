@@ -1,4 +1,4 @@
-/** MCP 工具编目（前端静态镜像，与 server/src/application/mcp_registry.rs OPS 注册表同步；SCOPES 同模式）。 */
+/** MCP 工具编目（前端静态镜像，与 server/src/application/mcp_registry.rs OPS 注册表同步；SCOPES 同模式）。由 scripts/gen_mcp_catalog.py 生成——勿手改。 */
 export interface McpOp {
   name: string;
   scope: string;
@@ -14,48 +14,7 @@ export interface McpDomainGroup {
 }
 export const MCP_CATALOG: McpDomainGroup[] = [
   {
-    domain: "hosts",
-    ops: [
-      {
-        name: "hosts.list",
-        scope: "hosts",
-        os: "Any",
-        method: "GET",
-        path: "/api/v1/hosts",
-        summary: "主机列表（含在线状态/系统版本/标签）",
-        params: [["page", "页码，默认 1"], ["limit", "每页条数，默认 20"], ["tag", "按标签过滤（可选）"]] as [string, string][],
-      },
-      {
-        name: "agent.tags",
-        scope: "hosts",
-        os: "Any",
-        method: "PUT",
-        path: "/api/v1/agents/{id}/tags",
-        summary: "给 agent 打标签",
-        params: [["id", "agent_id"], ["tags", "标签数组"]] as [string, string][],
-      },
-      {
-        name: "agent.deregister",
-        scope: "hosts",
-        os: "Any",
-        method: "DELETE",
-        path: "/api/v1/agents/{id}",
-        summary: "注销 agent（删档案；破坏性）",
-        params: [["id", "agent_id"]] as [string, string][],
-      },
-      {
-        name: "agent.uninstall",
-        scope: "hosts",
-        os: "Any",
-        method: "POST",
-        path: "/api/v1/agents/{id}/uninstall",
-        summary: "卸载 agent（下发自毁指令；破坏性）",
-        params: [["id", "agent_id"], ["remove_binary", "是否删除目标机上的二进制，默认 false"]] as [string, string][],
-      },
-    ],
-  },
-  {
-    domain: "exec",
+    domain: "host",
     ops: [
       {
         name: "exec.run",
@@ -111,11 +70,15 @@ export const MCP_CATALOG: McpDomainGroup[] = [
         summary: "创建定时任务（按间隔重复执行）",
         params: [["agent_id", "agent_id"], ["command", "命令"], ["args", "参数数组"], ["interval_secs", "间隔秒数"]] as [string, string][],
       },
-    ],
-  },
-  {
-    domain: "files",
-    ops: [
+      {
+        name: "forward.exec",
+        scope: "forward",
+        os: "Any",
+        method: "POST",
+        path: "/api/v1/forward/exec",
+        summary: "正向连接执行（Server 主动拨号 agent）",
+        params: [["hostname", "主机名或 agent_addr"], ["command", "命令"], ["args", "参数数组（可选）"]] as [string, string][],
+      },
       {
         name: "files.upload",
         scope: "files",
@@ -143,11 +106,6 @@ export const MCP_CATALOG: McpDomainGroup[] = [
         summary: "列目标机目录",
         params: [["agent_id", "agent_id"], ["path", "目录路径"]] as [string, string][],
       },
-    ],
-  },
-  {
-    domain: "services",
-    ops: [
       {
         name: "sys_services.list",
         scope: "services",
@@ -211,11 +169,6 @@ export const MCP_CATALOG: McpDomainGroup[] = [
         summary: "删除托管服务（破坏性）",
         params: [["id", "服务 uuid"]] as [string, string][],
       },
-    ],
-  },
-  {
-    domain: "processes",
-    ops: [
       {
         name: "processes.list",
         scope: "processes",
@@ -243,153 +196,6 @@ export const MCP_CATALOG: McpDomainGroup[] = [
         summary: "网络信息（网卡 + 连接表）",
         params: [["agent_id", "agent_id"]] as [string, string][],
       },
-    ],
-  },
-  {
-    domain: "metrics",
-    ops: [
-      {
-        name: "metrics.list",
-        scope: "metrics",
-        os: "Any",
-        method: "GET",
-        path: "/api/v1/metrics",
-        summary: "指标查询（cpu/mem/disk 序列）",
-        params: [["host_id", "主机 uuid"], ["limit", "点数上限（可选）"]] as [string, string][],
-      },
-      {
-        name: "alerts.list",
-        scope: "metrics",
-        os: "Any",
-        method: "GET",
-        path: "/api/v1/alerts",
-        summary: "告警列表",
-        params: [["page", "页码（可选）"], ["limit", "条数（可选）"]] as [string, string][],
-      },
-    ],
-  },
-  {
-    domain: "notifications",
-    ops: [
-      {
-        name: "notifications.list",
-        scope: "notifications",
-        os: "Any",
-        method: "GET",
-        path: "/api/v1/notifications",
-        summary: "通知列表",
-        params: [["page", "页码（可选）"], ["limit", "条数（可选）"]] as [string, string][],
-      },
-      {
-        name: "notifications.read",
-        scope: "notifications",
-        os: "Any",
-        method: "POST",
-        path: "/api/v1/notifications/{id}/read",
-        summary: "标记通知已读",
-        params: [["id", "通知 uuid"]] as [string, string][],
-      },
-      {
-        name: "notifications.read_all",
-        scope: "notifications",
-        os: "Any",
-        method: "POST",
-        path: "/api/v1/notifications/read-all",
-        summary: "全部标记已读",
-        params: [] as [string, string][],
-      },
-    ],
-  },
-  {
-    domain: "listeners",
-    ops: [
-      {
-        name: "listeners.list",
-        scope: "listeners",
-        os: "Any",
-        method: "GET",
-        path: "/api/v1/listeners",
-        summary: "gRPC 监听器列表",
-        params: [] as [string, string][],
-      },
-      {
-        name: "listeners.create",
-        scope: "listeners",
-        os: "Any",
-        method: "POST",
-        path: "/api/v1/listeners",
-        summary: "创建 gRPC 监听器",
-        params: [["name", "名称"], ["addr", "监听地址（如 0.0.0.0:50051）"], ["proto", "协议，grpc"]] as [string, string][],
-      },
-      {
-        name: "listeners.action",
-        scope: "listeners",
-        os: "Any",
-        method: "POST",
-        path: "/api/v1/listeners/{id}/{action}",
-        summary: "监听器 start/stop",
-        params: [["id", "监听器 uuid"], ["action", "start|stop"]] as [string, string][],
-      },
-      {
-        name: "listeners.delete",
-        scope: "listeners",
-        os: "Any",
-        method: "DELETE",
-        path: "/api/v1/listeners/{id}",
-        summary: "删除监听器（破坏性）",
-        params: [["id", "监听器 uuid"]] as [string, string][],
-      },
-    ],
-  },
-  {
-    domain: "forward",
-    ops: [
-      {
-        name: "forward.exec",
-        scope: "forward",
-        os: "Any",
-        method: "POST",
-        path: "/api/v1/forward/exec",
-        summary: "正向连接执行（Server 主动拨号 agent）",
-        params: [["hostname", "主机名或 agent_addr"], ["command", "命令"], ["args", "参数数组（可选）"]] as [string, string][],
-      },
-    ],
-  },
-  {
-    domain: "proxy",
-    ops: [
-      {
-        name: "proxies.list",
-        scope: "proxy",
-        os: "Any",
-        method: "GET",
-        path: "/api/v1/proxies",
-        summary: "活跃 SOCKS5 代理列表",
-        params: [] as [string, string][],
-      },
-      {
-        name: "proxies.create",
-        scope: "proxy",
-        os: "Any",
-        method: "POST",
-        path: "/api/v1/proxies",
-        summary: "为 agent 开 SOCKS5 代理（Server 本地监听，流量经 agent 出站）",
-        params: [["agent_id", "agent_id"], ["listen_addr", "Server 侧监听地址，默认 127.0.0.1:1080"]] as [string, string][],
-      },
-      {
-        name: "proxies.stop",
-        scope: "proxy",
-        os: "Any",
-        method: "DELETE",
-        path: "/api/v1/proxies/{id}",
-        summary: "停止代理",
-        params: [["id", "代理 uuid"]] as [string, string][],
-      },
-    ],
-  },
-  {
-    domain: "ir",
-    ops: [
       {
         name: "ir.scan",
         scope: "ir",
@@ -465,8 +271,107 @@ export const MCP_CATALOG: McpDomainGroup[] = [
     ],
   },
   {
-    domain: "agent-gen",
+    domain: "platform",
     ops: [
+      {
+        name: "hosts.list",
+        scope: "hosts",
+        os: "Any",
+        method: "GET",
+        path: "/api/v1/hosts",
+        summary: "主机列表（含在线状态/系统版本/标签）",
+        params: [["page", "页码，默认 1"], ["limit", "每页条数，默认 20"], ["tag", "按标签过滤（可选）"]] as [string, string][],
+      },
+      {
+        name: "agent.tags",
+        scope: "hosts",
+        os: "Any",
+        method: "PUT",
+        path: "/api/v1/agents/{id}/tags",
+        summary: "给 agent 打标签",
+        params: [["id", "agent_id"], ["tags", "标签数组"]] as [string, string][],
+      },
+      {
+        name: "agent.deregister",
+        scope: "hosts",
+        os: "Any",
+        method: "DELETE",
+        path: "/api/v1/agents/{id}",
+        summary: "注销 agent（删档案；破坏性）",
+        params: [["id", "agent_id"]] as [string, string][],
+      },
+      {
+        name: "agent.uninstall",
+        scope: "hosts",
+        os: "Any",
+        method: "POST",
+        path: "/api/v1/agents/{id}/uninstall",
+        summary: "卸载 agent（下发自毁指令；破坏性）",
+        params: [["id", "agent_id"], ["remove_binary", "是否删除目标机上的二进制，默认 false"]] as [string, string][],
+      },
+      {
+        name: "listeners.list",
+        scope: "listeners",
+        os: "Any",
+        method: "GET",
+        path: "/api/v1/listeners",
+        summary: "gRPC 监听器列表",
+        params: [] as [string, string][],
+      },
+      {
+        name: "listeners.create",
+        scope: "listeners",
+        os: "Any",
+        method: "POST",
+        path: "/api/v1/listeners",
+        summary: "创建 gRPC 监听器",
+        params: [["name", "名称"], ["addr", "监听地址（如 0.0.0.0:50051）"], ["proto", "协议，grpc"]] as [string, string][],
+      },
+      {
+        name: "listeners.action",
+        scope: "listeners",
+        os: "Any",
+        method: "POST",
+        path: "/api/v1/listeners/{id}/{action}",
+        summary: "监听器 start/stop",
+        params: [["id", "监听器 uuid"], ["action", "start|stop"]] as [string, string][],
+      },
+      {
+        name: "listeners.delete",
+        scope: "listeners",
+        os: "Any",
+        method: "DELETE",
+        path: "/api/v1/listeners/{id}",
+        summary: "删除监听器（破坏性）",
+        params: [["id", "监听器 uuid"]] as [string, string][],
+      },
+      {
+        name: "proxies.list",
+        scope: "proxy",
+        os: "Any",
+        method: "GET",
+        path: "/api/v1/proxies",
+        summary: "活跃 SOCKS5 代理列表",
+        params: [] as [string, string][],
+      },
+      {
+        name: "proxies.create",
+        scope: "proxy",
+        os: "Any",
+        method: "POST",
+        path: "/api/v1/proxies",
+        summary: "为 agent 开 SOCKS5 代理（Server 本地监听，流量经 agent 出站）",
+        params: [["agent_id", "agent_id"], ["listen_addr", "Server 侧监听地址，默认 127.0.0.1:1080"]] as [string, string][],
+      },
+      {
+        name: "proxies.stop",
+        scope: "proxy",
+        os: "Any",
+        method: "DELETE",
+        path: "/api/v1/proxies/{id}",
+        summary: "停止代理",
+        params: [["id", "代理 uuid"]] as [string, string][],
+      },
       {
         name: "agent_gen.create",
         scope: "agent-gen",
@@ -487,21 +392,7 @@ export const MCP_CATALOG: McpDomainGroup[] = [
       },
     ],
   },
-  {
-    domain: "audit",
-    ops: [
-      {
-        name: "audit.list",
-        scope: "audit",
-        os: "Any",
-        method: "GET",
-        path: "/api/v1/audit",
-        summary: "审计日志（谁在什么时候对什么做了什么）",
-        params: [["page", "页码（可选）"], ["limit", "条数（可选）"]] as [string, string][],
-      },
-    ],
-  },
 ];
 
 /** op 总数（与 check_docs 的 MCP op 对账口径一致）。 */
-export const MCP_OP_COUNT = MCP_CATALOG.reduce((n, d) => n + d.ops.length, 0); // 47
+export const MCP_OP_COUNT = MCP_CATALOG.reduce((n, d) => n + d.ops.length, 0); // 41

@@ -202,6 +202,10 @@ export default function Mcp() {
             {MCP_CATALOG.length} 域 · {MCP_OP_COUNT} op
           </span>
         </div>
+        <p className="mt-2 text-label-12 text-gray-600">
+          暴露分层 HELM_MCP_TIER：1=入口（清单不展开）/ 2=host 域（对主机做的一切，默认）/
+          3=全量（含平台管理）。当前生效 tier 可调 catalog 操作查看（响应含 tier 字段）。
+        </p>
         <div className="mt-3 flex flex-col gap-2">
           {MCP_CATALOG.map((g) => (
             <DomainGroup key={g.domain} group={g} />

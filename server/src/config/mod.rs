@@ -51,6 +51,16 @@ pub struct Config {
     #[arg(long, env = "HELM_RETENTION_DAYS", default_value = "90")]
     pub retention_days: i64,
 
+    /// MCP 渐进分层（P002 T4，默认 2）：1=入口（清单不展开，AI 用 catalog 发现）/
+    /// 2=host 域（对主机做的一切，ir 带 windows 专属标注）/ 3=全量（含 platform 管理能力）
+    #[arg(
+        long,
+        env = "HELM_MCP_TIER",
+        default_value = "2",
+        value_parser = clap::value_parser!(u8).range(1..=3)
+    )]
+    pub mcp_tier: u8,
+
     /// 数据库连接池容量（C3，默认 10）：按 Agent 数与控制台并发调大
     #[arg(long, env = "HELM_DB_MAX_CONNECTIONS", default_value = "10")]
     pub db_max_connections: u32,

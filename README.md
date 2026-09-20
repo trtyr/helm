@@ -149,7 +149,7 @@ Bearer 值为 JWT 或 `helm_` 前缀 API key（决策 010）均可认证；WebSo
 | POST | `/api/v1/files/list` | 列目录 |
 | POST | `/api/v1/tasks/script` | 脚本执行 |
 | POST | `/api/v1/tasks/schedule` | 定时任务 |
-| POST | `/api/v1/mcp` | MCP JSON-RPC 端点（AI 单工具 `helm` 接入，47 op，scope 授权；见 engram「接口契约/mcp」） |
+| POST | `/api/v1/mcp` | MCP JSON-RPC 端点（AI 单工具 `helm` 接入，41 op，scope 授权；见 engram「接口契约/mcp」） |
 | POST | `/api/v1/forward/exec` | 正向连接执行命令 |
 | GET/POST | `/api/v1/listeners` | 列出 / 创建监听器 |
 | PUT/DELETE | `/api/v1/listeners/{id}` | 更新 / 删除监听器 |

@@ -63,6 +63,8 @@ pub struct AppState {
     pub conn_registry: ConnectionRegistry,
     /// HTTP 监听端口（MCP loopback 自调用用）。
     pub http_port: u16,
+    /// MCP 渐进分层（P002 T4）：tools/list 描述按 tier 收缩。
+    pub mcp_tier: u8,
 }
 
 /// 启动 HTTP 服务（控制台 API + health）。
@@ -94,6 +96,7 @@ pub async fn serve(
         server_token: config.server_token.clone(),
         heartbeat_timeout_secs: config.heartbeat_timeout_secs,
         session_idle_timeout_secs: config.session_idle_timeout_secs,
+        mcp_tier: config.mcp_tier,
         cert,
         agent_gen: crate::application::agent_generator::AgentGenService::new(
             config.agent_source_dir.clone(),
