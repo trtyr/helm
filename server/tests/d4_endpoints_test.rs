@@ -127,18 +127,29 @@ async fn job_time_range_filter_mirrors_count() {
     let three_hours_ago = chrono::Utc::now() - chrono::Duration::hours(3);
 
     // from = 1 小时前：2 小时前的 job 不命中（边界正确）
+    // 审计缺陷修复（2026-09-20）：断言必须 scope 到本测试自己的 host——同 binary 内的
+    // jobs_list_filters_by_status_and_host 会并发插入 queued job，全局 count/list 镜像断言
+    // 在「list 与 count 两次查询之间被插入一行」时必失败（隔离跑永远绿、全量跑偶发红）。
     let list_after = repo
-        .list_filtered(Some("queued"), None, Some(hour_ago), None, 100, 0, None)
+        .list_filtered(
+            Some("queued"),
+            Some(host),
+            Some(hour_ago),
+            None,
+            100,
+            0,
+            None,
+        )
         .await
         .expect("list from");
     let count_after = repo
-        .count_filtered(Some("queued"), None, Some(hour_ago), None)
+        .count_filtered(Some("queued"), Some(host), Some(hour_ago), None)
         .await
         .expect("count from");
     assert_eq!(
         list_after.len() as i64,
         count_after,
-        "count/list 同范围镜像（status+from）"
+        "count/list 同范围镜像（host+status+from）"
     );
     assert!(
         !list_after.iter().any(|r| r.id == j.id),
