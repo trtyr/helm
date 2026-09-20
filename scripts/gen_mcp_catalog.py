@@ -2,7 +2,8 @@
 """从 server/src/application/mcp_registry.rs 的 OPS 注册表生成 console/src/lib/mcpCatalog.ts。
 
 P002 两域极简版：域分组来自 // -- <name> 域 注释（容忍括号说明）。
-内置断言（防域分组回归）：域数=2（host/platform）、op 数=41（host 28 / platform 13）、已删 6 op 不出现。
+每个 op 附 group 字段 = 能力组（复验反馈：目录三级化——域 → 能力组 → 工具，与 registry top_subgroup 同映射）。
+内置断言（防域分组回归）：域数=2（host/platform）、op 数=41、能力组 8 组计数吻合、已删 6 op 不出现。
 """
 import re
 
@@ -11,6 +12,20 @@ TARGET = 'console/src/lib/mcpCatalog.ts'
 EXPECT_DOMAINS = {'host': 28, 'platform': 13}
 FORBIDDEN = {'metrics.list', 'alerts.list', 'notifications.list',
              'notifications.read', 'notifications.read_all', 'audit.list'}
+
+# 能力组映射（与 server mcp_registry.rs top_subgroup 保持一致）
+SUBGROUPS = {
+    'exec': '执行', 'jobs': '执行', 'tasks': '执行',
+    'files': '文件',
+    'services': '系统状态', 'sys_services': '系统状态', 'processes': '系统状态', 'net': '系统状态',
+    'ir': '取证 IR',
+    'forward': '反向执行',
+    'hosts': '主机管理', 'agent': '主机管理',
+    'listeners': '网络服务', 'proxies': '网络服务',
+    'agent_gen': 'Agent 生成',
+}
+EXPECT_SUBGROUPS = {'执行': 6, '文件': 3, '系统状态': 10, '取证 IR': 8, '反向执行': 1,
+                    '主机管理': 4, '网络服务': 7, 'Agent 生成': 2}
 
 src = open(REGISTRY, encoding='utf-8').read()
 lines = src.split('\n')
@@ -42,7 +57,9 @@ def parse_block(block):
     assert len(scalars) == 5, f"块应含 5 个标量字符串（name/scope/method/path/summary），实际 {len(scalars)}:\n{block}"
     name, scope, method, path, summary = scalars
     params = re.findall(r'\(\s*"((?:[^"\\]|\\.)*)"\s*,\s*"((?:[^"\\]|\\.)*)"\s*\)', block)
-    return {'name': name, 'scope': scope, 'os': os_m.group(1),
+    prefix = name.split('.')[0]
+    group = SUBGROUPS.get(prefix, '其他')
+    return {'name': name, 'scope': scope, 'os': os_m.group(1), 'group': group,
             'method': method, 'path': path, 'summary': summary, 'params': params}
 
 
@@ -59,6 +76,13 @@ for domain, expect_n in EXPECT_DOMAINS.items():
     actual = next(len(ops) for d, ops in groups if d == domain)
     assert actual == expect_n, f"{domain} 域应为 {expect_n} op，实际 {actual}"
 
+# 能力组计数断言
+sub_count: dict = {}
+for _, ops in groups:
+    for o in ops:
+        sub_count[o['group']] = sub_count.get(o['group'], 0) + 1
+assert sub_count == EXPECT_SUBGROUPS, f"能力组计数不符：{sub_count} vs {EXPECT_SUBGROUPS}"
+
 
 def ts_str(s):
     return '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
@@ -67,7 +91,7 @@ def ts_str(s):
 out = []
 out.append('/** MCP 工具编目（前端静态镜像，与 server/src/application/mcp_registry.rs OPS 注册表同步；SCOPES 同模式）。由 scripts/gen_mcp_catalog.py 生成——勿手改。 */')
 out.append('export interface McpOp {')
-for f in ['name', 'scope', 'os', 'method', 'path', 'summary']:
+for f in ['name', 'scope', 'os', 'group', 'method', 'path', 'summary']:
     out.append(f'  {f}: string;')
 out.append('  params: [string, string][];')
 out.append('}')
@@ -82,7 +106,7 @@ for domain, ops in groups:
     out.append('    ops: [')
     for o in ops:
         out.append('      {')
-        for f in ['name', 'scope', 'os', 'method', 'path', 'summary']:
+        for f in ['name', 'scope', 'os', 'group', 'method', 'path', 'summary']:
             out.append(f'        {f}: {ts_str(o[f])},')
         pairs = ', '.join(f'[{ts_str(k)}, {ts_str(v)}]' for k, v in o['params'])
         out.append(f'        params: [{pairs}] as [string, string][],')
@@ -96,4 +120,5 @@ out.append('export const MCP_OP_COUNT = MCP_CATALOG.reduce((n, d) => n + d.ops.l
 out.append('')
 
 open(TARGET, 'w', encoding='utf-8').write('\n'.join(out))
-print(f"✓ 生成 {TARGET}：" + '，'.join(f'{d} {len(ops)} op' for d, ops in groups) + f"，共 {len(all_names)} op")
+print(f"✓ 生成 {TARGET}：" + '，'.join(f'{d} {len(ops)} op' for d, ops in groups)
+      + f"，共 {len(all_names)} op；能力组：" + '，'.join(f'{k} {v}' for k, v in sub_count.items()))

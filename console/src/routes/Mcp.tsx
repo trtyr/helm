@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronRight, Copy, KeyRound, PlugZap } from "lucide-react";
 import { copyText } from "../lib/clipboard";
@@ -112,9 +112,48 @@ function OpRow({ op }: { op: McpOp }) {
   );
 }
 
-/** 领域分组可展开块：域标题 → 该域工具列表。 */
+/** 域内能力组可折叠分节：组名 → 该组工具列表（三级目录第三层）。 */
+function SubGroup({ name, ops }: { name: string; ops: McpOp[] }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-150 hover:bg-gray-200/60"
+      >
+        <ChevronRight
+          size={12}
+          strokeWidth={1.5}
+          className={`shrink-0 text-gray-900 transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+        />
+        <span className="text-label-13">{name}</span>
+        <span className="ml-auto font-mono text-label-12 text-gray-900">{ops.length}</span>
+      </button>
+      {open && (
+        <div className="ml-3 border-l border-gray-400 pl-1">
+          {ops.map((op) => (
+            <OpRow key={op.name} op={op} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 领域分组可展开块：域标题 → 能力组分节 → 工具列表（三级目录：域 → 组 → 工具）。 */
 function DomainGroup({ group }: { group: McpDomainGroup }) {
   const [open, setOpen] = useState(false);
+  const subgroups = useMemo(() => {
+    const map = new Map<string, McpOp[]>();
+    for (const op of group.ops) {
+      const list = map.get(op.group);
+      if (list) list.push(op);
+      else map.set(op.group, [op]);
+    }
+    return [...map.entries()];
+  }, [group]);
   return (
     <div className="rounded-lg border border-gray-400">
       <button
@@ -133,8 +172,8 @@ function DomainGroup({ group }: { group: McpDomainGroup }) {
       </button>
       {open && (
         <div className="border-t border-gray-400 px-2 py-1">
-          {group.ops.map((op) => (
-            <OpRow key={op.name} op={op} />
+          {subgroups.map(([name, ops]) => (
+            <SubGroup key={name} name={name} ops={ops} />
           ))}
         </div>
       )}

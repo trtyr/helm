@@ -589,8 +589,27 @@ fn top_group(name: &str) -> &'static str {
     }
 }
 
+/// op 所属能力组（P002 复验反馈：目录三级化——域 → 能力组 → 工具，能力聚合 8 组）。
+fn top_subgroup(name: &str) -> &'static str {
+    match name.split('.').next().unwrap_or("") {
+        "exec" | "jobs" | "tasks" => "执行",
+        "files" => "文件",
+        "services" | "sys_services" | "processes" | "net" => "系统状态",
+        "ir" => "取证 IR",
+        "forward" => "反向执行",
+        "hosts" | "agent" => "主机管理",
+        "listeners" | "proxies" => "网络服务",
+        "agent_gen" => "Agent 生成",
+        _ => "其他",
+    }
+}
+
+/// 三级目录的分组累积结构：域 → 能力组 → 工具条目列表。
+type GroupedCatalog = Vec<(String, Vec<(String, Vec<Value>)>)>;
+
 pub fn catalog_json(scopes: &[String], domain: Option<&str>, os: Option<Os>, tier: u8) -> Value {
-    let mut by_group: Vec<(String, Vec<Value>)> = Vec::new();
+    // 三级目录：域（host/platform）→ 能力组 → 工具（P002 复验反馈，能力聚合 8 组）。
+    let mut by_group: GroupedCatalog = Vec::new();
     for op in allowed_ops(scopes, os) {
         if let Some(d) = domain {
             let prefix = format!("{d}.");
@@ -613,14 +632,30 @@ pub fn catalog_json(scopes: &[String], domain: Option<&str>, os: Option<Os>, tie
             "params": params,
         });
         let group = top_group(op.name);
-        match by_group.iter_mut().find(|(g, _)| *g == group) {
+        let subgroup = top_subgroup(op.name);
+        let group_entry = match by_group.iter_mut().find(|(g, _)| *g == group) {
+            Some(g) => g,
+            None => {
+                by_group.push((group.to_string(), Vec::new()));
+                by_group.last_mut().expect("group just pushed")
+            }
+        };
+        match group_entry.1.iter_mut().find(|(n, _)| *n == subgroup) {
             Some((_, list)) => list.push(entry),
-            None => by_group.push((group.to_string(), vec![entry])),
+            None => group_entry.1.push((subgroup.to_string(), vec![entry])),
         }
     }
     let domains: Value = by_group
         .into_iter()
-        .map(|(group, ops)| json!({ "group": group, "ops": ops }))
+        .map(|(group, subgroups)| {
+            json!({
+                "group": group,
+                "subgroups": subgroups
+                    .into_iter()
+                    .map(|(name, ops)| json!({ "name": name, "ops": ops }))
+                    .collect::<Vec<_>>(),
+            })
+        })
         .collect();
     json!({
         "tool": "helm",
