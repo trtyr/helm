@@ -2272,7 +2272,7 @@ components:
         id: { type: string, format: uuid }
         host_id: { type: string }
         event: { type: string, description: "online | offline" }
-        reason: { type: string, description: "registered / transport_error / stream_closed / stopped" }
+        reason: { type: string, description: "registered / transport_error / stream_closed / stopped / heartbeat_timeout" }
         detail: { type: string }
         created_at: { type: string, format: date-time }
         ended_at:

@@ -3,6 +3,12 @@
 
 mod common;
 
+use helm_server::application::notification_service::{
+    NotificationService, handle_stale_row, record_online_and_notify,
+};
+use helm_server::grpc::connection_registry::ConnectionRegistry;
+use helm_server::grpc::stream_registry::StreamRegistry;
+use helm_server::store::agent_repo::StaleAgentRow;
 use helm_server::store::status_event_repo::StatusEventRepo;
 use std::sync::LazyLock;
 
@@ -193,4 +199,122 @@ async fn offline_alert_sweeper_respects_threshold_and_disable() {
             .all(|r| !r.escalated || r.host_id != "se-fresh"),
         "禁用模式下 se-fresh 不应被标记"
     );
+}
+
+/// 审计缺陷修复回归（2026-09-20 首次审计拒绝点①）：上线落库 + 通知的唯一实现。
+/// 此前 forward 模式只发通知、不落状态事件——本测试锁住共享函数的两个副作用，
+/// 使 reverse/forward 不可能再分叉。
+#[tokio::test]
+async fn record_online_writes_event_and_notification() {
+    let _g = SE_GUARD.lock().await;
+    let db = common::connect().await;
+    let repo = StatusEventRepo::new(db.clone());
+
+    let host = helm_server::store::host_repo::NewHost {
+        hostname: "se-online-host".into(),
+        os: "linux".into(),
+        arch: "x86_64".into(),
+        platform: "linux-x86_64".into(),
+        tags: vec![],
+        conn_mode: "forward".into(),
+        addr: String::new(),
+    };
+    let host_id = helm_server::store::host_repo::HostRepo::new(db.clone())
+        .insert(&host)
+        .await
+        .expect("insert host")
+        .id;
+
+    record_online_and_notify(&db, &StreamRegistry::new(), host_id, "se-online-host").await;
+
+    // ① 状态事件：该 host 最新事件 = online/registered
+    let latest = repo.latest_per_host().await.unwrap();
+    let mine = latest
+        .iter()
+        .find(|r| r.host_id == host_id.to_string())
+        .expect("online 事件应落库（forward 亦同）");
+    assert_eq!(mine.event, "online");
+    assert_eq!(mine.reason, "registered");
+
+    // ② 通知：同 host 存在 online 通知——事件与通知同点同语义
+    let (notes,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM notifications WHERE host_id = $1 AND type = 'online'")
+            .bind(host_id)
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    assert_eq!(notes, 1, "上线通知应落库且只有一条");
+}
+
+/// 审计缺陷修复回归（2026-09-20 首次审计拒绝点②）：静默掉线（心跳超时）必须落 offline 事件。
+/// 此前该路径只发通知不落库，且注销早于 h2 流关闭使 on_disconnect 被 unregister_if_current 守卫
+/// 挡掉——结果最新事件停在 online，offline_alert_sweeper 的 row.event != "offline" 判断永远跳过，
+/// 升级告警对最该告警的场景失效。本测试直驱半开清扫的单行处置，并验证升级链真的被触发。
+#[tokio::test]
+async fn silent_death_persists_offline_and_escalates() {
+    let _g = SE_GUARD.lock().await;
+    let db = common::connect().await;
+    let repo = StatusEventRepo::new(db.clone());
+
+    let host = helm_server::store::host_repo::NewHost {
+        hostname: "se-silent-host".into(),
+        os: "windows".into(),
+        arch: "x86_64".into(),
+        platform: "windows-x86_64".into(),
+        tags: vec![],
+        conn_mode: "reverse".into(),
+        addr: String::new(),
+    };
+    let host_id = helm_server::store::host_repo::HostRepo::new(db.clone())
+        .insert(&host)
+        .await
+        .expect("insert host")
+        .id;
+
+    // 心跳 40 秒前（timeout=30 → 落在 [30,60) 的「刚失联」窗口），注册表已无该连接
+    let row = StaleAgentRow {
+        id: "se-silent-agent".into(),
+        host_id,
+        hostname: "se-silent-host".into(),
+        last_heartbeat_at: Some(chrono::Utc::now() - chrono::Duration::seconds(40)),
+    };
+    let svc = NotificationService::new(db.clone(), StreamRegistry::new());
+    handle_stale_row(
+        &db,
+        &ConnectionRegistry::new(),
+        &svc,
+        &row,
+        chrono::Utc::now(),
+        30,
+    )
+    .await;
+
+    // ① offline 事件落库（修复点：此前只有通知、没有事件）
+    let latest = repo.latest_per_host().await.unwrap();
+    let mine = latest
+        .iter()
+        .find(|r| r.host_id == host_id.to_string())
+        .expect("静默掉线应落 offline 事件");
+    assert_eq!(mine.event, "offline");
+    assert_eq!(mine.reason, "heartbeat_timeout");
+
+    // ② 回填 40 分钟前 → 升级链真的触发（证明 T2 对静默死亡场景有效）
+    sqlx::query(
+        "UPDATE status_events SET created_at = now() - interval '40 minutes' \
+         WHERE host_id = $1 AND event = 'offline'",
+    )
+    .bind(host_id.to_string())
+    .execute(db.pool())
+    .await
+    .unwrap();
+    let n = helm_server::application::offline_alert_sweeper::sweep_once(&db, 30)
+        .await
+        .unwrap();
+    assert!(n >= 1, "超阈值静默掉线应触发升级");
+    let latest = repo.latest_per_host().await.unwrap();
+    let mine = latest
+        .iter()
+        .find(|r| r.host_id == host_id.to_string())
+        .unwrap();
+    assert!(mine.escalated, "该 host 的 offline 事件应被标记 escalated");
 }

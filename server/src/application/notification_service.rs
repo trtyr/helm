@@ -6,7 +6,7 @@
 use crate::domain::Result;
 use crate::grpc::stream_registry::StreamRegistry;
 use crate::store::Db;
-use crate::store::agent_repo::AgentRepo;
+use crate::store::agent_repo::{AgentRepo, StaleAgentRow};
 use crate::store::notification_repo::{NotificationRepo, NotificationRow};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -36,6 +36,77 @@ pub fn should_notify_stale(
 ) -> bool {
     let age = now.signed_duration_since(last_heartbeat).num_seconds();
     age >= timeout_secs && age < timeout_secs * 2
+}
+
+/// 上线落库 + 通知的**唯一实现**（reverse/forward 同构）。
+///
+/// 审计缺陷修复（2026-09-20）：此前 reverse（agent_service）落状态事件、forward（forward_manager）
+/// 只发通知不落库，导致 forward 主机的 /logs/events 时间线永远缺上线事件，离线时长列（LEAD 窗口回填）
+/// 对它们永远显示「进行中」。抽成共享函数后两种注册模式不可能再分叉——任何新增注册路径都必须调本函数。
+pub async fn record_online_and_notify(
+    db: &Db,
+    streams: &StreamRegistry,
+    host_id: Uuid,
+    hostname: &str,
+) {
+    // 同点同语义：先落状态事件，再发通知
+    if let Err(e) = crate::store::status_event_repo::StatusEventRepo::new(db.clone())
+        .insert(&host_id.to_string(), "online", "registered", "")
+        .await
+    {
+        tracing::warn!(host_id = %host_id, error = ?e, "online status event insert failed");
+    }
+    let svc = NotificationService::new(db.clone(), streams.clone());
+    if let Err(e) = svc
+        .notify(host_id, KIND_ONLINE, &format!("主机 {hostname} 已上线"))
+        .await
+    {
+        tracing::warn!(host_id = %host_id, error = ?e, "online notify failed");
+    }
+}
+
+/// 半开死连接的单行处置：① 注册表仍在线则注销；② 该通知时先落 offline 状态事件再发通知。
+///
+/// 审计缺陷修复（2026-09-20）：静默掉线（心跳超时）是离线升级告警最该覆盖的场景，但此前本路径只发通知
+/// 不落状态事件；且注销发生在 h2 keepalive 关闭流之前，随后 `on_disconnect` 会被 `unregister_if_current`
+/// 守卫挡掉（不重复落库）。两者叠加导致「静默死亡」的主机最新事件停在 online，
+/// `offline_alert_sweeper` 的 `row.event != "offline"` 判断永远跳过——升级告警对最该告警的场景失效。
+pub async fn handle_stale_row(
+    db: &Db,
+    connections: &crate::grpc::connection_registry::ConnectionRegistry,
+    svc: &NotificationService,
+    row: &StaleAgentRow,
+    now: DateTime<Utc>,
+    timeout_secs: u64,
+) {
+    // 半开死连接：注册表仍在线则注销
+    if connections.is_online(&row.id).await {
+        tracing::info!(agent_id = %row.id, "sweeper: unregister stale half-open connection");
+        connections.unregister(&row.id).await;
+    }
+    let Some(last_hb) = row.last_heartbeat_at else {
+        return;
+    };
+    if !should_notify_stale(last_hb, now, timeout_secs as i64) {
+        return;
+    }
+    // 同点同语义：先落 offline 状态事件（reason=heartbeat_timeout），再发通知
+    if let Err(e) = crate::store::status_event_repo::StatusEventRepo::new(db.clone())
+        .insert(&row.host_id.to_string(), "offline", "heartbeat_timeout", "")
+        .await
+    {
+        tracing::warn!(agent_id = %row.id, error = ?e, "stale offline status event insert failed");
+    }
+    if let Err(e) = svc
+        .notify(
+            row.host_id,
+            KIND_OFFLINE,
+            &format!("主机 {} 已下线（心跳超时）", row.hostname),
+        )
+        .await
+    {
+        tracing::warn!(agent_id = %row.id, error = ?e, "sweeper notify failed");
+    }
 }
 
 /// 通知中心用例：记录通知（冷却合并 + 落库 + 实时广播）与查询。
@@ -141,26 +212,7 @@ pub fn spawn_offline_sweeper(
             };
             let svc = NotificationService::new(db.clone(), registry.clone());
             for row in rows {
-                // 半开死连接：注册表仍在线则注销
-                if connections.is_online(&row.id).await {
-                    tracing::info!(agent_id = %row.id, "sweeper: unregister stale half-open connection");
-                    connections.unregister(&row.id).await;
-                }
-                if let Some(last_hb) = row.last_heartbeat_at {
-                    if !should_notify_stale(last_hb, now, timeout_secs as i64) {
-                        continue;
-                    }
-                    if let Err(e) = svc
-                        .notify(
-                            row.host_id,
-                            KIND_OFFLINE,
-                            &format!("主机 {} 已下线（心跳超时）", row.hostname),
-                        )
-                        .await
-                    {
-                        tracing::warn!(agent_id = %row.id, error = ?e, "sweeper notify failed");
-                    }
-                }
+                handle_stale_row(&db, &connections, &svc, &row, now, timeout_secs).await;
             }
         }
     });

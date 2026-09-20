@@ -253,21 +253,15 @@ async fn connect_once(
 
     // 上线通知（决策 009：forward 与 reverse 同构；重复注册仅换连接，不通知）
     if registration.replaced.is_none() {
-        let hostname = host_info.hostname.clone();
-        let svc = crate::application::notification_service::NotificationService::new(
-            deps.db.clone(),
-            deps.streams.clone(),
-        );
-        if let Err(e) = svc
-            .notify(
-                host_id,
-                crate::application::notification_service::KIND_ONLINE,
-                &format!("主机 {hostname} 已上线"),
-            )
-            .await
-        {
-            tracing::warn!(agent_id = %agent_id, error = ?e, "online notify failed");
-        }
+        // P003 T1：与 reverse 共用 record_online_and_notify（审计缺陷修复：此前 forward 只发通知、
+        // 不落状态事件，forward 主机的时间线因此缺全部上线事件）
+        crate::application::notification_service::record_online_and_notify(
+            &deps.db,
+            &deps.streams,
+            host_id,
+            &host_info.hostname,
+        )
+        .await;
     }
 
     // 回 RegisterAck

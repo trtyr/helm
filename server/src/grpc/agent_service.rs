@@ -239,28 +239,14 @@ impl AgentService for AgentServiceImpl {
             && !deferred_offline
             && registration.replaced.is_none()
         {
-            // P003 T1：上线状态事件落库（与通知同点同语义）
-            let events = crate::store::status_event_repo::StatusEventRepo::new(self.db.clone());
-            if let Err(e) = events
-                .insert(&hid.to_string(), "online", "registered", "")
-                .await
-            {
-                tracing::warn!(agent_id = %agent_id, error = ?e, "status event insert failed");
-            }
-            let svc = crate::application::notification_service::NotificationService::new(
-                self.db.clone(),
-                self.streams.clone(),
-            );
-            if let Err(e) = svc
-                .notify(
-                    hid,
-                    crate::application::notification_service::KIND_ONLINE,
-                    &format!("主机 {hostname} 已上线"),
-                )
-                .await
-            {
-                tracing::warn!(agent_id = %agent_id, error = ?e, "online notify failed");
-            }
+            // P003 T1：上线落库 + 通知——reverse/forward 共用的唯一实现（record_online_and_notify）
+            crate::application::notification_service::record_online_and_notify(
+                &self.db,
+                &self.streams,
+                hid,
+                hostname,
+            )
+            .await;
         }
 
         // 后台任务：消费入站流；流结束时注销。
