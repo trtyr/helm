@@ -36,6 +36,10 @@ pub struct Config {
     #[arg(long, env = "HELM_LOG_DIR", default_value = "")]
     pub log_dir: String,
 
+    /// 日志保留天数（P003 T4，默认 30）：helm-agent.log.* 超此天数被清理；0 = 不清理
+    #[arg(long, env = "HELM_AGENT_LOG_KEEP_DAYS", default_value = "30")]
+    pub log_keep_days: i64,
+
     /// mTLS server 证书 SAN 名（默认 localhost，用于证书校验）
     #[arg(long, env = "HELM_TLS_SERVER_NAME", default_value = "localhost")]
     pub tls_server_name: String,

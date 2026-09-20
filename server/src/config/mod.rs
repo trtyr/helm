@@ -66,6 +66,11 @@ pub struct Config {
     #[arg(long, env = "HELM_OFFLINE_ALERT_MINS", default_value = "30")]
     pub offline_alert_mins: u64,
 
+    /// 日志目录（P003 T3，默认 ./logs）：server 日志按天轮转双写（stdout + 文件），
+    /// 保留天数复用 retention_days；置空 = 仅 stdout 不落盘
+    #[arg(long, env = "HELM_LOG_DIR", default_value = "./logs")]
+    pub log_dir: String,
+
     /// 数据库连接池容量（C3，默认 10）：按 Agent 数与控制台并发调大
     #[arg(long, env = "HELM_DB_MAX_CONNECTIONS", default_value = "10")]
     pub db_max_connections: u32,
@@ -114,5 +119,20 @@ pub struct Config {
 impl Config {
     pub fn load() -> anyhow::Result<Self> {
         Ok(Self::parse())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Config;
+    use clap::Parser;
+
+    /// P003 T2/T3 契约：默认值与文档口径一致（HELM_OFFLINE_ALERT_MINS=30、HELM_LOG_DIR=./logs）。
+    #[test]
+    fn defaults_match_docs() {
+        let c = Config::parse_from(["helm-server"]);
+        assert_eq!(c.offline_alert_mins, 30);
+        assert_eq!(c.log_dir, "./logs");
+        assert_eq!(c.mcp_tier, 2);
     }
 }

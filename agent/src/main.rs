@@ -30,6 +30,7 @@ use anyhow::Result;
 async fn main() -> Result<()> {
     let config = config::Config::load()?;
     telemetry::init(&config.log_level, &config.log_dir);
+    telemetry::spawn_log_retention(&config.log_dir, config.log_keep_days);
 
     tracing::info!(
         agent_id = %config.agent_id,

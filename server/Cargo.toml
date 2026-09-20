@@ -21,6 +21,7 @@ prost.workspace = true
 axum.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+tracing-appender.workspace = true
 clap.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true

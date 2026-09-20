@@ -35,7 +35,18 @@ pub async fn run() -> Result<()> {
         return Ok(());
     }
 
-    telemetry::init(&config.log_level);
+    // 日志落盘（P003 T3）：stdout + 按天轮转双写；guard 须保活到进程退出
+    let log_dir = if config.log_dir.is_empty() {
+        None
+    } else {
+        let d = std::path::PathBuf::from(&config.log_dir);
+        std::fs::create_dir_all(&d)?;
+        Some(d)
+    };
+    let _log_guard = telemetry::init(&config.log_level, log_dir.as_ref());
+    if let Some(d) = &log_dir {
+        telemetry::spawn_log_retention(d.clone(), config.retention_days);
+    }
 
     tracing::info!(
         http_addr = %config.http_addr,
