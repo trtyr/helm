@@ -1,6 +1,8 @@
 /target
 .env
 *.log
+*.log.*
+/logs/
 /data/
 .docker/
 .pi

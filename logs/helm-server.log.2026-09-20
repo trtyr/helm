@@ -1,8 +1,0 @@
-[2m2026-09-20T10:20:44.953738Z[0m [32m INFO[0m [2mhelm_server[0m[2m:[0m helm-server starting [3mhttp_addr[0m[2m=[0m0.0.0.0:8080 [3mgrpc_addr[0m[2m=[0m0.0.0.0:50051
-[2m2026-09-20T10:20:45.522840Z[0m [32m INFO[0m [2msqlx::postgres::notice[0m[2m:[0m relation "_sqlx_migrations" already exists, skipping
-[2m2026-09-20T10:20:46.097737Z[0m [32m INFO[0m [2mhelm_server[0m[2m:[0m database connected and migrated
-[2m2026-09-20T10:20:46.976877Z[0m [32m INFO[0m [2mhelm_server::grpc::listener_registry[0m[2m:[0m listener started [3mlistener_id[0m[2m=[0mf81cc720-4331-4d86-a0ec-25c631ec74ad [3maddr[0m[2m=[0m0.0.0.0:50051
-[2m2026-09-20T10:20:46.977998Z[0m [32m INFO[0m [2mhelm_server::application::listener_service[0m[2m:[0m resumed listener [3mlistener_id[0m[2m=[0mf81cc720-4331-4d86-a0ec-25c631ec74ad
-[2m2026-09-20T10:20:46.989466Z[0m [32m INFO[0m [2mhelm_server::http[0m[2m:[0m http listening [3maddr[0m[2m=[0m0.0.0.0:8080
-[2m2026-09-20T10:20:46.989649Z[0m [32m INFO[0m [2mhelm_server::http[0m[2m:[0m serving console static files [3mdist[0m[2m=[0m./console/dist
-[2m2026-09-20T10:26:20.748702Z[0m [32m INFO[0m [2mhelm_server::grpc::agent_service[0m[2m:[0m agent registered [3magent_id[0m[2m=[0mvm-0-14-opencloudos [3mversion[0m[2m=[0m0.1.0 [3mhostname[0m[2m=[0mVM-0-14-opencloudos

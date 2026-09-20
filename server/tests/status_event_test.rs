@@ -85,6 +85,7 @@ async fn count_and_list_mirror_filters() {
 
 #[tokio::test]
 async fn offline_alert_sweeper_escalates_expired_host() {
+    let _g = SE_GUARD.lock().await;
     let db = common::connect().await;
     let repo = StatusEventRepo::new(db.clone());
 
