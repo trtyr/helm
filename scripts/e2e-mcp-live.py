@@ -115,7 +115,8 @@ def main() -> None:
     assert "listeners.list" not in desc, "A 不应看到 listeners（未签发该 scope）"
     _, resp = mcp_raw(kb, rpc("tools/list", {}, 3))
     desc_b = resp["result"]["tools"][0]["description"]
-    assert "metrics.list" in desc_b and "exec.run" not in desc_b, "B 只有 metrics"
+    # P002 删除了 metrics/notifications/audit 的 MCP op——metrics scope 的 key 目录应为空
+    assert "exec.run" not in desc_b and "ir.scan" not in desc_b, "B 不应看到任何 host 操作"
     print("[2] tools/list scope 裁剪 OK")
 
     # [3] hosts.list：真实主机 + OS 版本细节（方案 B 字段）
@@ -149,14 +150,7 @@ def main() -> None:
         assert any(s.get("unit_file") for s in svcs), "Linux 服务应带 FragmentPath"
     print("[5] sys_services.list OK")
 
-    # [6] 指标
-    metrics = tool_op(ka, {"op": "metrics.list", "args": {"host_id": win_host["id"], "limit": 5}}, 15)["metrics"]
-    assert isinstance(metrics, list)
-    print(f"[6] metrics.list OK（{len(metrics)} 点）")
-
-    # [7] 通知
-    tool_op(ka, {"op": "notifications.list"}, 16)
-    print("[7] notifications.list OK")
+    # [6]/[7] 指标与通知：P002 已从 MCP 目录删除（metrics.list / notifications.*），不再经 MCP 验证
 
     # [8] os 不匹配：Windows 专属 op 传 linux
     is_err, msg = call_tool(ka, {"op": "ir.scan", "os": "linux", "args": {"agent_id": win}}, 18)
@@ -168,8 +162,8 @@ def main() -> None:
     assert is_err and "'exec'" in msg and "scope" in msg, msg
     print("[9] scope 越权拒绝 OK")
 
-    # [11] 审计溯源：MCP 发起的 exec 以 api-key:<name> 落审计
-    audit = tool_op(ka, {"op": "audit.list", "args": {"limit": 50}}, 20)["audit"]
+    # [11] 审计溯源：MCP 发起的 exec 以 api-key:<name> 落审计（P002 删 audit.list op，改走 HTTP 端点）
+    audit = http_json("GET", "/audit?limit=50", token=jwt)["audit"]
     actors = {i.get("actor") for i in audit}
     assert any(a and a.startswith("api-key:e2e-live-mcp") for a in actors), f"审计缺 MCP actor: {actors}"
     print("[11] 审计溯源 OK（actor=api-key:e2e-live-mcp）")

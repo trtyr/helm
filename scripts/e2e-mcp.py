@@ -111,11 +111,14 @@ def run_tests() -> None:
     assert "ir.scan" not in desc, "受限 key 不应看到 ir 域"
     print("[3] tools/list 单工具 + scope 裁剪 OK")
 
-    # ---- catalog：编目按 scope 裁剪 ----
+    # ---- catalog：编目按 scope 裁剪（P002 三级形状：域 → 能力组 → 工具）----
     is_err, catalog = call_tool(key, {"op": "catalog"}, 3)
     assert not is_err
-    scope_names = [d["scope"] for d in catalog["domains"]]
-    assert scope_names == ["exec", "metrics"], scope_names
+    group_names = [d["group"] for d in catalog["domains"]]
+    assert group_names == ["host"], group_names
+    # exec+metrics key 可见 6 op（scope 均为 exec，全落「执行」组）；metrics 域 op 已在 P002 删除
+    ops = sorted(o["op"] for s in catalog["domains"][0]["subgroups"] for o in s["ops"])
+    assert ops == ["exec.batch", "exec.run", "jobs.get", "jobs.list", "tasks.schedule", "tasks.script"], ops
     print("[4] catalog 编目裁剪 OK")
 
     # ---- tools/call 透传：exec.run 对不存在 agent → 平台 409 映射为 isError ----
