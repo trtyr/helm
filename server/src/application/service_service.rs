@@ -146,8 +146,11 @@ impl ServiceService {
     /// 删除服务（运行中先停）。
     pub async fn delete(&self, id: Uuid) -> Result<()> {
         let svc = self.get(id).await?;
-        if svc.status == "running" {
-            let _ = self.stop(id).await;
+        if svc.status == "running"
+            && let Err(e) = self.stop(id).await
+        {
+            // 停不掉也要继续删记录，但必须留痕（否则进程可能仍在跑）
+            tracing::warn!(service_id = %id, error = %e, "failed to stop service before delete");
         }
         let n = ServiceRepo::new(self.db.clone()).delete(id).await?;
         if n == 0 {
@@ -168,5 +171,29 @@ impl ServiceService {
             }
         }
         None
+    }
+
+    // ---- G3 收口（2026-09-21）：grpc 层不再直构 store 仓储 ----
+
+    /// Agent 上报的服务日志追加（历史可读性用；失败非致命，由调用方决定是否告警）。
+    pub async fn append_log(&self, id: Uuid, log: &[u8]) -> Result<()> {
+        ServiceRepo::new(self.db.clone())
+            .append_log(id, log)
+            .await?;
+        Ok(())
+    }
+
+    /// Agent 上报的服务状态落库。
+    pub async fn report_status(
+        &self,
+        id: Uuid,
+        status: &str,
+        pid: Option<i32>,
+        exit_code: Option<i32>,
+    ) -> Result<()> {
+        ServiceRepo::new(self.db.clone())
+            .set_status(id, status, pid, exit_code)
+            .await?;
+        Ok(())
     }
 }

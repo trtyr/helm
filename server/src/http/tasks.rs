@@ -43,8 +43,8 @@ pub async fn run_script(
     let job_id = service
         .exec(&body.agent_id, &body.command, &body.args, body.timeout_secs)
         .await?;
-    let _ = AuditService::new(state.db.clone())
-        .record(
+    AuditService::new(state.db.clone())
+        .record_best_effort(
             &claims.sub,
             "task_script",
             &body.agent_id,
@@ -73,8 +73,8 @@ pub async fn schedule(
         )
         .await?;
 
-    let _ = AuditService::new(state.db.clone())
-        .record(
+    AuditService::new(state.db.clone())
+        .record_best_effort(
             &claims.sub,
             "task_schedule",
             &body.agent_id,

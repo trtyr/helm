@@ -50,7 +50,8 @@ pub struct ListenerService {
     query: QueryRegistry,
     streams: StreamRegistry,
     metrics: crate::application::metric_sink::MetricSink,
-    fallback_token: String,
+    /// 可接受的 Agent token 全集（A2：调用方传入主 token + 轮换 token）
+    fallback_tokens: Vec<String>,
     cert: CertService,
 }
 
@@ -66,7 +67,7 @@ impl ListenerService {
         query: QueryRegistry,
         streams: StreamRegistry,
         metrics: crate::application::metric_sink::MetricSink,
-        fallback_token: String,
+        fallback_tokens: Vec<String>,
         cert: CertService,
     ) -> Self {
         Self {
@@ -79,7 +80,7 @@ impl ListenerService {
             query,
             streams,
             metrics,
-            fallback_token,
+            fallback_tokens,
             cert,
         }
     }
@@ -109,16 +110,17 @@ impl ListenerService {
         Ok(views)
     }
 
-    /// 启动监听器：auth 为空时回退到全局 token。
+    /// 启动监听器：auth 为空时回退到全局 token 集合。
     pub async fn start(&self, id: Uuid) -> Result<()> {
         let row = self
             .get(id)
             .await?
             .ok_or_else(|| Error::NotFound(format!("listener: {id}")))?;
-        let token = if row.auth.is_empty() {
-            self.fallback_token.clone()
+        // 监听器专属 auth（单值）优先，否则用全局集合（A2：支持轮换）
+        let tokens = if row.auth.is_empty() {
+            self.fallback_tokens.clone()
         } else {
-            row.auth.clone()
+            vec![row.auth.clone()]
         };
         self.listeners
             .start(
@@ -131,7 +133,7 @@ impl ListenerService {
                 self.streams.clone(),
                 self.metrics.clone(),
                 self.db.clone(),
-                token,
+                tokens.clone(),
                 self.cert.clone(),
             )
             .await
@@ -175,8 +177,11 @@ impl ListenerService {
 
     /// 删除监听器（先停再删）。
     pub async fn delete(&self, id: Uuid) -> Result<()> {
-        if self.listeners.is_running(id).await {
-            let _ = self.listeners.stop(id).await;
+        if self.listeners.is_running(id).await
+            && let Err(e) = self.listeners.stop(id).await
+        {
+            // 停不掉也要继续删记录，但必须留痕（否则 gRPC 端口可能仍被占用）
+            tracing::warn!(listener_id = %id, error = %e, "failed to stop listener before delete");
         }
         ListenerRepo::new(self.db.clone()).delete(id).await?;
         Ok(())
@@ -189,7 +194,7 @@ impl ListenerService {
         if running.is_empty() {
             if repo.count().await? == 0 {
                 let row = repo.create("default", default_addr, "grpc", "").await?;
-                let token = self.fallback_token.clone();
+                let tokens = self.fallback_tokens.clone();
                 self.listeners
                     .start(
                         &row,
@@ -201,7 +206,7 @@ impl ListenerService {
                         self.streams.clone(),
                         self.metrics.clone(),
                         self.db.clone(),
-                        token,
+                        tokens.clone(),
                         self.cert.clone(),
                     )
                     .await
@@ -212,10 +217,10 @@ impl ListenerService {
             return Ok(());
         }
         for row in running {
-            let token = if row.auth.is_empty() {
-                self.fallback_token.clone()
+            let tokens = if row.auth.is_empty() {
+                self.fallback_tokens.clone()
             } else {
-                row.auth.clone()
+                vec![row.auth.clone()]
             };
             match self
                 .listeners
@@ -229,7 +234,7 @@ impl ListenerService {
                     self.streams.clone(),
                     self.metrics.clone(),
                     self.db.clone(),
-                    token,
+                    tokens.clone(),
                     self.cert.clone(),
                 )
                 .await
@@ -237,9 +242,13 @@ impl ListenerService {
                 Ok(()) => tracing::info!(listener_id = %row.id, "resumed listener"),
                 Err(e) => {
                     tracing::warn!(listener_id = %row.id, error = %e, "failed to resume listener");
-                    let _ = ListenerRepo::new(self.db.clone())
+                    // 状态回写失败也要可见：否则 DB 会永久停在「running」而实际没跑
+                    if let Err(e2) = ListenerRepo::new(self.db.clone())
                         .set_status(row.id, "stopped")
-                        .await;
+                        .await
+                    {
+                        tracing::warn!(listener_id = %row.id, error = %e2, "failed to mark listener stopped");
+                    }
                 }
             }
         }

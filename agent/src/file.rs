@@ -149,5 +149,5 @@ async fn send_status(
             checksum,
         })),
     };
-    let _ = tx.send(msg).await;
+    let _ = tx.send(msg).await; // 上报通道已断（server 连接消失）：该帧丢失，文件任务由调用方超时兜底
 }

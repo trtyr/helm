@@ -62,10 +62,10 @@ impl TransferRegistry {
         let entry = self.pending.lock().await.remove(id);
         match entry {
             Some(PendingTransfer::Upload(tx)) => {
-                let _ = tx.send(status);
+                let _ = tx.send(status); // 等待方（HTTP 上传调用）已放弃等待：送达失败无副作用
             }
             Some(PendingTransfer::Download { buf, tx }) => {
-                let _ = tx.send(DownloadResult { data: buf, status });
+                let _ = tx.send(DownloadResult { data: buf, status }); // 同上（HTTP 下载调用已超时/断开）
             }
             None => {}
         }

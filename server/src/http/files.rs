@@ -59,8 +59,8 @@ pub async fn upload(
     Extension(claims): Extension<Claims>,
     Json(body): Json<UploadBody>,
 ) -> Result<Json<Value>, Error> {
-    let _ = AuditService::new(state.db.clone())
-        .record(
+    AuditService::new(state.db.clone())
+        .record_best_effort(
             &claims.sub,
             "file_upload",
             &body.agent_id,
@@ -83,8 +83,8 @@ pub async fn download(
     Extension(claims): Extension<Claims>,
     Json(body): Json<DownloadBody>,
 ) -> Result<Json<Value>, Error> {
-    let _ = AuditService::new(state.db.clone())
-        .record(
+    AuditService::new(state.db.clone())
+        .record_best_effort(
             &claims.sub,
             "file_download",
             &body.agent_id,

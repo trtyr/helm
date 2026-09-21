@@ -109,7 +109,7 @@ fn native_image_path(pid: u32) -> Option<String> {
     return crate::win_native::process_image_path(pid);
     #[cfg(not(windows))]
     {
-        let _ = pid;
+        let _ = pid; // 平台桩：非 Windows 分支不使用 pid（返回 None），不是吞错
         None
     }
 }

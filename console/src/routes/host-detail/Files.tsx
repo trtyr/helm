@@ -3,42 +3,22 @@ import { SortableTh } from "../../components/tableControls";
 import { useTableControls } from "../../lib/useTableControls";
 import { useOutletContext } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowUp, ChevronRight, CornerDownLeft, Download, RefreshCw, Search, Upload, X } from "lucide-react";
-import type { components } from "../../api/schema";
+import { Download, Search, X } from "lucide-react";
 import { api, pickAgent } from "../../api/client";
-import { crumbLabel, crumbSegments, humanSize, joinPath, parentPath } from "../../lib/paths";
-
-type HostView = components["schemas"]["HostView"];
-type Agent = components["schemas"]["Agent"];
-type FileEntry = components["schemas"]["FileEntry"];
-
-interface Ctx {
-  host: HostView;
-}
-
-interface Transfer {
-  id: number;
-  direction: "upload" | "download";
-  label: string;
-  state: "running" | "done" | "failed";
-  checksumOk?: boolean;
-  error?: string;
-  finishedAt?: number;
-}
-
-const DRIVE_TYPE_LABEL: Record<string, string> = {
-  fixed: "本地磁盘",
-  removable: "可移动磁盘",
-  network: "网络磁盘",
-  cdrom: "光盘",
-  ramdisk: "内存盘",
-};
+import { crumbLabel, humanSize, joinPath } from "../../lib/paths";
+import { DRIVE_TYPE_LABEL, formatMtime, type Agent, type Ctx, type FileEntry, type Transfer } from "./files/shared";
+import { PathPairModal, TransferQueue } from "./files/FileParts";
+import { FileToolbar } from "./files/FileToolbar";
 
 /**
  * /hosts/:id/files：全盘文件浏览器。
  * - 空路径 =「此电脑」根视图（Windows 枚举全部驱动器；POSIX 为 /）
  * - 面包屑 + 路径跳转输入框（回车直达任意路径）+ 双击进入目录
  * - 上传/下载均为「路径对路径」（Server 中转），与后端 push/pull 语义一致
+ *
+ * G13 拆分（2026-09-21）：原为 585 行单文件。现拆为——
+ * `files/shared.ts`（类型与纯工具）/ `files/FileParts.tsx`（模态与传输队列）/
+ * `files/FileToolbar.tsx`（工具行）；本文件保留状态、数据获取与表格编排。
  */
 export default function Files() {
   const { host } = useOutletContext<Ctx>();
@@ -158,88 +138,20 @@ export default function Files() {
   const dirCount = sorted.filter((e) => e.is_dir).length;
   const fileCount = sorted.length - dirCount;
   const atRoot = path === "";
-  const jumpValue = jumpDraft ?? path;
 
   return (
     <div className="flex flex-col gap-4">
       {/* 工具行：面包屑 / 路径跳转 / 上级 / 刷新 / 上传 */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          {/* 面包屑 */}
-          <nav
-            className="hidden min-w-0 flex-wrap items-center gap-0.5 font-mono text-label-13 md:flex"
-            aria-label="路径"
-          >
-            {crumbSegments(path).map((seg, i, arr) => (
-              <span key={seg} className="flex items-center">
-                {i > 0 && <ChevronRight size={12} strokeWidth={1.5} className="text-gray-900" />}
-                <button
-                  type="button"
-                  onClick={() => setPath(seg)}
-                  className={`rounded px-1 py-0.5 transition-colors duration-150 hover:bg-gray-200 ${
-                    i === arr.length - 1 ? "text-gray-1000" : "text-blue-1000"
-                  }`}
-                >
-                  {crumbLabel(seg)}
-                </button>
-              </span>
-            ))}
-          </nav>
-          {/* 路径跳转输入框：回车直达任意路径 */}
-          <form
-            className="relative ml-auto flex min-w-0 flex-1 items-center md:ml-2 md:max-w-md"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (jumpDraft !== null) setPath(jumpDraft.trim());
-              setJumpDraft(null);
-            }}
-          >
-            <input
-              value={jumpValue}
-              onChange={(e) => setJumpDraft(e.target.value)}
-              onBlur={() => setJumpDraft(null)}
-              placeholder="输入路径回车跳转，如 C:\Windows 或 /var/log"
-              aria-label="路径跳转"
-              spellCheck={false}
-              className="h-8 w-full rounded-md border border-gray-400 bg-gray-100 pl-3 pr-8 font-mono text-label-13 outline-none transition-colors duration-150 hover:border-gray-500 focus-visible:border-gray-600"
-            />
-            <button
-              type="submit"
-              aria-label="跳转"
-              title="跳转"
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-900 hover:text-gray-1000"
-            >
-              <CornerDownLeft size={13} strokeWidth={1.5} />
-            </button>
-          </form>
-        </div>
-        <button
-          type="button"
-          aria-label="返回上级"
-          disabled={parentPath(path) === null}
-          onClick={() => setPath(parentPath(path) ?? "")}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-gray-900 transition-colors duration-150 hover:bg-gray-200 hover:text-gray-1000 disabled:opacity-30"
-        >
-          <ArrowUp size={14} strokeWidth={1.5} />
-        </button>
-        <button
-          type="button"
-          aria-label="刷新"
-          onClick={() => listQuery.refetch()}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-gray-900 transition-colors duration-150 hover:bg-gray-200 hover:text-gray-1000"
-        >
-          <RefreshCw size={14} strokeWidth={1.5} className={listQuery.isFetching ? "animate-spin" : ""} />
-        </button>
-        <button
-          type="button"
-          onClick={() => setUploadModal(true)}
-          disabled={!agent || !host.online}
-          className="flex h-8 items-center gap-1.5 rounded-md border border-gray-500 px-3 text-label-13 transition-colors duration-150 hover:bg-gray-200 disabled:opacity-40"
-        >
-          <Upload size={14} strokeWidth={1.5} />
-          上传
-        </button>
-      </div>
+      <FileToolbar
+        path={path}
+        onPath={setPath}
+        jumpDraft={jumpDraft}
+        onJumpDraft={setJumpDraft}
+        isFetching={listQuery.isFetching}
+        onRefresh={() => listQuery.refetch()}
+        canUpload={!!agent && !!host.online}
+        onUpload={() => setUploadModal(true)}
+      />
 
       {/* 表格 */}
       <div className="overflow-hidden rounded-lg border border-gray-400 bg-background-100">
@@ -436,150 +348,10 @@ export default function Files() {
       )}
 
       {/* 传输队列（右下固定卡） */}
-      {transfers.length > 0 && (
-        <div className="fixed bottom-10 right-4 z-40 w-96 rounded-xl border border-gray-400 bg-background-100 p-3 shadow-lg">
-          <p className="text-label-13 text-gray-900">传输队列</p>
-          <div className="mt-2 flex flex-col gap-1.5">
-            {transfers.map((t) => (
-              <div key={t.id} className="flex items-center gap-2 text-label-12">
-                <span className={t.direction === "upload" ? "text-blue-1000" : "text-teal-1000"}>
-                  {t.direction === "upload" ? "↑" : "↓"}
-                </span>
-                <span className="min-w-0 flex-1 truncate font-mono text-gray-900">{t.label}</span>
-                {t.state === "running" && (
-                  <span className="h-3 w-3 animate-spin rounded-full border border-gray-900 border-t-gray-1000" />
-                )}
-                {t.state === "done" && (
-                  <span className={t.checksumOk ? "text-green-1000" : "text-red-1000"}>
-                    {t.checksumOk ? "✓ 校验通过" : "✗ 校验失败"}
-                  </span>
-                )}
-                {t.state === "failed" && (
-                  <span className="truncate text-red-1000" title={t.error}>
-                    ✗ 失败
-                  </span>
-                )}
-                {t.state !== "running" && (
-                  <button
-                    type="button"
-                    aria-label="移除"
-                    onClick={() => setTransfers((l) => l.filter((x) => x.id !== t.id))}
-                    className="text-gray-900 hover:text-gray-1000"
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function formatMtime(ms?: number): string {
-  if (!ms) return "—";
-  const d = new Date(ms);
-  const months = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-  ];
-  return `${months[d.getMonth()]} ${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-/** 路径对模态（上传/下载共用）。 */
-function PathPairModal({
-  title,
-  hint,
-  fromLabel,
-  fromPlaceholder,
-  fromDefault,
-  fromDisabled,
-  toLabel,
-  toPlaceholder,
-  toDefault,
-  submitLabel,
-  submitting,
-  error,
-  onClose,
-  onSubmit,
-}: {
-  title: string;
-  hint: string;
-  fromLabel: string;
-  fromPlaceholder?: string;
-  fromDefault?: string;
-  fromDisabled?: boolean;
-  toLabel: string;
-  toPlaceholder?: string;
-  toDefault?: string;
-  submitLabel: string;
-  submitting: boolean;
-  error: string | null;
-  onClose: () => void;
-  onSubmit: (from: string, to: string) => void;
-}) {
-  const [from, setFrom] = useState(fromDefault ?? "");
-  const [to, setTo] = useState(toDefault ?? "");
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <button type="button" aria-label="关闭" onClick={onClose} className="absolute inset-0 bg-black/40" />
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (from.trim() && to.trim()) onSubmit(from.trim(), to.trim());
-        }}
-        className="relative z-10 w-[420px] rounded-xl border border-gray-400 bg-background-100 p-6"
-      >
-        <h2 className="text-heading-16">{title}</h2>
-        <p className="mt-2 text-label-12 text-gray-900">{hint}</p>
-        <label className="mt-4 block text-label-14" htmlFor="pair-from">
-          {fromLabel}
-        </label>
-        <input
-          id="pair-from"
-          value={from}
-          onChange={(e) => setFrom(e.target.value)}
-          placeholder={fromPlaceholder}
-          disabled={fromDisabled || submitting}
-          className="mt-2 h-8 w-full rounded-md border border-gray-400 bg-gray-100 px-3 font-mono text-label-14 outline-none transition-colors duration-150 hover:border-gray-500 focus-visible:border-gray-600"
-        />
-        <label className="mt-4 block text-label-14" htmlFor="pair-to">
-          {toLabel}
-        </label>
-        <input
-          id="pair-to"
-          value={to}
-          onChange={(e) => setTo(e.target.value)}
-          placeholder={toPlaceholder}
-          disabled={submitting}
-          className="mt-2 h-8 w-full rounded-md border border-gray-400 bg-gray-100 px-3 font-mono text-label-14 outline-none transition-colors duration-150 hover:border-gray-500 focus-visible:border-gray-600"
-        />
-        {error && (
-          <p className="mt-3 text-label-13 text-red-1000" role="alert">
-            ⚠ {error}
-          </p>
-        )}
-        <div className="mt-6 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={submitting}
-            className="h-8 rounded-md border border-gray-500 px-4 text-label-14 transition-colors duration-150 hover:bg-gray-200"
-          >
-            取消
-          </button>
-          <button
-            type="submit"
-            disabled={submitting || !from.trim() || !to.trim()}
-            className="h-8 rounded-md bg-gray-700 px-4 text-label-14 transition-colors duration-150 hover:bg-gray-800 disabled:opacity-50"
-          >
-            {submitting ? "传输中…" : submitLabel}
-          </button>
-        </div>
-      </form>
+      <TransferQueue
+        transfers={transfers}
+        onDismiss={(id) => setTransfers((l) => l.filter((x) => x.id !== id))}
+      />
     </div>
   );
 }

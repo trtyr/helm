@@ -116,7 +116,7 @@ fn mode_string(meta: &Option<std::fs::Metadata>) -> String {
     }
     #[cfg(not(unix))]
     {
-        let _ = meta;
+        let _ = meta; // 平台桩：非 unix 平台无 ctime 概念，返回空（不是吞错）
         String::new()
     }
 }

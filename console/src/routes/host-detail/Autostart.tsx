@@ -4,69 +4,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "../../lib/toast";
 import { SortableTh } from "../../components/tableControls";
 import { useTableControls } from "../../lib/useTableControls";
-import type { components } from "../../api/schema";
 import { api, pickAgent } from "../../api/client";
 
-type Agent = components["schemas"]["Agent"];
-type IrFinding = components["schemas"]["IrFinding"];
+import {
+  CATEGORIES,
+  SEV_ORDER,
+  type Agent,
+  type Ctx,
+  type DiffState,
+  type IrFinding,
+} from "./autostart/shared";
+import { FindingRow, Pill } from "./autostart/AutostartParts";
 
-interface Ctx {
-  host: components["schemas"]["HostView"];
-}
-
-interface DiffState {
-  added: IrFinding[];
-  removed: IrFinding[];
-  baseLabel: string;
-}
-
-const SEV_CLS: Record<string, string> = {
-  critical: "bg-red-1000/10 text-red-1000",
-  warn: "bg-amber-1000/10 text-amber-1000",
-  info: "bg-gray-200 text-gray-900",
-};
-const SEV_LABEL: Record<string, string> = { critical: "严重", warn: "可疑", info: "信息" };
-const SEV_ORDER = (s: string) => (s === "critical" ? 0 : s === "warn" ? 1 : 2);
-
-/** Autoruns 分类标签（顺序即展示顺序）。 */
-const CATEGORIES = [
-  "登录",
-  "服务",
-  "驱动",
-  "计划任务",
-  "WMI 订阅",
-  "浏览器",
-  "外壳",
-  "映像劫持",
-  "认证",
-  "引导执行",
-  "已知 DLL",
-  "Winsock",
-  "Office",
-  "编解码器",
-] as const;
-
-const SIGN_CLS: Record<string, string> = {
-  verified: "bg-green-1000/10 text-green-1000",
-  unsigned: "bg-amber-1000/10 text-amber-1000",
-  invalid: "bg-red-1000/10 text-red-1000",
-  unknown: "bg-gray-200 text-gray-900",
-};
-const SIGN_LABEL: Record<string, string> = {
-  verified: "已验证",
-  unsigned: "未签名",
-  invalid: "无效",
-  unknown: "未知",
-};
-
-function fmtTime(unix?: string | null): string {
-  if (!unix) return "—";
-  const n = Number(unix);
-  if (!Number.isFinite(n) || n <= 0) return "—";
-  const d = new Date(n * 1000);
-  const pad = (x: number) => String(x).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 
 /** 自启动项持久化全景——对标 Sysinternals Autoruns：
  *  分类标签 + 文件厂商/签名校验 + 禁用/启用/删除（AutorunsDisabled 机制）+
@@ -373,91 +322,15 @@ export default function Autostart() {
             ) : filtered.length === 0 ? (
               <tr><td colSpan={7} className="px-4 py-10 text-center text-label-13 text-gray-900">无条目</td></tr>
             ) : (
-              filtered.map((f, i) => {
-                const ds = isDiffRow(f);
-                return (
-                  <tr
-                    key={`${f.category}-${f.name}-${i}`}
-                    title={f.detail}
-                    className={`border-b border-gray-400/60 transition-colors duration-150 last:border-0 hover:bg-gray-100 ${
-                      ds === "added"
-                        ? "bg-green-1000/5"
-                        : ds === "removed"
-                          ? "bg-red-1000/5"
-                          : f.disabled
-                            ? "opacity-50"
-                            : ""
-                    }`}
-                  >
-                    <td className="px-3 py-2">
-                      <span className={`whitespace-nowrap rounded px-1.5 py-0.5 text-label-12 ${SEV_CLS[f.severity ?? "info"] ?? SEV_CLS.info}`}>
-                        {SEV_LABEL[f.severity ?? "info"] ?? "信息"}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="truncate text-label-13 text-gray-900" title={f.name}>
-                        {ds === "added" && <span className="mr-1 text-green-1000">▲</span>}
-                        {ds === "removed" && <span className="mr-1 text-red-1000">▼</span>}
-                        {f.name}
-                      </div>
-                      {(f.desc || f.disabled) && (
-                        <div className="truncate text-label-12 text-gray-900/60">
-                          {f.disabled && <span className="mr-1 text-amber-1000">[已禁用]</span>}
-                          <span title={f.desc ?? ""}>{f.desc}</span>
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span className="block truncate text-label-12 text-gray-900" title={f.publisher ?? ""}>
-                        {f.publisher ?? "—"}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2">
-                      {f.signState ? (
-                        <span className={`whitespace-nowrap rounded px-1.5 py-0.5 text-label-12 ${SIGN_CLS[f.signState] ?? SIGN_CLS.unknown}`}>
-                          {SIGN_LABEL[f.signState] ?? f.signState}
-                        </span>
-                      ) : (
-                        <span className="text-label-12 text-gray-900/40">—</span>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-label-12 text-gray-900">
-                      {fmtTime(f.mtime)}
-                    </td>
-                    <td className="max-w-0 px-4 py-2">
-                      <span className="block truncate font-mono text-label-12 text-gray-900" title={f.path ?? ""}>
-                        {f.path ?? "—"}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2">
-                      <div className="flex items-center gap-1.5">
-                        {f.opKey && (
-                          <>
-                            <button
-                              type="button"
-                              title={f.disabled ? "启用（移出 AutorunsDisabled）" : "禁用（移入 AutorunsDisabled）"}
-                              disabled={actionMutation.isPending}
-                              onClick={() => runAction(f.disabled ? "enable" : "disable", f)}
-                              className="rounded border border-gray-500 px-1.5 py-0.5 text-label-12 text-gray-900 hover:bg-gray-200 disabled:opacity-40"
-                            >
-                              {f.disabled ? "启用" : "禁用"}
-                            </button>
-                            <button
-                              type="button"
-                              title="删除该自启动项"
-                              disabled={actionMutation.isPending}
-                              onClick={() => runAction("delete", f)}
-                              className="rounded border border-red-1000/40 px-1.5 py-0.5 text-label-12 text-red-1000 hover:bg-red-1000/10 disabled:opacity-40"
-                            >
-                              删除
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })
+              filtered.map((f, i) => (
+                <FindingRow
+                  key={`${f.category}-${f.name}-${i}`}
+                  f={f}
+                  ds={isDiffRow(f)}
+                  actionPending={actionMutation.isPending}
+                  onAction={runAction}
+                />
+              ))
             )}
           </tbody>
         </table>
@@ -471,19 +344,4 @@ export default function Autostart() {
   );
 }
 
-function Pill({ label, count, active, onClick }: { label: string; count: number; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex h-7 items-center gap-1 rounded-full border px-2.5 text-label-13 transition-colors ${
-        active
-          ? "border-gray-900 bg-gray-900 text-white"
-          : "border-gray-500 text-gray-900 hover:bg-gray-200"
-      }`}
-    >
-      {label}
-      <span className={`font-mono text-label-12 ${active ? "text-white/70" : "text-gray-900/50"}`}>{count}</span>
-    </button>
-  );
-}
+// 分类标签 Pill 与发现行见 ./autostart/AutostartParts

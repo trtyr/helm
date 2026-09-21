@@ -13,6 +13,11 @@
 
 use helm_proto::pb::{AgentMessage, IrScanResult, agent_message};
 
+#[cfg(any(windows, test))]
+mod regcodec;
+#[cfg(any(windows, test))]
+mod text;
+
 #[cfg(windows)]
 mod accounts;
 #[cfg(windows)]
@@ -84,7 +89,7 @@ pub fn ir_scan(request_id: &str, types: &[String]) -> AgentMessage {
 
     #[cfg(not(windows))]
     let mut findings = {
-        let _ = want;
+        let _ = want; // 平台桩：want 仅 Windows 分支使用；本分支直接返回「不支持」（不是吞错）
         vec![helm_proto::pb::IrFinding {
             category: "平台".into(),
             name: "不支持".into(),
@@ -128,7 +133,7 @@ pub async fn mem_scan(request_id: &str, pid: i32, min_len: u32, keyword: &str) -
     }
     #[cfg(not(windows))]
     {
-        let _ = (pid, min_len, keyword);
+        let _ = (pid, min_len, keyword); // 平台桩：参数仅 Windows 分支使用（本分支返回「仅支持 Windows」）
         AgentMessage {
             kind: Some(agent_message::Kind::MemScanResult(
                 helm_proto::pb::MemScanResult {
@@ -165,7 +170,7 @@ pub async fn mem_scan_stream(
     }
     #[cfg(not(windows))]
     {
-        let _ = (&request_id, &pid, &min_len, &keyword, &tx);
+        let _ = (&request_id, &pid, &min_len, &keyword, &tx); // 平台桩：参数仅 Windows 分支使用
     }
 }
 
@@ -177,7 +182,7 @@ pub fn autoruns_action(request_id: &str, action: &str, op_key: &str) -> AgentMes
     }
     #[cfg(not(windows))]
     {
-        let _ = (action, op_key);
+        let _ = (action, op_key); // 平台桩：参数仅 Windows 分支使用（本分支返回不支持）
         AgentMessage {
             kind: Some(agent_message::Kind::AutorunsActionResult(
                 helm_proto::pb::AutorunsActionResult {
@@ -204,7 +209,7 @@ pub fn fs_timeline(
     }
     #[cfg(not(windows))]
     {
-        let _ = (drive, since_hours, limit, keyword);
+        let _ = (drive, since_hours, limit, keyword); // 平台桩：参数仅 Windows 分支使用（本分支返回不支持）
         AgentMessage {
             kind: Some(agent_message::Kind::FsTimelineResult(
                 helm_proto::pb::FsTimelineResult {

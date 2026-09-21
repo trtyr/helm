@@ -105,8 +105,8 @@ pub async fn create(
         .create(name, expires_at, body.scopes)
         .await?;
 
-    let _ = AuditService::new(state.db.clone())
-        .record(
+    AuditService::new(state.db.clone())
+        .record_best_effort(
             &claims.sub,
             "api_key_create",
             &row.id.to_string(),
@@ -162,8 +162,8 @@ pub async fn revoke(
         .ok_or_else(|| Error::NotFound(format!("api key: {id}")))?;
     svc.revoke(id).await?;
 
-    let _ = AuditService::new(state.db.clone())
-        .record(&claims.sub, "api_key_revoke", &id.to_string(), json!({}))
+    AuditService::new(state.db.clone())
+        .record_best_effort(&claims.sub, "api_key_revoke", &id.to_string(), json!({}))
         .await;
 
     Ok(Json(json!({ "ok": true })))

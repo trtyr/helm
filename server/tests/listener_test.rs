@@ -63,7 +63,7 @@ async fn listener_service_create_start_stop() {
         QueryRegistry::new(),
         StreamRegistry::new(),
         helm_server::application::metric_sink::MetricSink::spawn(db.clone(), StreamRegistry::new()),
-        "fallback-token".into(),
+        vec!["fallback-token".to_string()],
         CertService::generate("localhost", false).unwrap(),
     );
 

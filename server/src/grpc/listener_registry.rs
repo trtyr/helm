@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::application::cert_service::CertService;
-use crate::grpc::agent_service::AgentServiceImpl;
+use crate::grpc::agent_service::{AgentServiceDeps, AgentServiceImpl};
 use crate::grpc::connection_registry::ConnectionRegistry;
 use crate::grpc::file_list_registry::FileListRegistry;
 use crate::grpc::query_registry::QueryRegistry;
@@ -43,7 +43,7 @@ impl ListenerRegistry {
 
     /// 启动一个监听器：spawn gRPC server task 并登记 shutdown 句柄。
     ///
-    /// `token` 为该监听器的认证 token（调用方已处理 auth 为空时的回退）。
+    /// `server_tokens` 为该监听器可接受的认证 token 全集（调用方已处理 auth 为空时的回退）。
     #[allow(clippy::too_many_arguments)]
     pub async fn start(
         &self,
@@ -56,7 +56,7 @@ impl ListenerRegistry {
         streams: StreamRegistry,
         metrics: crate::application::metric_sink::MetricSink,
         db: Db,
-        token: String,
+        server_tokens: Vec<String>,
         cert: CertService,
     ) -> Result<(), ListenerError> {
         let mut map = self.inner.lock().await;
@@ -67,9 +67,17 @@ impl ListenerRegistry {
             .addr
             .parse()
             .map_err(|_| ListenerError::InvalidAddr(listener.addr.clone()))?;
-        let svc = AgentServiceServer::new(AgentServiceImpl::new(
-            registry, transfers, sessions, file_list, query, streams, metrics, db, token,
-        ));
+        let svc = AgentServiceServer::new(AgentServiceImpl::new(AgentServiceDeps {
+            registry,
+            transfers,
+            sessions,
+            file_list,
+            query,
+            streams,
+            metrics,
+            db,
+            server_tokens,
+        }));
         let (tx, rx) = oneshot::channel::<()>();
         let id = listener.id;
         let addr_str = listener.addr.clone();
@@ -98,11 +106,16 @@ impl ListenerRegistry {
                 };
             }
             let server = builder.add_service(svc);
-            let _ = server
+            // 监听器退出即服务不可用：serve 的 Err 必须可见（此前被静默丢弃）
+            if let Err(e) = server
                 .serve_with_shutdown(addr, async move {
+                    // 关闭信号：发送端（stop）可能已消失，取消即视为已停止
                     let _ = rx.await;
                 })
-                .await;
+                .await
+            {
+                tracing::error!(listener_id = %id, error = %e, "listener serve failed");
+            }
             tracing::info!(listener_id = %id, "listener stopped");
         });
         map.insert(id, tx);
@@ -117,7 +130,7 @@ impl ListenerRegistry {
             .await
             .remove(&id)
             .ok_or(ListenerError::NotRunning(id))?;
-        let _ = tx.send(());
+        let _ = tx.send(()); // 停止信号：接收侧（serve 任务）已退出即无需再送
         Ok(())
     }
 

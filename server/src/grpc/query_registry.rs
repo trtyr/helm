@@ -43,7 +43,7 @@ impl QueryRegistry {
     /// 完成请求：把结果发给对应 receiver。
     pub async fn complete(&self, request_id: &str, resp: QueryResponse) {
         if let Some(tx) = self.inner.lock().await.remove(request_id) {
-            let _ = tx.send(resp);
+            let _ = tx.send(resp); // 发起方（HTTP 查询）已放弃等待：送达失败无副作用
         }
     }
 }

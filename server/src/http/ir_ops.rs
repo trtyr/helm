@@ -40,8 +40,8 @@ pub async fn autorun_action(
     let (ok, error) = service(&state)
         .autoruns_action(&body.agent_id, &body.action, &body.key)
         .await?;
-    let _ = AuditService::new(state.db.clone())
-        .record(
+    AuditService::new(state.db.clone())
+        .record_best_effort(
             &claims.sub,
             "autorun_action",
             &body.agent_id,
@@ -246,6 +246,12 @@ pub async fn memscan_stream_start(
     State(state): State<AppState>,
     Json(body): Json<MemScanStreamBody>,
 ) -> Result<Json<Value>, Error> {
+    // 体检新提项（T5）：pid 入口校验（同 POST /ir/memscan）——负数不下发给 agent
+    if body.pid < 0 {
+        return Err(Error::InvalidArgument(
+            "pid must be >= 0 (0 = all processes)".into(),
+        ));
+    }
     // scanId 只作频道键，校验 UUID 防垃圾 key
     let scan_id = uuid::Uuid::parse_str(&body.scan_id)
         .map_err(|_| Error::InvalidArgument("scan_id 需为 UUID".into()))?

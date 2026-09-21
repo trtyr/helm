@@ -65,6 +65,19 @@ pub async fn record_online_and_notify(
     }
 }
 
+/// 状态事件落库的唯一入口（G3 收口 2026-09-21：grpc 层不再直构 `StatusEventRepo`）。
+///
+/// 失败只告警不返回错误：状态事件是时间线的补充信息，丢一条不影响业务正确性，
+/// 但会削弱事后追溯，因此必须可见（T3 可观测契约），不静默丢弃。
+pub async fn record_status_event(db: &Db, host_id: Uuid, event: &str, reason: &str, detail: &str) {
+    if let Err(e) = crate::store::status_event_repo::StatusEventRepo::new(db.clone())
+        .insert(&host_id.to_string(), event, reason, detail)
+        .await
+    {
+        tracing::warn!(host_id = %host_id, event, error = ?e, "status event insert failed");
+    }
+}
+
 /// 半开死连接的单行处置：① 注册表仍在线则注销；② 该通知时先落 offline 状态事件再发通知。
 ///
 /// 审计缺陷修复（2026-09-20）：静默掉线（心跳超时）是离线升级告警最该覆盖的场景，但此前本路径只发通知

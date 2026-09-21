@@ -6,11 +6,9 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
-use tokio::io::AsyncBufReadExt;
 use uuid::Uuid;
 
 /// 单条生成任务的状态。
@@ -202,27 +200,14 @@ impl AgentGenService {
         Some((path, filename))
     }
 
+    /// 启动一次后台编译（**G11 拆分 2026-09-21**）：命令构造 / 输出泵 / 状态判定
+    /// 各自抽为具名函数（`cargo_build_command` / `spawn_output_pumps` / `finish_build`），
+    /// 本函数只保留「准备 → 启动 → 收尾」这条编排；musl 交叉工具链注入因与命令对象
+    /// 强耦合，仍留在本函数内。
     fn spawn_build(&self, job: Arc<GenJob>, token: String) {
         let source_dir = self.inner.source_dir.clone();
         tokio::spawn(async move {
-            let mut cmd = tokio::process::Command::new("cargo");
-            cmd.args([
-                "build",
-                "-p",
-                "helm-agent",
-                "--release",
-                "--target",
-                &job.triple,
-            ])
-            .current_dir(&source_dir)
-            // agent_id 故意不烙入：目标机首跑按主机名自动生成
-            .env("HELM_BAKE_SERVER_ADDR", &job.server_addr)
-            .env("HELM_BAKE_AGENT_TOKEN", &token)
-            .env("HELM_BAKE_CONN_MODE", &job.conn_mode)
-            .env("HELM_BAKE_LISTEN_ADDR", &job.listen_addr)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
+            let mut cmd = cargo_build_command(&source_dir, &job, &token);
 
             // Linux musl 交叉编译：注入 musl 交叉工具链（zig cc 包装脚本）。
             // cc-rs 按 `CC_<target>` 查找 C 编译器，rustc 按 `CARGO_TARGET_<target>_LINKER`
@@ -281,73 +266,23 @@ impl AgentGenService {
             };
 
             // stdout/stderr 并发汇入日志环
-            let mut readers = Vec::new();
-            if let Some(out) = child.stdout.take() {
-                readers.push(tokio::spawn(pump(out, job.clone())));
-            }
-            if let Some(err) = child.stderr.take() {
-                readers.push(tokio::spawn(pump(err, job.clone())));
-            }
+            let readers = spawn_output_pumps(&mut child, &job);
             let status = child.wait().await;
             for r in readers {
-                let _ = r.await;
+                // reader 泵任务异常（panic）必须可见：否则编译输出会静默缺段
+                if let Err(e) = r.await {
+                    tracing::warn!(error = %e, "output pump task failed");
+                }
             }
 
-            match status {
-                Ok(s) if s.success() => {
-                    let artifact = source_dir
-                        .join("target")
-                        .join(&job.triple)
-                        .join("release")
-                        .join(format!("helm-agent{}", triple_ext(&job.os, &job.arch)));
-                    match tokio::fs::metadata(&artifact).await {
-                        Ok(meta) => {
-                            *job.file_size.lock().unwrap() = Some(meta.len());
-                            *job.artifact.lock().unwrap() = Some(artifact);
-                            *job.status.lock().unwrap() = GenStatus::Ready;
-                            push_log(&job, "✓ 编译完成，可下载").await;
-                        }
-                        Err(e) => {
-                            fail(&job, format!("编译成功但未找到产物: {e}")).await;
-                        }
-                    }
-                }
-                Ok(s) => {
-                    fail(&job, format!("cargo 退出码 {s}（目标平台工具链可能未安装，rustup target list --installed 查看）")).await;
-                }
-                Err(e) => {
-                    fail(&job, format!("cargo 执行异常: {e}")).await;
-                }
-            }
+            finish_build(&source_dir, &job, status).await;
         });
     }
 }
 
-fn triple_ext(os: &str, arch: &str) -> &'static str {
-    triple_for(os, arch).map(|(_, ext)| ext).unwrap_or("")
-}
+mod build;
 
-/// 逐行把编译输出写入任务日志环（容量上限，旧的丢弃）。
-async fn pump<R: tokio::io::AsyncRead + Unpin>(reader: R, job: Arc<GenJob>) {
-    let mut lines = tokio::io::BufReader::new(reader).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
-        push_log(&job, &line).await;
-    }
-}
-
-async fn push_log(job: &GenJob, line: &str) {
-    let mut log = job.log.lock().unwrap();
-    log.push_back(line.to_string());
-    while log.len() > LOG_CAP {
-        log.pop_front();
-    }
-}
-
-async fn fail(job: &GenJob, msg: String) {
-    push_log(job, &format!("✗ {msg}")).await;
-    *job.error.lock().unwrap() = Some(msg);
-    *job.status.lock().unwrap() = GenStatus::Failed;
-}
+use build::{cargo_build_command, fail, finish_build, spawn_output_pumps};
 
 /// 解析 Agent 连入地址：监听器 bind 地址中的通配主机部分替换为服务器主内网 IPv4。
 pub fn resolve_server_addr(listener_addr: &str) -> String {

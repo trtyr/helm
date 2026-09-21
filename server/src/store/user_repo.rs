@@ -12,6 +12,8 @@ pub struct UserRow {
     pub password_hash: String,
     pub role: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// A5：JWT 版本号——改密/改名自增，旧 token 立即失效
+    pub token_version: i64,
 }
 
 /// users 表仓储。
@@ -28,8 +30,18 @@ impl UserRepo {
     /// 按用户名查用户。
     pub async fn get_by_username(&self, username: &str) -> sqlx::Result<Option<UserRow>> {
         sqlx::query_as::<_, UserRow>(
-            "SELECT id, username, password_hash, role, created_at
+            "SELECT id, username, password_hash, role, created_at, token_version
              FROM users WHERE username = $1 AND deleted_at IS NULL",
+        )
+        .bind(username)
+        .fetch_optional(self.db.pool())
+        .await
+    }
+
+    /// A5：读某用户的 JWT 版本号（用户不存在返回 None）。
+    pub async fn token_version(&self, username: &str) -> sqlx::Result<Option<i64>> {
+        sqlx::query_scalar(
+            "SELECT token_version FROM users WHERE username = $1 AND deleted_at IS NULL",
         )
         .bind(username)
         .fetch_optional(self.db.pool())
@@ -52,7 +64,7 @@ impl UserRepo {
     ) -> sqlx::Result<UserRow> {
         sqlx::query_as::<_, UserRow>(
             "INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)
-             RETURNING id, username, password_hash, role, created_at",
+             RETURNING id, username, password_hash, role, created_at, token_version",
         )
         .bind(username)
         .bind(password_hash)
@@ -79,5 +91,16 @@ impl UserRepo {
             .execute(self.db.pool())
             .await
             .map(|r| r.rows_affected() > 0)
+    }
+
+    /// A5：自增 token 版本号（改密/改名调用）——此后签发的 JWT 才有效，旧 token 立即失效。
+    pub async fn bump_token_version(&self, id: Uuid) -> sqlx::Result<bool> {
+        sqlx::query(
+            "UPDATE users SET token_version = token_version + 1, updated_at = now() WHERE id = $1",
+        )
+        .bind(id)
+        .execute(self.db.pool())
+        .await
+        .map(|r| r.rows_affected() > 0)
     }
 }

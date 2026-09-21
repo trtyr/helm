@@ -30,8 +30,8 @@ pub async fn create_proxy(
         .proxy_service
         .start(&agent_id, &listen_addr, state.conn_registry.clone())
         .await?;
-    let _ = AuditService::new(state.db.clone())
-        .record(
+    AuditService::new(state.db.clone())
+        .record_best_effort(
             &claims.sub,
             "proxy_create",
             &agent_id,
@@ -67,8 +67,8 @@ pub async fn stop_proxy(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, Error> {
     state.proxy_service.stop(id).await?;
-    let _ = AuditService::new(state.db.clone())
-        .record(&claims.sub, "proxy_stop", &id.to_string(), json!({}))
+    AuditService::new(state.db.clone())
+        .record_best_effort(&claims.sub, "proxy_stop", &id.to_string(), json!({}))
         .await;
     Ok(Json(json!({ "ok": true })))
 }

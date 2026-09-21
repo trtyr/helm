@@ -17,6 +17,10 @@ pub enum Error {
     #[error("invalid argument: {0}")]
     InvalidArgument(String),
 
+    /// A4：登录失败次数过多，处于退避窗口（429）。
+    #[error("too many requests: {0}")]
+    TooManyRequests(String),
+
     #[error("agent not connected: {0}")]
     NotConnected(String),
 
@@ -38,6 +42,7 @@ impl Error {
             Error::Unauthorized(_) => "unauthorized",
             Error::Forbidden(_) => "forbidden",
             Error::InvalidArgument(_) => "invalid_argument",
+            Error::TooManyRequests(_) => "too_many_requests",
             Error::NotConnected(_) => "not_connected",
             Error::Storage(_) => "storage",
             Error::Io(_) => "io",
@@ -45,9 +50,12 @@ impl Error {
         }
     }
 
-    /// 是否可重试（瞬时/基础设施类）。
+    /// 是否可重试（瞬时/基础设施类，或「稍后重试即可」的退避类）。
     pub fn retryable(&self) -> bool {
-        matches!(self, Error::NotConnected(_) | Error::Storage(_))
+        matches!(
+            self,
+            Error::NotConnected(_) | Error::Storage(_) | Error::TooManyRequests(_)
+        )
     }
 
     /// 对外安全消息：校验/连接类错误透传细节（客户端可据此修正），
@@ -59,6 +67,8 @@ impl Error {
             Error::Forbidden(_) => "forbidden".into(),
             // InvalidArgument 的细节是服务端编写的校验提示（如"缺少必填参数"），对客户端有用且安全
             Error::InvalidArgument(m) => std::borrow::Cow::Borrowed(m.as_str()),
+            // TooManyRequests 的细节是「多久后重试」提示（服务端自编，安全）
+            Error::TooManyRequests(m) => std::borrow::Cow::Borrowed(m.as_str()),
             Error::NotConnected(m) => std::borrow::Cow::Borrowed(m.as_str()),
             Error::Storage(_) | Error::Io(_) | Error::Internal(_) => "internal server error".into(),
         }

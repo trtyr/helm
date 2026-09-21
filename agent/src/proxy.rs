@@ -38,7 +38,7 @@ impl ProxyManager {
                     .lock()
                     .unwrap()
                     .insert(conn_id.to_string(), write_half.clone());
-                let _ = tx
+                let _ = tx // peer 已断：投递失败无需上报（对端消失即会话结束）
                     .send(AgentMessage {
                         kind: Some(agent_message::Kind::ProxyConnected(ProxyConnected {
                             conn_id: conn_id.to_string(),
@@ -69,7 +69,7 @@ impl ProxyManager {
                             }
                         }
                     }
-                    let _ = tx2
+                    let _ = tx2 // peer 已断：投递失败无需上报（对端消失即会话结束）
                         .send(AgentMessage {
                             kind: Some(agent_message::Kind::ProxyClose(ProxyClose {
                                 conn_id: sid,
@@ -81,7 +81,7 @@ impl ProxyManager {
             }
             Err(e) => {
                 tracing::warn!(conn_id, target, error = %e, "proxy: dial failed");
-                let _ = tx
+                let _ = tx // peer 已断：投递失败无需上报（对端消失即会话结束）
                     .send(AgentMessage {
                         kind: Some(agent_message::Kind::ProxyConnected(ProxyConnected {
                             conn_id: conn_id.to_string(),
@@ -99,8 +99,8 @@ impl ProxyManager {
         let writer = self.inner.lock().unwrap().get(conn_id).cloned();
         if let Some(w) = writer {
             let mut w = w.lock().await;
-            let _ = w.write_all(data).await;
-            let _ = w.flush().await;
+            let _ = w.write_all(data).await; // peer 已断：写失败即出站通道结束，接收方向会先感知并清理
+            let _ = w.flush().await; // peer 已断：flush 失败无副作用（数据未送达即连接终止）
         }
     }
 
@@ -108,7 +108,7 @@ impl ProxyManager {
     pub async fn close(&self, conn_id: &str) {
         let w = self.inner.lock().unwrap().remove(conn_id);
         if let Some(w) = w {
-            let _ = w.lock().await.shutdown().await;
+            let _ = w.lock().await.shutdown().await; // 尽力优雅关闭（对端可能已消失），失败无副作用
         }
     }
 }

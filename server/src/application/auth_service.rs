@@ -15,6 +15,16 @@ pub struct Claims {
     /// API key 的 scope 列表；空 = 全功能（JWT 即此形态，serde default 兼容旧 token）。
     #[serde(default)]
     pub scopes: Vec<String>,
+    /// A5：JWT 版本号——与 `users.token_version` 比对，改密/改名后**旧 token 立即失效**。
+    ///
+    /// `serde(default)`：兼容 A5 之前签发的旧 token（按 1 处理，与迁移默认值一致）。
+    #[serde(default = "default_token_version")]
+    pub tv: i64,
+}
+
+/// A5：token 版本号缺省值（与迁移 0021 的 DEFAULT 1 对齐）。
+fn default_token_version() -> i64 {
+    1
 }
 
 impl Claims {
@@ -62,12 +72,34 @@ impl AuthService {
             return Ok(None);
         }
 
-        Ok(Some(self.issue_token(&user.username, &user.role)?))
+        Ok(Some(self.issue_token(
+            &user.username,
+            &user.role,
+            user.token_version,
+        )?))
     }
 
-    /// 校验 JWT，返回 claims。
+    /// 校验 JWT，返回 claims（**不查库**，仅验签+过期）。
     pub fn verify(&self, token: &str) -> Result<Claims> {
         verify_jwt(&self.jwt_secret, token)
+    }
+
+    /// A5：校验 JWT **并核对 token 版本**——改密/改名后旧 token 立即失效。
+    ///
+    /// 代价：每次调用多一次 `users` 按用户名查询（单用户/小规模产品的可接受取舍）。
+    /// 用户已被删除（或硬删）同样视为失效，与「账号不复存在」语义一致。
+    pub async fn verify_revocable(&self, token: &str) -> Result<Claims> {
+        let claims = self.verify(token)?;
+        let current = UserRepo::new(self.db.clone())
+            .token_version(&claims.sub)
+            .await?;
+        match current {
+            Some(v) if v == claims.tv => Ok(claims),
+            Some(_) => Err(Error::Unauthorized("token revoked; re-login".into())),
+            None => Err(Error::Unauthorized(
+                "user no longer exists; re-login".into(),
+            )),
+        }
     }
 
     /// 若 users 表为空，seed 默认管理员 admin / admin123。
@@ -77,13 +109,17 @@ impl AuthService {
             let hash = bcrypt::hash("admin123", bcrypt::DEFAULT_COST)
                 .map_err(|e| Error::Internal(format!("bcrypt: {e}")))?;
             repo.create("admin", &hash, "admin").await?;
-            tracing::info!("seeded default admin user 'admin'");
+            // A1：默认口令必须显式可见——此前是 info 级、极易被忽略
+            tracing::error!(
+                "seeded default admin user 'admin' with the well-known password 'admin123' — \
+                 change it (控制台「设置 → 账号」或 /api/v1/auth/change-password) before exposing this server"
+            );
         }
         Ok(())
     }
 
-    fn issue_token(&self, username: &str, role: &str) -> Result<String> {
-        issue_jwt(&self.jwt_secret, username, role, 24 * 3600)
+    fn issue_token(&self, username: &str, role: &str, tv: i64) -> Result<String> {
+        issue_jwt(&self.jwt_secret, username, role, 24 * 3600, tv)
     }
 
     /// 当前账号（按 JWT sub 查库取权威数据；sub 已失效——如改名后旧 token——视为未授权）。
@@ -118,6 +154,8 @@ impl AuthService {
         let hash = bcrypt::hash(new, bcrypt::DEFAULT_COST)
             .map_err(|e| Error::Internal(format!("bcrypt: {e}")))?;
         repo.update_password(user.id, &hash).await?;
+        // A5：改密即吊销既有 JWT（旧 token 的 tv 立即落后于库值）
+        repo.bump_token_version(user.id).await?;
         Ok(())
     }
 
@@ -153,18 +191,27 @@ impl AuthService {
         if !updated {
             return Err(Error::Internal("user vanished during rename".into()));
         }
+        // A5：改名即吊销既有 JWT（sub 已变，且版本号同步自增，双保险）
+        repo.bump_token_version(user.id).await?;
         Ok(())
     }
 }
 
 /// 签发 JWT（纯函数，便于测试）。
-pub fn issue_jwt(secret: &str, username: &str, role: &str, ttl_secs: usize) -> Result<String> {
+pub fn issue_jwt(
+    secret: &str,
+    username: &str,
+    role: &str,
+    ttl_secs: usize,
+    tv: i64,
+) -> Result<String> {
     let exp = chrono::Utc::now().timestamp() as usize + ttl_secs;
     let claims = Claims {
         scopes: Vec::new(),
         sub: username.to_string(),
         role: role.to_string(),
         exp,
+        tv,
     };
     let token = encode(
         &Header::default(),
@@ -192,15 +239,24 @@ mod tests {
 
     #[test]
     fn jwt_roundtrip() {
-        let token = issue_jwt("secret-key", "alice", "admin", 3600).unwrap();
+        let token = issue_jwt("secret-key", "alice", "admin", 3600, 3).unwrap();
         let claims = verify_jwt("secret-key", &token).unwrap();
         assert_eq!(claims.sub, "alice");
         assert_eq!(claims.role, "admin");
+        assert_eq!(claims.tv, 3, "A5：版本号随 token 往返");
     }
 
     #[test]
     fn jwt_wrong_secret_rejected() {
-        let token = issue_jwt("secret-a", "alice", "admin", 3600).unwrap();
+        let token = issue_jwt("secret-a", "alice", "admin", 3600, 1).unwrap();
         assert!(verify_jwt("secret-b", &token).is_err());
+    }
+
+    /// A5：A5 之前签发的旧 token 不含 `tv` 字段——必须仍能解析（按 1 处理）。
+    #[test]
+    fn claims_without_tv_default_to_one() {
+        let legacy = r#"{"sub":"alice","role":"admin","exp":9999999999,"scopes":[]}"#;
+        let claims: Claims = serde_json::from_str(legacy).unwrap();
+        assert_eq!(claims.tv, 1);
     }
 }

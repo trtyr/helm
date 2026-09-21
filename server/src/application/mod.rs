@@ -12,6 +12,7 @@ pub mod file_service;
 pub mod forward_service;
 pub mod job_sweeper;
 pub mod listener_service;
+pub mod login_guard;
 pub mod mcp_registry;
 pub mod metric_sink;
 pub mod notification_service;

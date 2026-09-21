@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTreeRows, suspiciousPair } from "./Processes";
+import { buildTreeRows, suspiciousPair } from "./processes/shared";
 import type { components } from "../../api/schema";
 
 type ProcessInfo = components["schemas"]["ProcessInfo"];

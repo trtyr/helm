@@ -3,14 +3,16 @@
 use std::time::Duration;
 
 use crate::config::Config;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use helm_proto::pb::{
-    AgentMessage, Heartbeat, HostInfo, Register, SessionOpened, agent_message,
-    agent_service_client::AgentServiceClient, server_message,
+    AgentMessage, Heartbeat, HostInfo, Register, agent_message,
+    agent_service_client::AgentServiceClient,
 };
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
+
+mod session;
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
 /// 重连退避基数（B7）：普通网络错误从 3s 起指数退避。
@@ -88,13 +90,34 @@ async fn connect_once(config: &Config) -> Result<()> {
 
     // outbound：先发 Register，之后由心跳 task 持续发 Heartbeat。
     let (tx, rx) = mpsc::channel::<AgentMessage>(64);
+    send_register(&tx, config).await?;
+    let _heartbeat = spawn_heartbeat(tx.clone());
+    let _monitor = spawn_monitor(tx.clone());
+
+    // 建立双向流
+    let response = client.open_channel(ReceiverStream::new(rx)).await?;
+    let mut inbound = response.into_inner();
+    tracing::info!(agent_id = %config.agent_id, "channel opened, waiting for register ack");
+
+    // 会话生命周期：逐条消费下行消息，直到流结束（或注册被拒 → 终止本次连接）
+    let mut session = session::AgentSession::new(config.agent_id.clone(), tx);
+    while let Some(msg) = inbound.message().await? {
+        session.handle(msg.kind).await?;
+    }
+    Ok(())
+}
+
+/// 首帧：Register（协议与 forward 同构，Server 据此注册）。
+async fn send_register(tx: &mpsc::Sender<AgentMessage>, config: &Config) -> Result<()> {
     tx.send(AgentMessage {
         kind: Some(agent_message::Kind::Register(build_register(config))),
     })
     .await?;
+    Ok(())
+}
 
-    // 心跳 task
-    let tx_hb = tx.clone();
+/// 心跳 task：连接断开（tx 关闭）即自行退出。
+fn spawn_heartbeat(tx: mpsc::Sender<AgentMessage>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(HEARTBEAT_INTERVAL).await;
@@ -103,199 +126,18 @@ async fn connect_once(config: &Config) -> Result<()> {
                     timestamp_unix_ms: now_ms(),
                 })),
             };
-            if tx_hb.send(msg).await.is_err() {
+            if tx.send(msg).await.is_err() {
                 break;
             }
         }
-    });
+    })
+}
 
-    // 监控 task
-    let tx_mon = tx.clone();
+/// 监控 task（指标上报）。
+fn spawn_monitor(tx: mpsc::Sender<AgentMessage>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        crate::monitor::run_monitor(tx_mon).await;
-    });
-
-    // 建立双向流
-    let response = client.open_channel(ReceiverStream::new(rx)).await?;
-    let mut inbound = response.into_inner();
-    let mut file_handler = crate::file::FileHandler::new();
-    let sessions = crate::pty::SessionManager::new();
-    let proxies = crate::proxy::ProxyManager::new();
-    let services = crate::service::ServiceManager::new();
-
-    tracing::info!(agent_id = %config.agent_id, "channel opened, waiting for register ack");
-
-    while let Some(msg) = inbound.message().await? {
-        match msg.kind {
-            Some(server_message::Kind::RegisterAck(ack)) => {
-                if ack.ok {
-                    tracing::info!(
-                        agent_id = %config.agent_id,
-                        message = %ack.message,
-                        "registered"
-                    );
-                } else {
-                    return Err(anyhow!("register rejected: {}", ack.message));
-                }
-            }
-            Some(server_message::Kind::ExecRequest(req)) => {
-                tracing::info!(job_id = %req.job_id, command = %req.command, "exec request received, spawning");
-                let tx = tx.clone();
-                tokio::spawn(async move {
-                    crate::exec::run_and_report(
-                        &req.job_id,
-                        &req.command,
-                        &req.args,
-                        req.timeout_secs,
-                        &tx,
-                    )
-                    .await;
-                    tracing::info!(job_id = %req.job_id, "exec task finished (result reported)");
-                });
-            }
-            Some(server_message::Kind::JobCancel(req)) => {
-                crate::exec::request_cancel(&req.job_id);
-            }
-            Some(server_message::Kind::FileRequest(req)) => {
-                file_handler.handle_request(req, &tx).await;
-            }
-            Some(server_message::Kind::FileChunk(chunk)) => {
-                file_handler.handle_chunk(chunk, &tx).await;
-            }
-            Some(server_message::Kind::SelfDestruct(sd)) => {
-                tracing::warn!(
-                    agent_id = %config.agent_id,
-                    remove_binary = sd.remove_binary,
-                    "uninstall command received"
-                );
-                crate::uninstall::self_destruct(sd.remove_binary);
-            }
-            Some(server_message::Kind::SessionOpen(req)) => {
-                let tx_out = tx.clone();
-                match sessions.open(
-                    &req.session_id,
-                    req.cols as u16,
-                    req.rows as u16,
-                    &req.command,
-                    tx_out.clone(),
-                ) {
-                    Ok(()) => {
-                        let _ = tx_out
-                            .send(AgentMessage {
-                                kind: Some(agent_message::Kind::SessionOpened(SessionOpened {
-                                    session_id: req.session_id.clone(),
-                                })),
-                            })
-                            .await;
-                    }
-                    Err(e) => {
-                        tracing::warn!(session_id = %req.session_id, error = %e, "session open failed");
-                    }
-                }
-            }
-            Some(server_message::Kind::SessionInput(req)) => {
-                sessions.input(&req.session_id, &req.data);
-            }
-            Some(server_message::Kind::SessionClose(req)) => {
-                sessions.close(&req.session_id);
-            }
-            Some(server_message::Kind::SessionResize(req)) => {
-                sessions.resize(&req.session_id, req.cols as u16, req.rows as u16);
-            }
-            Some(server_message::Kind::ServiceStart(req)) => {
-                services
-                    .start(
-                        &req.service_id,
-                        &req.command,
-                        &req.args,
-                        &req.restart_policy,
-                        tx.clone(),
-                    )
-                    .await;
-            }
-            Some(server_message::Kind::ServiceStop(req)) => {
-                services.stop(&req.service_id).await;
-            }
-            Some(server_message::Kind::FileList(req)) => {
-                let msg = crate::fs::list_dir(&req.request_id, &req.path);
-                let _ = tx.send(msg).await;
-            }
-            Some(server_message::Kind::ProcessList(req)) => {
-                let msg = crate::process::list_processes(&req.request_id);
-                let _ = tx.send(msg).await;
-            }
-            Some(server_message::Kind::ProcessKill(req)) => {
-                let msg = crate::process::kill_process(&req.request_id, req.pid);
-                let _ = tx.send(msg).await;
-            }
-            Some(server_message::Kind::NetInfo(req)) => {
-                let msg = crate::process::net_info(&req.request_id);
-                let _ = tx.send(msg).await;
-            }
-            Some(server_message::Kind::IrScan(req)) => {
-                let msg = crate::ir::ir_scan(&req.request_id, &req.types);
-                let _ = tx.send(msg).await;
-            }
-            Some(server_message::Kind::FsTimelineQuery(req)) => {
-                let msg = crate::ir::fs_timeline(
-                    &req.request_id,
-                    &req.drive,
-                    req.since_hours,
-                    req.limit,
-                    &req.keyword,
-                );
-                let _ = tx.send(msg).await;
-            }
-            Some(server_message::Kind::MemScan(req)) => {
-                tracing::info!(stream = req.stream, pid = req.pid, kw = %req.keywords, "memscan request received");
-                if req.stream {
-                    let tx = tx.clone();
-                    tokio::spawn(async move {
-                        crate::ir::mem_scan_stream(
-                            req.request_id,
-                            req.pid,
-                            req.min_len,
-                            req.keywords,
-                            tx,
-                        )
-                        .await;
-                    });
-                } else {
-                    let msg =
-                        crate::ir::mem_scan(&req.request_id, req.pid, req.min_len, &req.keywords)
-                            .await;
-                    let _ = tx.send(msg).await;
-                }
-            }
-            Some(server_message::Kind::ProxyConnect(req)) => {
-                proxies.connect(&req.conn_id, &req.target, &tx).await;
-            }
-            Some(server_message::Kind::ProxyData(req)) => {
-                proxies.data(&req.conn_id, &req.data).await;
-            }
-            Some(server_message::Kind::ProxyClose(req)) => {
-                proxies.close(&req.conn_id).await;
-            }
-            Some(server_message::Kind::SysServiceList(req)) => {
-                let msg = crate::sys_service::list_services(&req.request_id);
-                let _ = tx.send(msg).await;
-            }
-            Some(server_message::Kind::SysServiceAction(req)) => {
-                let msg =
-                    crate::sys_service::service_action(&req.request_id, &req.name, &req.action);
-                let _ = tx.send(msg).await;
-            }
-            Some(server_message::Kind::AutorunsAction(req)) => {
-                let msg = crate::ir::autoruns_action(&req.request_id, &req.action, &req.op_key);
-                let _ = tx.send(msg).await;
-            }
-            other => {
-                tracing::debug!(agent_id = %config.agent_id, ?other, "server message (later phase)");
-            }
-        }
-    }
-
-    Ok(())
+        crate::monitor::run_monitor(tx).await;
+    })
 }
 
 /// 构造 Register 消息，附带目标主机信息。

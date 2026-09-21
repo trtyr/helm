@@ -63,6 +63,8 @@ impl ApiKeyService {
         let Some(row) = repo.find_valid_by_hash(&hash_key(raw)).await? else {
             return Ok(None);
         };
+        // 尽力刷新 last_used_at（见本方法文档：「尽力」）：失败只影响使用统计，
+        // 不影响鉴权结果，故不计入错误路径。
         let _ = repo.touch_last_used(row.id).await;
         Ok(Some((row.name, row.scopes)))
     }
@@ -113,6 +115,9 @@ pub fn claims_for(name: &str, scopes: Vec<String>) -> Claims {
         role: ROLE_API_KEY.to_string(),
         exp: chrono::Utc::now().timestamp() as usize,
         scopes,
+        // A5：API key 没有「用户 token 版本」概念——该字段只对 JWT 分支有意义
+        // （中间件 verify_revocable 只在校验 JWT 时查库核对），此处填默认值。
+        tv: 1,
     }
 }
 

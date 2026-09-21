@@ -109,4 +109,28 @@ impl ExecService {
             .await?;
         Ok((true, delivered, compensated))
     }
+
+    // ---- G3 收口（2026-09-21）：grpc 层不再直构 store 仓储 ----
+
+    /// Agent 回报的执行终态落库；返回 `false` 表示被幂等守卫拦下（重放/迟到回报），非错误。
+    pub async fn finish_job(
+        &self,
+        job_id: Uuid,
+        status: &str,
+        output: &str,
+        exit_code: Option<i32>,
+    ) -> Result<bool> {
+        let written = JobRepo::new(self.db.clone())
+            .finish(job_id, status, output, exit_code)
+            .await?;
+        Ok(written)
+    }
+
+    /// 取出掉线期间挂起的取消请求（EN-64 ③），重连时补杀目标机残留进程。
+    pub async fn take_pending_cancels(&self, agent_id: &str) -> Result<Vec<Uuid>> {
+        let ids = JobRepo::new(self.db.clone())
+            .take_pending_cancels(agent_id)
+            .await?;
+        Ok(ids)
+    }
 }

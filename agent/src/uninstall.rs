@@ -25,13 +25,14 @@ pub fn self_destruct(remove_binary: bool) -> ! {
 fn remove_autostart() {
     #[cfg(target_os = "windows")]
     {
-        // 删除计划任务（与部署时使用的任务名一致）。
+        // 删除计划任务（与部署时使用的任务名一致）。自毁路径：失败即任务本就不存在，无副作用
         let _ = crate::child::quiet("schtasks")
             .args(["/delete", "/f", "/tn", "helmagent"])
             .output();
     }
     #[cfg(target_os = "linux")]
     {
+        // 同上：自毁前停止 systemd 单元，失败即未安装
         let _ = crate::child::quiet("systemctl")
             .args(["disable", "--now", "helm-agent"])
             .output();

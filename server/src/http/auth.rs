@@ -35,17 +35,53 @@ pub struct ChangeUsernameBody {
 /// 登录：POST /api/v1/auth/login
 pub async fn login(
     State(state): State<AppState>,
+    axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<std::net::SocketAddr>,
     Json(body): Json<LoginBody>,
 ) -> Result<Json<Value>, Error> {
+    // A4：两个维度分别限速——按账号（防定点爆破）与按来源 IP（防撒网式撞库）
+    let user_key = format!("user:{}", body.username);
+    let ip_key = format!("ip:{}", peer.ip());
+    let now = std::time::Instant::now();
+    for key in [&user_key, &ip_key] {
+        if let Some(secs) = state.login_guard.blocked_for(key, now) {
+            AuditService::new(state.db.clone())
+                .record_best_effort(
+                    &body.username,
+                    "login_blocked",
+                    key,
+                    json!({ "retry_after_secs": secs }),
+                )
+                .await;
+            return Err(Error::TooManyRequests(format!(
+                "too many failed attempts; retry in {secs}s"
+            )));
+        }
+    }
+
     let auth = AuthService::new(state.db.clone(), state.jwt_secret.clone());
     match auth.login(&body.username, &body.password).await? {
         Some(token) => {
-            let _ = AuditService::new(state.db)
-                .record(&body.username, "login", "", json!({}))
+            state.login_guard.record_success(&user_key);
+            state.login_guard.record_success(&ip_key);
+            AuditService::new(state.db)
+                .record_best_effort(&body.username, "login", "", json!({}))
                 .await;
             Ok(Json(json!({ "token": token })))
         }
-        None => Err(Error::Unauthorized("invalid credentials".into())),
+        None => {
+            // 失败必须留痕（此前只有成功入审计）——爆破尝试与误操作都要能事后看出来
+            let failures = state.login_guard.record_failure(&user_key, now);
+            state.login_guard.record_failure(&ip_key, now);
+            AuditService::new(state.db.clone())
+                .record_best_effort(
+                    &body.username,
+                    "login_failed",
+                    "",
+                    json!({ "failures_for_account": failures, "peer_ip": peer.ip().to_string() }),
+                )
+                .await;
+            Err(Error::Unauthorized("invalid credentials".into()))
+        }
     }
 }
 
@@ -81,8 +117,8 @@ pub async fn change_password(
     AuthService::new(state.db.clone(), state.jwt_secret)
         .change_password(&claims.sub, &body.current_password, &body.new_password)
         .await?;
-    let _ = AuditService::new(state.db)
-        .record(&claims.sub, "password_change", "", json!({}))
+    AuditService::new(state.db)
+        .record_best_effort(&claims.sub, "password_change", "", json!({}))
         .await;
     Ok(Json(json!({ "ok": true })))
 }
@@ -98,8 +134,8 @@ pub async fn change_username(
     AuthService::new(state.db.clone(), state.jwt_secret)
         .change_username(&claims.sub, &body.current_password, &new_username)
         .await?;
-    let _ = AuditService::new(state.db)
-        .record(&claims.sub, "username_change", &new_username, json!({}))
+    AuditService::new(state.db)
+        .record_best_effort(&claims.sub, "username_change", &new_username, json!({}))
         .await;
     Ok(Json(json!({ "ok": true, "username": new_username })))
 }
@@ -138,8 +174,8 @@ pub async fn require_auth(
             None => false,
         };
         if !allowed {
-            let _ = AuditService::new(state.db.clone())
-                .record(
+            AuditService::new(state.db.clone())
+                .record_best_effort(
                     &claims.sub,
                     "api_key_denied",
                     &matched,
@@ -259,7 +295,8 @@ pub async fn verify_bearer_token(state: &AppState, token: &str) -> Result<Claims
         ))
     } else {
         let auth = AuthService::new(state.db.clone(), state.jwt_secret.clone());
-        auth.verify(token)
+        // A5：验签 + token 版本核对（改密/改名后旧 JWT 立即失效）
+        auth.verify_revocable(token).await
     }
 }
 

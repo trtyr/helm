@@ -8,7 +8,7 @@
 //! tools/call / ping；请求可为单对象或 batch 数组。响应 application/json
 //! （Streamable HTTP 规范允许非 SSE 响应；无会话，客户端无需维持连接）。
 
-use crate::application::mcp_registry::{self, Os};
+use crate::application::mcp_registry;
 use crate::http::AppState;
 use axum::Json;
 use axum::extract::State;
@@ -16,6 +16,10 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::{Value, json};
 use std::sync::OnceLock;
+
+mod tool_call;
+
+use tool_call::tools_call;
 
 const PROTOCOL_VERSION: &str = "2025-06-18";
 const TOOL_NAME: &str = "helm";
@@ -166,152 +170,6 @@ fn tools_list(state: &AppState, key_scopes: &[String]) -> Value {
             }
         }]
     })
-}
-
-/// tools/call：op 分发（catalog 内联处理，其余翻译为 loopback HTTP）。
-async fn tools_call(
-    state: &AppState,
-    key_scopes: &[String],
-    token: &str,
-    params: Option<&Value>,
-) -> Result<Value, JsonRpcError> {
-    let args = params
-        .and_then(|p| p.get("arguments"))
-        .and_then(|a| a.as_object())
-        .ok_or_else(|| JsonRpcError::new(-32602, "tools/call requires arguments object"))?;
-
-    let op = args
-        .get("op")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| JsonRpcError::new(-32602, "missing 'op'"))?;
-
-    // 通用 op：编目（scope 裁剪 + domain/os 过滤）
-    if op == "catalog" {
-        let domain = args.get("domain").and_then(|v| v.as_str());
-        let os = match args.get("os").and_then(|v| v.as_str()) {
-            Some(s) => Some(
-                Os::parse(s)
-                    .ok_or_else(|| JsonRpcError::new(-32602, &format!("unknown os: {s}")))?,
-            ),
-            None => None,
-        };
-        return tool_ok(mcp_registry::catalog_json(
-            key_scopes,
-            domain,
-            os,
-            state.mcp_tier,
-        ));
-    }
-
-    let Some(def) = mcp_registry::find(op) else {
-        let names: Vec<&str> = mcp_registry::allowed_ops(key_scopes, None)
-            .iter()
-            .map(|o| o.name)
-            .take(12)
-            .collect();
-        return Err(JsonRpcError::new(
-            -32602,
-            &format!("unknown op: {op}；可用的 op 见 catalog（部分：{names:?}）"),
-        ));
-    };
-
-    // scope 双保险（编目已裁剪，防目录缓存/竞态）
-    if !key_scopes.is_empty() && !key_scopes.iter().any(|s| s == def.scope) {
-        return Ok(mcp_error_result(&format!(
-            "凭证缺少 '{}' scope，无法执行 {op}；请管理员在控制台重新签发",
-            def.scope
-        )));
-    }
-
-    // os 检查：OS 专属 op 需要匹配
-    let caller_os = match args.get("os").and_then(|v| v.as_str()) {
-        Some(s) => Os::parse(s),
-        None => None,
-    };
-    if def.os != Os::Any {
-        let hint = format!(
-            "{op} 仅支持 {}；os 参数请传 \"{}\"",
-            def.os.as_str(),
-            def.os.as_str()
-        );
-        match caller_os {
-            Some(os) if os == def.os => {}
-            _ => return Ok(mcp_error_result(&hint)),
-        }
-    } else if caller_os == Some(Os::Windows) || caller_os == Some(Os::Linux) {
-        // any op 带了 os 参数：不拦截（可能用于语义提示）
-    }
-
-    // 组装 loopback 请求：路径占位符从 args 取，剩余 GET→query / 其余→JSON body
-    let mut args_map = args.get("args").cloned().unwrap_or_else(|| json!({}));
-    let mut path = def.path.to_string();
-    for ph in mcp_registry::placeholders(def.path) {
-        let val = args_map
-            .get(ph)
-            .cloned()
-            .or_else(|| args.get("target").cloned().filter(|_| ph == "id"))
-            .ok_or_else(|| {
-                JsonRpcError::new(-32602, &format!("missing args.{ph} for {op}（见 catalog）"))
-            })?;
-        let rendered = match &val {
-            Value::String(s) => s.clone(),
-            other => other.to_string(),
-        };
-        path = path.replace(&format!("{{{ph}}}"), &rendered);
-        args_map.as_object_mut().unwrap().remove(ph);
-    }
-    // 特例：services.action 的 {action} 占位符也支持 target 传入
-    let url = format!("http://127.0.0.1:{}{path}", state.http_port);
-
-    let mut req = http_client()
-        .request(
-            reqwest::Method::from_bytes(def.method.as_bytes()).expect("valid http method"),
-            &url,
-        )
-        .bearer_auth(token)
-        .timeout(std::time::Duration::from_secs(RELAY_TIMEOUT_SECS));
-    if def.method == "GET" || def.method == "DELETE" {
-        // 剩余参数走 query（DELETE 一般无剩余）
-        if let Some(obj) = args_map.as_object() {
-            for (k, v) in obj {
-                req = req.query(&[(k, value_to_query(v))]);
-            }
-        }
-    } else if args_map.as_object().is_some_and(|o| !o.is_empty()) {
-        req = req.json(&args_map);
-    } else {
-        req = req.json(&json!({}));
-    }
-
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| JsonRpcError::new(-32000, &format!("loopback call failed: {e}")))?;
-    let status = resp.status();
-    let text = resp
-        .text()
-        .await
-        .unwrap_or_else(|_| String::from("<unreadable body>"));
-
-    if !status.is_success() {
-        let msg = summarize_error(status.as_u16(), &text);
-        return Ok(mcp_error_result(&msg));
-    }
-
-    // 成功：原样透传 JSON（非 JSON 响应包一层），尾部附渐进提示
-    let mut payload: Value = serde_json::from_str(&text).unwrap_or_else(|_| json!({ "raw": text }));
-    if let Some(obj) = payload.as_object_mut() {
-        obj.insert(
-            "_available_ops".into(),
-            json!(
-                mcp_registry::allowed_ops(key_scopes, None)
-                    .iter()
-                    .map(|o| o.name)
-                    .collect::<Vec<_>>()
-            ),
-        );
-    }
-    tool_ok(payload)
 }
 
 /// 非 2xx 的工具错误消息：4xx/5xx 区分，403 带签发指引。

@@ -127,21 +127,28 @@ async fn run_sink(
                     crate::application::alert_service::AlertService::threshold_for(&m.name)
                         .filter(|t| m.value > *t)
                 {
-                    let _ = alert_repo
+                    // 预警写库失败必须可见：告警是运维信号，静默丢失等于漏报
+                    if let Err(e) = alert_repo
                         .insert(msg.host_id, &m.name, threshold, m.value)
-                        .await;
+                        .await
+                    {
+                        tracing::error!(metric = %m.name, error = %e, "alert insert failed");
+                    }
                     // 预警联动通知中心（决策 009：系统内小卡片）
                     let svc = crate::application::notification_service::NotificationService::new(
                         db.clone(),
                         streams.clone(),
                     );
-                    let _ = svc
+                    if let Err(e) = svc
                         .notify(
                             msg.host_id,
                             crate::application::notification_service::KIND_ALERT,
                             &format!("预警：{} = {:.1}（阈值 {}）", m.name, m.value, threshold),
                         )
-                        .await;
+                        .await
+                    {
+                        tracing::warn!(metric = %m.name, error = %e, "alert notification failed");
+                    }
                 }
                 // 实时流：推送指标
                 let payload = serde_json::json!({

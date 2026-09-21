@@ -46,7 +46,7 @@ fn service(state: &AppState) -> ListenerService {
         state.query.clone(),
         state.streams.clone(),
         state.metrics.clone(),
-        state.server_token.clone(),
+        state.server_tokens.clone(),
         state.cert.clone(),
     )
 }
@@ -60,8 +60,8 @@ pub async fn create_listener(
     let listener = service(&state)
         .create(&body.name, &body.addr, &body.proto, &body.auth)
         .await?;
-    let _ = AuditService::new(state.db)
-        .record(
+    AuditService::new(state.db)
+        .record_best_effort(
             &claims.sub,
             "listener_create",
             &listener.id.to_string(),
@@ -84,8 +84,8 @@ pub async fn start_listener(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, Error> {
     service(&state).start(id).await?;
-    let _ = AuditService::new(state.db)
-        .record(&claims.sub, "listener_start", &id.to_string(), json!({}))
+    AuditService::new(state.db)
+        .record_best_effort(&claims.sub, "listener_start", &id.to_string(), json!({}))
         .await;
     Ok(Json(json!({ "ok": true })))
 }
@@ -97,8 +97,8 @@ pub async fn stop_listener(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, Error> {
     service(&state).stop(id).await?;
-    let _ = AuditService::new(state.db)
-        .record(&claims.sub, "listener_stop", &id.to_string(), json!({}))
+    AuditService::new(state.db)
+        .record_best_effort(&claims.sub, "listener_stop", &id.to_string(), json!({}))
         .await;
     Ok(Json(json!({ "ok": true })))
 }
@@ -113,8 +113,8 @@ pub async fn update_listener(
     let listener = service(&state)
         .update(id, &body.name, &body.addr, &body.proto, &body.auth)
         .await?;
-    let _ = AuditService::new(state.db)
-        .record(&claims.sub, "listener_update", &id.to_string(), json!({}))
+    AuditService::new(state.db)
+        .record_best_effort(&claims.sub, "listener_update", &id.to_string(), json!({}))
         .await;
     Ok(Json(json!({ "listener": listener })))
 }
@@ -126,8 +126,8 @@ pub async fn delete_listener(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, Error> {
     service(&state).delete(id).await?;
-    let _ = AuditService::new(state.db)
-        .record(&claims.sub, "listener_delete", &id.to_string(), json!({}))
+    AuditService::new(state.db)
+        .record_best_effort(&claims.sub, "listener_delete", &id.to_string(), json!({}))
         .await;
     Ok(Json(json!({ "ok": true })))
 }

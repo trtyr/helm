@@ -1,29 +1,23 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Pencil, RotateCw, Trash2, Wand2 } from "lucide-react";
-import type { components } from "../../api/schema";
+import { RotateCw, Wand2 } from "lucide-react";
 import { api } from "../../api/client";
 import { toast } from "../../lib/toast";
-import { relativeTime } from "../../lib/format";
-import { SkeletonRows, StatusDot, ErrorCard } from "../../components/ui";
+import { SkeletonRows, ErrorCard } from "../../components/ui";
 import { HostFormDrawer, type HostFormValues } from "../../components/HostFormDrawer";
 import { DeleteHostDialog } from "../../components/DeleteHostDialog";
 import { AgentGenerateDrawer } from "../../components/AgentGenerateDrawer";
+import { LIMIT, type HostView } from "./shared";
+import { BatchExecDialog, HostListFooter, HostRow } from "./HostParts";
 
-type HostView = components["schemas"]["HostView"];
-
-const LIMIT = 20;
-
-const OS_LABEL: Record<string, string> = {
-  windows: "Windows",
-  linux: "Linux",
-  macos: "macOS",
-  darwin: "macOS",
-};
-
-/** /hosts：主机单列表（主机与其 Agent 同体展示）+ 标签过滤 + 搜索 + 编辑。
- * 主机不手工创建——在目标机运行 helm-agent 后自动上线。 */
+/**
+ * /hosts：主机单列表（主机与其 Agent 同体展示）+ 标签过滤 + 搜索 + 编辑。
+ * 主机不手工创建——在目标机运行 helm-agent 后自动上线。
+ *
+ * G13 拆分（2026-09-21）：原为 492 行单文件。现拆为——`hosts/shared.ts`（类型与常量）/
+ * `hosts/HostParts.tsx`（单行主机、批量执行对话框、分页底栏）；本文件保留状态、数据与编排。
+ */
 export default function Hosts() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -247,137 +241,18 @@ export default function Hosts() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((h) => {
-                const localIp = h.local_ips?.find((ip) => !ip.includes(":")) ?? h.local_ips?.[0];
-                const extra = (h.local_ips?.length ?? 0) - 1;
-                return (
-                  <tr
-                    key={h.id}
-                    onClick={() => navigate(`/hosts/${h.id}/overview`)}
-                    className="group cursor-pointer border-b border-gray-400/60 transition-colors duration-150 last:border-0 hover:bg-gray-100"
-                  >
-                    <td className="px-4 py-3">
-                      <input
-                        type="checkbox"
-                        aria-label={`选择 ${h.hostname}`}
-                        checked={!!h.agent_id && selected.has(h.agent_id)}
-                        disabled={!h.agent_id}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={() => h.agent_id && toggleSel(h.agent_id)}
-                        className="h-3.5 w-3.5 accent-blue-1000"
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusDot online={!!h.online} stale={h.stale} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="text-label-14">{h.hostname}</div>
-                      <div className="mt-0.5 flex items-center gap-1.5 font-mono text-label-12 text-gray-900">
-                        <span>
-                          {h.agent_id ? `${h.agent_id} · v${h.agent_version ?? "?"}` : "未注册 Agent"}
-                        </span>
-                        {h.agent_elevated != null && (
-                          <span
-                            className={`whitespace-nowrap rounded px-1 py-px text-label-12 ${
-                              h.agent_elevated ? "bg-green-1000/10 text-green-1000" : "bg-gray-200 text-gray-900"
-                            }`}
-                          >
-                            {h.agent_elevated ? "管理员" : "普通"}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td
-                      className="px-4 py-3 font-mono text-label-13 text-gray-900 whitespace-nowrap"
-                      title={h.last_seen ?? undefined}
-                    >
-                      {relativeTime(h.last_seen, now)}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-label-13 text-gray-1000 whitespace-nowrap">
-                      {h.public_ip || "—"}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-label-13 text-gray-1000 whitespace-nowrap">
-                      {localIp ? (
-                        <span title={h.local_ips?.join("\n")}>
-                          {localIp}
-                          {extra > 0 && (
-                            <span className="ml-1 text-label-12 text-gray-900">+{extra}</span>
-                          )}
-                        </span>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td
-                      className="px-4 py-3 text-label-13 text-gray-900"
-                      title={[h.os_version, h.kernel].filter(Boolean).join(" · ") || h.platform}
-                    >
-                      {h.os ? OS_LABEL[h.os] ?? h.os : "—"}
-                      {h.arch ? ` · ${h.arch}` : ""}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`rounded border px-1.5 py-0.5 text-label-12 ${
-                          h.conn_mode === "forward"
-                            ? "border-blue-1000/40 bg-blue-1000/10 text-blue-1000"
-                            : "border-gray-400 bg-gray-200 text-gray-900"
-                        }`}
-                        title={h.conn_mode === "forward" ? `拨号地址 ${h.addr || "—"}` : "Agent 主动连接 Server"}
-                      >
-                        {h.conn_mode === "forward" ? "正向" : "反向"}
-                      </span>
-                    </td>
-                    <td className="max-w-40 px-4 py-3">
-                      <span className="flex flex-wrap gap-1">
-                        {h.tags?.slice(0, 2).map((t) => (
-                          <span
-                            key={t}
-                            className="rounded border border-gray-400 bg-gray-200 px-1.5 py-0.5 text-label-12"
-                          >
-                            {t}
-                          </span>
-                        ))}
-                        {(h.tags?.length ?? 0) > 2 && (
-                          <span
-                            className="text-label-12 text-gray-900"
-                            title={h.tags?.join("、")}
-                          >
-                            +{h.tags!.length - 2}
-                          </span>
-                        )}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <span className="inline-flex items-center gap-1">
-                        <button
-                          type="button"
-                          aria-label={`编辑 ${h.hostname}`}
-                          title="编辑"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditing(h);
-                          }}
-                          className="flex h-7 w-7 items-center justify-center rounded-md text-gray-900 transition-colors duration-150 hover:bg-gray-200 hover:text-blue-1000"
-                        >
-                          <Pencil size={14} strokeWidth={1.5} />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={`删除 ${h.hostname}`}
-                          title="删除"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleting(h);
-                          }}
-                          className="flex h-7 w-7 items-center justify-center rounded-md text-gray-900 transition-colors duration-150 hover:bg-gray-200 hover:text-red-1000"
-                        >
-                          <Trash2 size={14} strokeWidth={1.5} />
-                        </button>
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
+              {rows.map((h) => (
+                <HostRow
+                  key={h.id}
+                  h={h}
+                  now={now}
+                  selected={!!h.agent_id && selected.has(h.agent_id)}
+                  onToggleSel={() => h.agent_id && toggleSel(h.agent_id)}
+                  onOpen={() => navigate(`/hosts/${h.id}/overview`)}
+                  onEdit={() => setEditing(h)}
+                  onDelete={() => setDeleting(h)}
+                />
+              ))}
             </tbody>
           </table>
           </div>
@@ -385,32 +260,13 @@ export default function Hosts() {
 
         {/* 底栏分页（非搜索态） */}
         {!hostsQuery.isPending && !hostsQuery.isError && (
-          <div className="flex h-12 items-center justify-between border-t border-gray-400 px-4 text-label-13 text-gray-900">
-            <span>
-              {rows.length > 0 ? `第 ${page} 页 · 本页 ${rows.length} 台` : "无主机"}
-            </span>
-            <span className="flex items-center gap-1">
-              <button
-                type="button"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => p - 1)}
-                aria-label="上一页"
-                className="flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 hover:bg-gray-200 disabled:opacity-30"
-              >
-                <ChevronLeft size={14} strokeWidth={1.5} />
-              </button>
-              <span className="font-mono">{page}</span>
-              <button
-                type="button"
-                disabled={!hasNext}
-                onClick={() => setPage((p) => p + 1)}
-                aria-label="下一页"
-                className="flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 hover:bg-gray-200 disabled:opacity-30"
-              >
-                <ChevronRight size={14} strokeWidth={1.5} />
-              </button>
-            </span>
-          </div>
+          <HostListFooter
+            page={page}
+            rowCount={rows.length}
+            hasNext={hasNext}
+            onPrev={() => setPage((p) => p - 1)}
+            onNext={() => setPage((p) => p + 1)}
+          />
         )}
       </div>
 
@@ -432,61 +288,18 @@ export default function Hosts() {
       <AgentGenerateDrawer open={generating} onClose={() => setGenerating(false)} />
       {/* 批量执行对话框 */}
       {batchOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <button
-            type="button"
-            aria-label="关闭"
-            onClick={() => setBatchOpen(false)}
-            className="absolute inset-0 bg-black/40"
-          />
-          <div className="relative z-10 flex w-[520px] flex-col gap-4 rounded-xl border border-gray-400 bg-background-100 p-6">
-            <h2 className="text-heading-16">批量执行命令（{selected.size} 台）</h2>
-            <div className="flex items-center gap-2">
-              <span className="w-16 text-label-13 text-gray-900">命令</span>
-              <input
-                value={batchCmd}
-                onChange={(e) => setBatchCmd(e.target.value)}
-                className="h-8 flex-1 rounded-md border border-gray-400 bg-gray-100 px-2 font-mono text-label-13 outline-none hover:border-gray-500"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-16 text-label-13 text-gray-900">参数</span>
-              <input
-                value={batchArgs}
-                onChange={(e) => setBatchArgs(e.target.value)}
-                className="h-8 flex-1 rounded-md border border-gray-400 bg-gray-100 px-2 font-mono text-label-13 outline-none hover:border-gray-500"
-              />
-            </div>
-            {batchResult.length > 0 && (
-              <div className="max-h-40 overflow-y-auto rounded-md border border-gray-400 bg-gray-100 p-2 font-mono text-label-12">
-                {batchResult.map((r) => (
-                  <div key={r.agent_id} className={r.error ? "text-red-1000" : "text-green-1000"}>
-                    {r.agent_id}: {r.job_id ? `job ${r.job_id.slice(0, 8)}…` : r.error}
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setBatchOpen(false)}
-                className="h-8 rounded-md border border-gray-500 px-4 text-label-14 hover:bg-gray-200"
-              >
-                关闭
-              </button>
-              <button
-                type="button"
-                disabled={batchMutation.isPending}
-                onClick={() => batchMutation.mutate()}
-                className="h-8 rounded-md bg-gray-700 px-4 text-label-14 text-white hover:bg-gray-800 disabled:opacity-50"
-              >
-                {batchMutation.isPending ? "下发中…" : "全部下发"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <BatchExecDialog
+          count={selected.size}
+          cmd={batchCmd}
+          args={batchArgs}
+          result={batchResult}
+          pending={batchMutation.isPending}
+          onCmd={setBatchCmd}
+          onArgs={setBatchArgs}
+          onClose={() => setBatchOpen(false)}
+          onSubmit={() => batchMutation.mutate()}
+        />
       )}
     </div>
-
   );
 }

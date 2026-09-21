@@ -55,8 +55,8 @@ pub async fn batch_exec(
             Err(e) => jobs.push(json!({ "agent_id": agent_id, "error": e.to_string() })),
         }
     }
-    let _ = AuditService::new(state.db.clone())
-        .record(
+    AuditService::new(state.db.clone())
+        .record_best_effort(
             &claims.sub,
             "batch_exec",
             &format!("{} hosts", body.agent_ids.len()),

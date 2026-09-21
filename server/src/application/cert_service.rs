@@ -109,6 +109,25 @@ impl CertService {
         Ok(cert.pem())
     }
 
+    /// 读取 CSR 的主体 CN（A3：用于把「申请者自报的 agent_id」与 CSR 绑定）。
+    ///
+    /// 返回 `None` = CSR 未写 CN（合法但不具备绑定信息，调用方自行决定是否放行）。
+    pub fn csr_common_name(&self, csr_pem: &str) -> Result<Option<String>> {
+        let csr = CertificateSigningRequestParams::from_pem(csr_pem)?;
+        let dn = &csr.params.distinguished_name;
+        let Some(value) = dn.get(&DnType::CommonName) else {
+            return Ok(None);
+        };
+        let s = match value {
+            rcgen::DnValue::PrintableString(v) => v.as_str().to_string(),
+            rcgen::DnValue::Ia5String(v) => v.as_str().to_string(),
+            rcgen::DnValue::Utf8String(v) => v.clone(),
+            // 罕见编码（BMP/Teletex/Universal）：尽量给出可读形态，不做绑定判定以外的假设
+            other => format!("{other:?}"),
+        };
+        Ok(Some(s))
+    }
+
     /// 离线签发 agent 证书三件套（cert/key/ca）写入 `out_dir`，供 forward 模式预置。
     ///
     /// `san` 为逗号分隔的 DNS 或 IP（如 `localhost,43.163.80.102`）。

@@ -67,7 +67,7 @@ impl ProxyRegistry {
                 Err(error.unwrap_or_default())
             };
             if let Some(tx) = entry.connected_tx.take() {
-                let _ = tx.send(result);
+                let _ = tx.send(result); // 等待方（客户端泵）可能已退出：oneshot 送达失败无副作用
             }
         }
     }
@@ -75,7 +75,7 @@ impl ProxyRegistry {
     /// Agent → 客户端 数据块。
     pub async fn data(&self, conn_id: &str, data: Vec<u8>) {
         if let Some(entry) = self.inner.lock().await.get(conn_id) {
-            let _ = entry.data_tx.send(data);
+            let _ = entry.data_tx.send(data); // 客户端泵已退出则丢弃该块（该连接已结束）
         }
     }
 

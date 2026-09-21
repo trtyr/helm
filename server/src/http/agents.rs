@@ -102,8 +102,8 @@ pub async fn update_agent_tags(
         .set_tags(host_id, &body.tags)
         .await?
         .ok_or_else(|| Error::NotFound(format!("host: {host_id}")))?;
-    let _ = AuditService::new(state.db)
-        .record(&claims.sub, "agent_tags", &agent_id, json!({}))
+    AuditService::new(state.db)
+        .record_best_effort(&claims.sub, "agent_tags", &agent_id, json!({}))
         .await;
     Ok(Json(json!({ "host": host })))
 }

@@ -185,8 +185,8 @@ pub async fn create_host(
             addr: body.addr,
         })
         .await?;
-    let _ = AuditService::new(state.db)
-        .record(
+    AuditService::new(state.db)
+        .record_best_effort(
             &claims.sub,
             "host_create",
             &host.id.to_string(),
@@ -236,8 +236,8 @@ pub async fn update_host(
         )
         .await?
         .ok_or_else(|| Error::NotFound(format!("host: {id}")))?;
-    let _ = AuditService::new(state.db)
-        .record(&claims.sub, "host_update", &id.to_string(), json!({}))
+    AuditService::new(state.db)
+        .record_best_effort(&claims.sub, "host_update", &id.to_string(), json!({}))
         .await;
     Ok(Json(json!({ "host": host })))
 }
@@ -252,8 +252,8 @@ pub async fn delete_host(
     if n == 0 {
         return Err(Error::NotFound(format!("host: {id}")));
     }
-    let _ = AuditService::new(state.db)
-        .record(&claims.sub, "host_delete", &id.to_string(), json!({}))
+    AuditService::new(state.db)
+        .record_best_effort(&claims.sub, "host_delete", &id.to_string(), json!({}))
         .await;
     Ok(Json(json!({ "ok": true })))
 }

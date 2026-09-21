@@ -46,6 +46,7 @@ static CANCELLED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new
 pub fn request_cancel(job_id: &str) {
     CANCELLED.lock().unwrap().insert(job_id.to_string());
     if let Some(tx) = CANCEL_TX.lock().unwrap().remove(job_id) {
+        // watch 通道：接收侧（执行任务）已结束则无需再送取消信号，失败无副作用
         let _ = tx.send(true);
     }
 }
@@ -86,6 +87,8 @@ pub async fn run_and_report(
             }
             let cancelled = CANCELLED.lock().unwrap().remove(job_id);
             if cancelled {
+                // 上报通道已断（server 连接消失）时结果无法送达：agent 侧无补救手段，
+                // 该 job 终态由 server 侧 job sweeper 按超时兜底收敛
                 let _ = tx
                     .send(finish_frame(
                         job_id,
@@ -97,6 +100,7 @@ pub async fn run_and_report(
                     ))
                     .await;
             } else {
+                // 同上：上报通道已断时结果丢弃，server 侧由 sweeper 兜底
                 let _ = tx
                     .send(finish_frame(
                         job_id, exit_code, None, false, false, truncated,
@@ -107,6 +111,8 @@ pub async fn run_and_report(
         Some(Err(e)) => {
             let cancelled = CANCELLED.lock().unwrap().remove(job_id);
             if cancelled {
+                // 上报通道已断（server 连接消失）时结果无法送达：agent 侧无补救手段，
+                // 该 job 终态由 server 侧 job sweeper 按超时兜底收敛
                 let _ = tx
                     .send(finish_frame(
                         job_id,
@@ -118,6 +124,7 @@ pub async fn run_and_report(
                     ))
                     .await;
             } else {
+                // 同上：进程启动/执行失败的结果同样受上报通道可用性约束
                 let _ = tx
                     .send(finish_frame(
                         job_id,
@@ -175,6 +182,7 @@ async fn run_command(
         }
         // JobCancel 到达：杀进程后收尾（wait 返回被杀状态）
         _ = cancel_rx.changed() => {
+            // 尽力杀进程：失败即进程已退出，随后的 wait 仍会拿到真实终态
             let _ = child.start_kill();
             let st = child.wait().await?;
             tracing::info!(job_id, "child process killed by cancel");
@@ -218,6 +226,7 @@ async fn drain_pipe(
 /// 单流输出分块发送（B6）：每流超过 `MAX_STREAM_OUTPUT` 字节即截断，
 /// 超时分支上报：进程已被杀，输出丢弃。
 async fn report_timeout(job_id: &str, secs: u32, tx: &mpsc::Sender<AgentMessage>) {
+    // 超时结果同样受上报通道可用性约束：送不出去时由 server 侧 sweeper 兜底
     let _ = tx
         .send(finish_frame(
             job_id,
@@ -247,6 +256,7 @@ async fn send_stream(
             break;
         }
         let end = (offset + STREAM_CHUNK_SIZE).min(bytes.len());
+        // 分块输出：通道断则后续块也不会送达，循环自然结束（结果帧走最后一次尝试）
         let _ = tx
             .send(chunk_bytes(job_id, kind, bytes[offset..end].to_vec()))
             .await;

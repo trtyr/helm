@@ -17,8 +17,23 @@ lint:
 test:
     cargo test
 
+# 前端门禁（tsc + oxlint + vitest + build）
+console-check:
+    pnpm --dir console install --frozen-lockfile
+    pnpm --dir console exec tsc -b
+    pnpm --dir console run lint
+    pnpm --dir console run test
+    pnpm --dir console run build
+
+# Windows-only 代码的编译校验（T6 新增）：agent/src/ir/* 与 win_native 在 macOS/Linux 上
+# 不参与编译，这是本地能拿到的最强验证；缺 mingw-w64 时跳过而不是让 check 失败。
+windows-check:
+    @command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 \
+        && cargo check -p helm-agent --target x86_64-pc-windows-gnu \
+        || echo "⊘ 跳过 windows-check（缺 mingw-w64：brew install mingw-w64）"
+
 # 全部质量门禁
-check: fmt-check lint test
+check: fmt-check lint test windows-check console-check
     @echo "✓ all checks passed"
 
 # buf 契约 lint

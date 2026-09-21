@@ -79,6 +79,7 @@ impl SessionManager {
                         // 不应答时 ConPTY 的首屏初始化会永远等待，表现为终端黑屏无回显。
                         if buf[..n].windows(4).any(|w| w == b"\x1b[6n") {
                             let mut w = writer_for_reader.lock().unwrap();
+                            // DSR-CPR 应答：写失败即主端已断，会话即将结束，无需上报
                             let _ = w.write_all(b"\x1b[1;1R");
                             let _ = w.flush();
                         }
@@ -101,7 +102,7 @@ impl SessionManager {
                     exit_code: None,
                 })),
             };
-            let _ = tx.blocking_send(close);
+            let _ = tx.blocking_send(close); // 上报通道已断：SessionClosed 丢失后由 server 侧 session 回收兜底
             inner.lock().unwrap().remove(&sid_for_close);
         });
 
@@ -119,21 +120,21 @@ impl SessionManager {
     /// 写入输入到指定会话。
     pub fn input(&self, session_id: &str, data: &[u8]) {
         if let Some(s) = self.inner.lock().unwrap().get_mut(session_id) {
-            let _ = s.write(data);
+            let _ = s.write(data); // 会话已结束（PTY 关闭）则写入失败，前端会收到 SessionClosed
         }
     }
 
     /// 调整终端窗口大小。
     pub fn resize(&self, session_id: &str, cols: u16, rows: u16) {
         if let Some(s) = self.inner.lock().unwrap().get(session_id) {
-            let _ = s.resize(cols, rows);
+            let _ = s.resize(cols, rows); // 会话已结束则改窗失败，无副作用
         }
     }
 
     /// 关闭会话：杀子进程并移除。
     pub fn close(&self, session_id: &str) {
         if let Some(mut s) = self.inner.lock().unwrap().remove(session_id) {
-            let _ = s.child.kill();
+            let _ = s.child.kill(); // 尽力杀 PTY 子进程：失败即已自行退出
         }
     }
 }

@@ -51,6 +51,7 @@ impl ServiceManager {
     /// 停止服务（杀进程）。
     pub async fn stop(&self, service_id: &str) {
         if let Some(m) = self.inner.lock().unwrap().remove(service_id) {
+            // oneshot 停止信号：接收侧（监控循环）已退出即无需再送，失败无副作用
             let _ = m.kill_tx.send(());
         }
     }
@@ -75,6 +76,7 @@ async fn monitor(
         {
             Ok(c) => c,
             Err(e) => {
+                // 上报通道已断（server 连接消失）：状态帧送不出去，agent 侧无补救手段
                 let _ = send(
                     &tx,
                     &service_id,
@@ -88,6 +90,7 @@ async fn monitor(
             }
         };
         let pid = child.id().map(|p| p as i32);
+        // 状态帧的上报通道可用性不由 agent 掌控（见同文件 send 的说明）
         let _ = send(&tx, &service_id, "running", pid, None, b"").await;
 
         spawn_reader(child.stdout.take(), tx.clone(), service_id.clone(), pid);
@@ -95,16 +98,25 @@ async fn monitor(
 
         let exit_code = tokio::select! {
             _ = &mut kill_rx => {
+                // 尽力杀进程并回收：失败即进程已自行退出，wait 仍会返回真实状态
                 let _ = child.kill().await;
                 let _ = child.wait().await;
-                let _ = send(&tx, &service_id, "exited", pid, None, b"").await;
+                let _ = send(&tx, &service_id, "exited", pid, None, b"").await; // 上报通道可用性不由 agent 掌控（见 send 说明）
                 return;
             }
             status = child.wait() => {
-                status.ok().and_then(|s| s.code())
+                match status {
+                    Ok(s) => s.code(),
+                    Err(e) => {
+                        // 拉取子进程终态失败：不掩盖，留痕后按「退出码未知」上报
+                        tracing::warn!(service_id = %service_id, error = %e, "wait on child process failed");
+                        None
+                    }
+                }
             }
         };
 
+        // 终态帧同样受上报通道可用性约束（见同文件 send 的说明）
         let _ = send(
             &tx,
             &service_id,

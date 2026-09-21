@@ -26,7 +26,7 @@ impl FileListRegistry {
     /// 完成请求：把结果发给对应 receiver。
     pub async fn complete(&self, result: FileListResult) {
         if let Some(tx) = self.inner.lock().await.remove(&result.request_id) {
-            let _ = tx.send(result);
+            let _ = tx.send(result); // 发起方（HTTP 列目录）已放弃等待：送达失败无副作用
         }
     }
 }

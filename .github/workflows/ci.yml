@@ -2,7 +2,9 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    # EN-77 修复（T6）：仓库默认分支是 master，原写 main 导致 push 事件**永不触发**
+    # （CI 实际只在 PR 上生效）。这里用 master 覆盖真实默认分支。
+    branches: [master]
   pull_request:
 
 env:
@@ -67,3 +69,58 @@ jobs:
 
       - name: docs consistency check
         run: python3 scripts/check_docs.py
+
+  # EN-77 修复（T6）：前端此前完全不在 CI 内（只在本地 console/package.json）。
+  console:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          # 与 package.json 所在仓库的 lockfile 产出版本对齐（lockfileVersion 9.0）
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: console/pnpm-lock.yaml
+
+      - name: install
+        run: pnpm install --frozen-lockfile
+
+      - name: typecheck (tsc -b)
+        run: pnpm exec tsc -b
+
+      - name: lint (oxlint)
+        run: pnpm run lint
+
+      - name: unit tests (vitest)
+        run: pnpm run test
+
+      - name: build (vite)
+        run: pnpm run build
+
+  # T4/T6：Windows-only 代码（agent/src/ir/*、win_native 等）在 macOS/Linux 上**根本不被编译**，
+  # 因而长期没有验证通道。这个 job 是该通道的自动化形态：在真 Windows runner 上编译它们，
+  # 并跑平台无关纯函数单测（ir::text / ir::regcodec / netfmt 等，T4 抽出）。
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: compile + unit tests (agent, Windows-only code included)
+        run: cargo test -p helm-agent
+
+      - name: clippy (agent)
+        run: cargo clippy -p helm-agent --all-targets -- -D warnings

@@ -161,8 +161,8 @@ pub async fn kill_process(
     Json(body): Json<KillBody>,
 ) -> Result<Json<Value>, Error> {
     let ok = service(&state).kill(&body.agent_id, body.pid).await?;
-    let _ = AuditService::new(state.db.clone())
-        .record(
+    AuditService::new(state.db.clone())
+        .record_best_effort(
             &claims.sub,
             "process_kill",
             &body.agent_id,
@@ -228,8 +228,8 @@ pub async fn sys_service_action(
     let (ok, error) = service(&state)
         .sys_service_action(&body.agent_id, &body.name, &body.action)
         .await?;
-    let _ = AuditService::new(state.db.clone())
-        .record(
+    AuditService::new(state.db.clone())
+        .record_best_effort(
             &claims.sub,
             "sys_service_action",
             &body.agent_id,

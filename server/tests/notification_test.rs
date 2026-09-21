@@ -10,7 +10,7 @@ use helm_server::application::notification_service::{
 };
 use helm_server::grpc::connection_registry::ConnectionRegistry;
 use helm_server::grpc::file_list_registry::FileListRegistry;
-use helm_server::grpc::inbound::InboundCtx;
+use helm_server::grpc::inbound::{InboundCtx, InboundCtxDeps};
 use helm_server::grpc::query_registry::QueryRegistry;
 use helm_server::grpc::session_registry::SessionRegistry;
 use helm_server::grpc::stream_registry::StreamRegistry;
@@ -112,20 +112,20 @@ async fn inbound_metric_over_threshold_triggers_alert_notification() {
     // E2 起指标走异步 sink，断言前用 wait_idle 等落库收敛。
     let metric_sink =
         helm_server::application::metric_sink::MetricSink::spawn(db.clone(), StreamRegistry::new());
-    let mut ctx = InboundCtx::new(
-        format!("agent-{}", std::process::id()),
-        Some(host_id),
-        hostname.clone(),
-        ConnectionRegistry::new(),
-        tokio::sync::watch::channel(false).0,
-        TransferRegistry::new(),
-        SessionRegistry::new(),
-        FileListRegistry::new(),
-        QueryRegistry::new(),
-        StreamRegistry::new(),
-        metric_sink.clone(),
-        db.clone(),
-    );
+    let mut ctx = InboundCtx::new(InboundCtxDeps {
+        agent_id: format!("agent-{}", std::process::id()),
+        host_id: Some(host_id),
+        hostname: hostname.clone(),
+        registry: ConnectionRegistry::new(),
+        kick_tx: tokio::sync::watch::channel(false).0,
+        transfers: TransferRegistry::new(),
+        sessions: SessionRegistry::new(),
+        file_list: FileListRegistry::new(),
+        query: QueryRegistry::new(),
+        streams: StreamRegistry::new(),
+        metrics: metric_sink.clone(),
+        db: db.clone(),
+    });
     ctx.handle(AgentMessage {
         kind: Some(agent_message::Kind::MetricReport(MetricReport {
             metrics: vec![MetricPoint {

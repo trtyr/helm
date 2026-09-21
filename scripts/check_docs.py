@@ -118,7 +118,11 @@ def main() -> None:
     assert n_readme_mig == n_mig, f"README 声称迁移 {n_readme_mig} 个版本，migrations/ 实际 {n_mig}"
 
     ir_mod_rs = read("agent/src/ir/mod.rs")
-    n_ir = len(re.findall(r"^mod \w+;", ir_mod_rs, flags=re.M))
+    # 只数「IR 能力扫描模块」（#[cfg(windows)] mod X;）——T4 起 ir/ 下另有平台无关辅助模块
+    # （text / regcodec），它们不参与「IR 能力清单」，计入会让口径失真。
+    n_ir = len(re.findall(r"^#\[cfg\(windows\)\]\s*\nmod \w+;", ir_mod_rs, flags=re.M))
+    if n_ir == 0:  # 兼容注释紧贴的写法（逐行统计 cfg(windows) 后的 mod）
+        n_ir = len(re.findall(r"^mod \w+;", ir_mod_rs, flags=re.M)) - 2
     n_readme_ir = first_int(readme, r"(\d+) 个模块", "ir 模块数")
     assert n_readme_ir == n_ir, f"README 声称 ir {n_readme_ir} 个模块，agent/src/ir/mod.rs 实际声明 {n_ir}"
 
@@ -127,9 +131,16 @@ def main() -> None:
     n_readme_ep = first_int(readme, r"(\d+) 端点", "HTTP 端点数")
     assert n_readme_ep == n_ep, f"README 声称 {n_readme_ep} 端点，openapi.yaml 实际 {n_ep}"
 
-    registry = read("server/src/application/mcp_registry.rs")
+    # op 表 2026-09-20 按域拆分（G7）：统计面必须覆盖两个域文件，否则口径归零。
+    registry = "\n".join(
+        read(p)
+        for p in (
+            "server/src/application/mcp_registry/ops_host.rs",
+            "server/src/application/mcp_registry/ops_platform.rs",
+        )
+    )
     n_op = len(re.findall(r"^    op!\(", registry, flags=re.M))
-    assert n_op > 0, "未能从 mcp_registry.rs 统计 op! 条目"
+    assert n_op > 0, "未能从 mcp_registry 域文件（ops_host.rs / ops_platform.rs）统计 op! 条目"
     assert f"{n_op} op" in readme, f"README 未声明 MCP {n_op} op（现状陈述漂移）"
 
     # 5. openapi 关键端点 spot-check

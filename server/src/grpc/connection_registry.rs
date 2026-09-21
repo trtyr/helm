@@ -45,7 +45,7 @@ impl ConnectionKick {
     /// 通知该连接的入站任务退出。入站任务丢弃流后 HTTP/2 流被复位，
     /// 两端的 TCP 连接随之关闭。
     pub fn kick(&self) {
-        let _ = self.kick.send(true);
+        let _ = self.kick.send(true); // watch 通道：接收侧已释放即无需 kick（该连接本就已结束）
     }
 }
 

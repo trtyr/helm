@@ -29,6 +29,16 @@ pub struct Config {
     #[arg(long, env = "HELM_SERVER_TOKEN", default_value = "dev-token-change-me")]
     pub server_token: String,
 
+    /// 额外可接受的 Agent token（逗号分隔，A2 轮换用）：新旧 token 并存一段时间，
+    /// Agent 分批改配置后移除旧的即可实现**不停机轮换**；空 = 只认 HELM_SERVER_TOKEN
+    #[arg(long = "server-tokens", env = "HELM_SERVER_TOKENS", default_value = "")]
+    pub server_tokens_extra: String,
+
+    /// 拒绝以弱默认凭据启动（A1）：置 1 时若仍在使用默认 token/密钥则**启动失败**；
+    /// 默认只打 ERROR 日志（开发/CI 与 e2e 脚本依赖默认值，硬失败会把它们一起打断）
+    #[arg(long, env = "HELM_REQUIRE_STRONG_DEFAULTS", action = clap::ArgAction::SetTrue)]
+    pub require_strong_defaults: bool,
+
     /// JWT 签名密钥（生产必须配置强随机值）
     #[arg(long, env = "HELM_JWT_SECRET", default_value = "dev-secret-change-me")]
     pub jwt_secret: String,
@@ -120,6 +130,66 @@ impl Config {
     pub fn load() -> anyhow::Result<Self> {
         Ok(Self::parse())
     }
+
+    /// 可接受的 Agent token 全集：主 token + `HELM_SERVER_TOKENS` 里的轮换 token（去重、去空）。
+    ///
+    /// 顺序无关；空集合时**拒绝一切 Agent 注册**（fail-closed，见 `token_matches_any`）。
+    pub fn accepted_server_tokens(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut push = |t: &str| {
+            let t = t.trim();
+            if !t.is_empty() && !out.iter().any(|x: &String| x == t) {
+                out.push(t.to_string());
+            }
+        };
+        push(&self.server_token);
+        for t in self.server_tokens_extra.split(',') {
+            push(t);
+        }
+        out
+    }
+
+    /// A1：仍在使用的**弱默认凭据**清单（空 = 无问题）。
+    ///
+    /// 判定用「等于出厂默认值」而非熵估计——目的是拦住「忘了改」而不是评估强度。
+    pub fn insecure_defaults(&self) -> Vec<&'static str> {
+        let mut weak = Vec::new();
+        if self.server_token.trim() == "dev-token-change-me" {
+            weak.push("HELM_SERVER_TOKEN");
+        }
+        if self.jwt_secret.trim() == "dev-secret-change-me" {
+            weak.push("HELM_JWT_SECRET");
+        }
+        if self
+            .accepted_server_tokens()
+            .iter()
+            .any(|t| t == "dev-token-change-me")
+        {
+            weak.push("HELM_SERVER_TOKENS(含出厂默认值)");
+        }
+        weak
+    }
+
+    /// A1：启动期弱值守卫——命中即 ERROR；`HELM_REQUIRE_STRONG_DEFAULTS=1` 时拒绝启动。
+    ///
+    /// **语义变更（2026-09-20，T5）**：此前弱默认值完全静默，现在是启动期可见的 ERROR。
+    pub fn guard_insecure_defaults(&self) -> anyhow::Result<()> {
+        let weak = self.insecure_defaults();
+        if weak.is_empty() {
+            return Ok(());
+        }
+        tracing::error!(
+            weak = ?weak,
+            "insecure default credentials in use — set strong random values before exposing this server"
+        );
+        if self.require_strong_defaults {
+            anyhow::bail!(
+                "HELM_REQUIRE_STRONG_DEFAULTS=1 但仍在用弱默认凭据: {}",
+                weak.join(", ")
+            );
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -134,5 +204,60 @@ mod tests {
         assert_eq!(c.offline_alert_mins, 30);
         assert_eq!(c.log_dir, "./logs");
         assert_eq!(c.mcp_tier, 2);
+    }
+
+    /// A1：出厂默认值必须被识别为「弱」。
+    #[test]
+    fn insecure_defaults_detects_factory_values() {
+        let c = Config::parse_from(["helm-server"]);
+        let weak = c.insecure_defaults();
+        assert!(weak.contains(&"HELM_SERVER_TOKEN"));
+        assert!(weak.contains(&"HELM_JWT_SECRET"));
+    }
+
+    /// A1：显式配置强值后不再报弱。
+    #[test]
+    fn insecure_defaults_clean_after_hardening() {
+        let c = Config::parse_from([
+            "helm-server",
+            "--server-token",
+            "9f2c1e7a5b8d4f60",
+            "--jwt-secret",
+            "b71d0c3a9e548f26",
+        ]);
+        assert!(c.insecure_defaults().is_empty());
+    }
+
+    /// A1：HELM_REQUIRE_STRONG_DEFAULTS=1 时弱值必须拒绝启动。
+    #[test]
+    fn require_strong_defaults_refuses_weak() {
+        let c = Config::parse_from(["helm-server", "--require-strong-defaults"]);
+        assert!(c.guard_insecure_defaults().is_err());
+    }
+
+    /// A2：轮换 token 集合 = 主 token + 逗号分隔的额外 token（去重去空）。
+    #[test]
+    fn accepted_tokens_unions_and_dedups() {
+        let c = Config::parse_from([
+            "helm-server",
+            "--server-token",
+            "old-token",
+            "--server-tokens",
+            " new-token , old-token ,, ",
+        ]);
+        assert_eq!(c.accepted_server_tokens(), vec!["old-token", "new-token"]);
+    }
+
+    /// A2：空 token 不进入接受集合（fail-closed 的输入侧保证）。
+    #[test]
+    fn accepted_tokens_skips_empty() {
+        let c = Config::parse_from([
+            "helm-server",
+            "--server-token",
+            "",
+            "--server-tokens",
+            " , ",
+        ]);
+        assert!(c.accepted_server_tokens().is_empty());
     }
 }

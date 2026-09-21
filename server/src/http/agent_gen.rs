@@ -60,9 +60,9 @@ pub async fn create(
     } else {
         normalize_addr(body.server_addr.trim())
     };
-    // 监听器未配置专属 auth 时回退全局 token（与监听器接入逻辑一致）
+    // 监听器未配置专属 auth 时回退全局主 token（与监听器接入逻辑一致；A2 后主 token = 集合首项）
     let token = if listener.auth.is_empty() {
-        state.server_token.clone()
+        state.server_tokens.first().cloned().unwrap_or_default()
     } else {
         listener.auth.clone()
     };
@@ -85,8 +85,8 @@ pub async fn create(
         listen_addr,
         token,
     );
-    let _ = AuditService::new(state.db)
-        .record(
+    AuditService::new(state.db)
+        .record_best_effort(
             &claims.sub,
             "agent_generate",
             &job.id.to_string(),

@@ -12,6 +12,8 @@ mod forward;
 mod fs;
 mod ir;
 mod monitor;
+#[cfg(any(windows, test))]
+mod netfmt;
 mod privilege;
 mod process;
 mod proxy;

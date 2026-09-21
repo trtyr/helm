@@ -72,8 +72,16 @@ def parse_version() -> str:
     return _parse_version_yq() if yq_available() else _parse_version_pyyaml()
 
 
+# 路由定义分散在多处：http/mod.rs（healthz / mcp 根路由、公开的 terminal+cert+WS 流）
+# 与 http/routes.rs（/api/v1 受保护分组）——2026-09-20 G7 拆分后必须两处都扫，
+# 否则 /api/v1 面会整体误报「openapi 有但 server 无」。
+HTTP_SOURCES = ("server/src/http/mod.rs", "server/src/http/routes.rs")
+
+
 def server_routes() -> set[str]:
-    mod = open(os.path.join(ROOT, "server/src/http/mod.rs")).read()
+    mod = "\n".join(
+        open(os.path.join(ROOT, p)).read() for p in HTTP_SOURCES
+    )
     raw = re.findall(r'\.route\(\s*"([^"]+)"', mod)
     full: set[str] = set()
     for r in raw:

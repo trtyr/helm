@@ -42,14 +42,18 @@ pub async fn ir_scan(
     let kind = sorted_types.join(",");
     let findings_json = serde_json::json!(result.findings);
     let count = findings_json.as_array().map(|a| a.len()).unwrap_or(0) as i32;
-    let _ = crate::store::ir_repo::upsert_page_cache(
+    // 页面缓存写失败只影响后续读取性能，不影响本次结果；但 DB 异常必须留痕
+    if let Err(e) = crate::store::ir_repo::upsert_page_cache(
         state.db.pool(),
         &body.agent_id,
         &kind,
         &findings_json,
         count,
     )
-    .await;
+    .await
+    {
+        tracing::warn!(agent_id = %body.agent_id, kinds = %kind, error = %e, "ir page cache upsert failed");
+    }
 
     Ok(Json(json!({
         "findings": result.findings,
@@ -102,6 +106,13 @@ pub async fn mem_scan(
     State(state): State<AppState>,
     Json(body): Json<MemScanBody>,
 ) -> Result<Json<Value>, Error> {
+    // 体检新提项（T5）：pid 入口校验——只接受 0（全进程）或正数，
+    // 负数/异常值在入口拒绝，不下发给 agent（避免把不可信输入带到被控端）
+    if body.pid < 0 {
+        return Err(Error::InvalidArgument(
+            "pid must be >= 0 (0 = all processes)".into(),
+        ));
+    }
     let result: MemScanResultView = service(&state)
         .mem_scan(&body.agent_id, body.pid, body.min_len, &body.keyword)
         .await?;

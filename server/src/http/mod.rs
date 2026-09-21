@@ -39,7 +39,13 @@ use crate::grpc::transfer_registry::TransferRegistry;
 use crate::store::Db;
 use axum::Router;
 use axum::middleware;
-use axum::routing::{delete, get, post, put};
+use axum::routing::{get, post};
+
+mod mime;
+mod routes;
+
+use mime::mime_of;
+use routes::{exec_routes, host_routes, ir_routes, meta_routes, service_routes};
 
 /// HTTP 层共享状态。
 #[derive(Clone)]
@@ -55,7 +61,8 @@ pub struct AppState {
     /// 指标落库队列（E2）：listeners 管理页重启监听器时需重建 gRPC 服务。
     pub metrics: crate::application::metric_sink::MetricSink,
     pub jwt_secret: String,
-    pub server_token: String,
+    /// 可接受的 Agent token 全集（A2：主 token + 轮换中的额外 token）
+    pub server_tokens: Vec<String>,
     pub heartbeat_timeout_secs: u64,
     pub session_idle_timeout_secs: u64,
     pub cert: CertService,
@@ -66,180 +73,115 @@ pub struct AppState {
     pub http_port: u16,
     /// MCP 渐进分层（P002 T4）：tools/list 描述按 tier 收缩。
     pub mcp_tier: u8,
+    /// 登录失败计数与退避（A4）：账号 + 来源 IP 两维度，内存态
+    pub login_guard: std::sync::Arc<crate::application::login_guard::LoginGuard>,
+}
+
+/// HTTP 层启动依赖（G2：收口参数爆炸）。
+///
+/// 调用方（`lib.rs::run`）一次性装配；HTTP 层不再接受裸参数列表。
+pub struct HttpServeDeps {
+    pub config: Config,
+    pub db: Db,
+    pub registry: ConnectionRegistry,
+    pub transfers: TransferRegistry,
+    pub listeners: ListenerRegistry,
+    pub sessions: SessionRegistry,
+    pub file_list: FileListRegistry,
+    pub query: QueryRegistry,
+    pub streams: StreamRegistry,
+    /// 指标落库队列（E2）：listeners 管理页重启监听器时需重建 gRPC 服务。
+    pub metrics: crate::application::metric_sink::MetricSink,
+    pub cert: CertService,
 }
 
 /// 启动 HTTP 服务（控制台 API + health）。
-#[allow(clippy::too_many_arguments)]
-pub async fn serve(
-    config: Config,
-    db: Db,
-    registry: ConnectionRegistry,
-    transfers: TransferRegistry,
-    listeners: ListenerRegistry,
-    sessions: SessionRegistry,
-    file_list: FileListRegistry,
-    query: QueryRegistry,
-    streams: StreamRegistry,
-    metrics: crate::application::metric_sink::MetricSink,
-    cert: CertService,
-) -> anyhow::Result<()> {
-    let state = AppState {
-        db: db.clone(),
-        registry: registry.clone(),
-        transfers,
-        listeners,
-        sessions,
-        file_list,
-        query,
-        streams,
-        metrics,
+pub async fn serve(deps: HttpServeDeps) -> anyhow::Result<()> {
+    let addr = deps.config.http_addr.clone();
+    let web_dist = resolve_web_dist(&deps.config)?;
+    let state = build_state(deps);
+    let app = public_routes(&state, web_dist.clone());
+
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    tracing::info!(addr = %addr, "http listening");
+
+    let Some(dist) = web_dist else {
+        // A4：登录限速需要来源 IP → make-service 必须带 connect info
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await?;
+        return Ok(());
+    };
+    // 前后端一体化（HELM_WEB_DIST_DIR）：同一端口托管控制台静态资源 + SPA fallback。
+    // API 语义保留：/api、/mcp、/healthz 未匹配仍返回 404，不落回 index.html。
+    tracing::info!(dist = %dist.display(), "serving console static files");
+    let app = app.fallback(move |req| web_static(dist.clone(), req));
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
+    Ok(())
+}
+
+/// 组装 HTTP 层共享状态。
+fn build_state(deps: HttpServeDeps) -> AppState {
+    let config = &deps.config;
+    AppState {
+        db: deps.db.clone(),
+        registry: deps.registry.clone(),
+        transfers: deps.transfers,
+        listeners: deps.listeners,
+        sessions: deps.sessions,
+        file_list: deps.file_list,
+        query: deps.query,
+        streams: deps.streams,
+        metrics: deps.metrics,
         jwt_secret: config.jwt_secret.clone(),
-        server_token: config.server_token.clone(),
+        server_tokens: config.accepted_server_tokens(),
         heartbeat_timeout_secs: config.heartbeat_timeout_secs,
         session_idle_timeout_secs: config.session_idle_timeout_secs,
         mcp_tier: config.mcp_tier,
-        cert,
+        login_guard: std::sync::Arc::new(crate::application::login_guard::LoginGuard::new()),
+        cert: deps.cert,
         agent_gen: crate::application::agent_generator::AgentGenService::new(
             config.agent_source_dir.clone(),
         ),
         proxy_service: crate::application::proxy_service::ProxyService::new(),
-        conn_registry: registry,
+        conn_registry: deps.registry,
         http_port: config
             .http_addr
             .rsplit(':')
             .next()
             .and_then(|p| p.parse().ok())
             .unwrap_or(8080),
-    };
+    }
+}
 
-    // 受保护路由（需 JWT）
-    let protected = Router::new()
-        .route("/hosts", get(hosts::list_hosts).post(hosts::create_host))
-        .route(
-            "/hosts/{id}",
-            get(hosts::get_host)
-                .put(hosts::update_host)
-                .delete(hosts::delete_host),
-        )
-        .route("/hosts/{id}/tags", post(hosts::set_host_tags))
-        .route("/exec", post(exec::exec))
-        .route("/jobs", get(jobs::list_jobs))
-        .route("/logs/events", get(logs::list_events))
-        .route("/jobs/{id}", get(jobs::get_job))
-        .route("/jobs/{id}/cancel", post(jobs::cancel_job))
-        .route("/metrics", get(metrics::list_metrics))
-        .route("/files/upload", post(files::upload))
-        .route("/files/download", post(files::download))
-        .route("/files/list", post(files::list))
-        .route("/tasks/script", post(tasks::run_script))
-        .route("/tasks/schedule", post(tasks::schedule))
-        .route("/forward/exec", post(forward::exec))
-        .route(
-            "/listeners",
-            get(listeners::list_listeners).post(listeners::create_listener),
-        )
-        .route("/listeners/{id}/start", post(listeners::start_listener))
-        .route("/listeners/{id}/stop", post(listeners::stop_listener))
-        .route(
-            "/listeners/{id}",
-            put(listeners::update_listener).delete(listeners::delete_listener),
-        )
-        .route("/agents", get(agents::list_agents))
-        .route(
-            "/agents/{id}",
-            get(agents::get_agent).delete(agents::deregister_agent),
-        )
-        .route("/agents/{id}/tags", put(agents::update_agent_tags))
-        .route("/agents/{id}/uninstall", post(agents::uninstall_agent))
-        .route(
-            "/agent-gen",
-            get(agent_gen::list_jobs).post(agent_gen::create),
-        )
-        .route("/agent-gen/{id}", get(agent_gen::get_job))
-        .route("/agent-gen/{id}/download", get(agent_gen::download))
-        .route(
-            "/services",
-            get(services::list_services).post(services::create_service),
-        )
-        .route("/services/{id}/start", post(services::start_service))
-        .route("/services/{id}/stop", post(services::stop_service))
-        .route("/services/{id}/restart", post(services::restart_service))
-        .route("/services/{id}/logs", get(services::service_logs))
-        .route(
-            "/services/{id}",
-            put(services::update_service).delete(services::delete_service),
-        )
-        .route("/processes/list", post(process::list_processes))
-        .route("/processes/kill", post(process::kill_process))
-        .route("/net/info", post(process::net_info))
-        .route("/sys-services/list", post(process::list_sys_services))
-        .route("/sys-services/action", post(process::sys_service_action))
-        .route("/ir/scan", post(ir::ir_scan))
-        .route("/ir/memscan", post(ir::mem_scan))
-        .route("/ir/memscan/stream", post(ir_ops::memscan_stream_start))
-        .route("/ir/cache", get(ir::get_cache))
-        .route("/ir/fs-timeline", post(p2::fs_timeline))
-        .route("/ir/evidence", post(p2::evidence))
-        .route("/exec/batch", post(p2::batch_exec))
-        .route("/ir/autorun-action", post(ir_ops::autorun_action))
-        .route(
-            "/ir/snapshots",
-            post(ir_ops::create_snapshot).get(ir_ops::list_snapshots),
-        )
-        .route("/ir/snapshots/compare", post(ir_ops::compare_snapshots))
-        .route(
-            "/ir/snapshots/{id}",
-            get(ir_ops::get_snapshot).delete(ir_ops::delete_snapshot),
-        )
-        .route(
-            "/proxies",
-            get(proxies::list_proxies).post(proxies::create_proxy),
-        )
-        .route("/proxies/{id}", delete(proxies::stop_proxy))
-        .route("/audit", get(audit::list_audit))
-        .route("/alerts", get(alerts::list_alerts))
-        .route("/notifications", get(notifications::list_notifications))
-        .route(
-            "/notifications/unread-count",
-            get(notifications::unread_count),
-        )
-        .route("/notifications/{id}/read", post(notifications::mark_read))
-        .route(
-            "/notifications/read-all",
-            post(notifications::mark_all_read),
-        )
-        .route("/api-keys", get(api_keys::list).post(api_keys::create))
-        .route(
-            "/api-keys/{id}",
-            get(api_keys::get_one).delete(api_keys::revoke),
-        )
-        .route("/auth/me", get(auth::me))
-        .route("/auth/change-password", post(auth::change_password))
-        .route("/auth/change-username", post(auth::change_username))
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            auth::require_auth,
+/// 解析并校验前端静态资源目录（HELM_WEB_DIST_DIR）：GET /mcp 回 MCP 页依赖它。
+fn resolve_web_dist(config: &Config) -> anyhow::Result<Option<std::path::PathBuf>> {
+    if config.web_dist_dir.is_empty() {
+        return Ok(None);
+    }
+    let d = std::path::PathBuf::from(&config.web_dist_dir);
+    if !d.join("index.html").is_file() {
+        return Err(anyhow::anyhow!(
+            "web_dist_dir {:?} 不存在 index.html（先构建 console：pnpm --dir console build）",
+            d
         ));
+    }
+    Ok(Some(d))
+}
 
-    // 前后端一体化前置检查（HELM_WEB_DIST_DIR）：GET /mcp 回 MCP 页依赖它。
-    let web_dist: Option<std::path::PathBuf> = if config.web_dist_dir.is_empty() {
-        None
-    } else {
-        let d = std::path::PathBuf::from(&config.web_dist_dir);
-        if !d.join("index.html").is_file() {
-            return Err(anyhow::anyhow!(
-                "web_dist_dir {:?} 不存在 index.html（先构建 console：pnpm --dir console build）",
-                d
-            ));
-        }
-        Some(d)
-    };
-
-    let app = Router::new()
+/// 根路由：公开端点 + `/api/v1` 受保护组。
+fn public_routes(state: &AppState, web_dist: Option<std::path::PathBuf>) -> Router {
+    let dist = web_dist.clone();
+    Router::new()
         .route("/healthz", get(health::healthz))
         .route("/mcp", {
             // GET → console 的 MCP 页（前端路由 deep link，需 HELM_WEB_DIST_DIR）；POST → JSON-RPC。
-            let dist = web_dist.clone();
             post(mcp::mcp).get(move || async move {
                 use axum::response::IntoResponse;
                 match dist.as_ref() {
@@ -268,43 +210,21 @@ pub async fn serve(
             get(stream::memscan_stream),
         )
         .route("/api/v1/agents/cert", post(cert::issue_cert))
-        .nest("/api/v1", protected)
-        .with_state(state);
-
-    let listener = tokio::net::TcpListener::bind(&config.http_addr).await?;
-    tracing::info!(addr = %config.http_addr, "http listening");
-
-    if let Some(dist) = web_dist {
-        // 前后端一体化（HELM_WEB_DIST_DIR）：同一端口托管控制台静态资源 + SPA fallback。
-        // API 语义保留：/api、/mcp、/healthz 未匹配仍返回 404，不落回 index.html。
-        tracing::info!(dist = %dist.display(), "serving console static files");
-        let app = app.fallback(move |req| web_static(dist.clone(), req));
-        axum::serve(listener, app).await?;
-    } else {
-        axum::serve(listener, app).await?;
-    }
-    Ok(())
+        .nest("/api/v1", protected_routes(state))
+        .with_state(state.clone())
 }
 
-/// 静态资源 MIME（Vite 产物常用类型，覆盖不全时浏览器按猜测处理也无碍）。
-fn mime_of(path: &str) -> &'static str {
-    match path.rsplit('.').next().unwrap_or("") {
-        "html" => "text/html; charset=utf-8",
-        "js" | "mjs" => "text/javascript; charset=utf-8",
-        "css" => "text/css; charset=utf-8",
-        "json" | "map" => "application/json",
-        "svg" => "image/svg+xml",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "ico" => "image/x-icon",
-        "woff" => "font/woff",
-        "woff2" => "font/woff2",
-        "ttf" => "font/ttf",
-        "txt" => "text/plain; charset=utf-8",
-        _ => "application/octet-stream",
-    }
+/// 受保护路由（`/api/v1` 分组）：统一挂 JWT/API-key 中间件。
+fn protected_routes(state: &AppState) -> Router<AppState> {
+    host_routes()
+        .merge(exec_routes())
+        .merge(service_routes())
+        .merge(ir_routes())
+        .merge(meta_routes())
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_auth,
+        ))
 }
 
 /// 前后端一体化的静态托管 fallback：命中文件直接回，未命中回 index.html（SPA 路由）。

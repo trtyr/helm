@@ -26,8 +26,8 @@ pub async fn exec(
     Extension(claims): Extension<Claims>,
     Json(body): Json<ExecBody>,
 ) -> Result<Json<Value>, Error> {
-    let _ = AuditService::new(state.db.clone())
-        .record(
+    AuditService::new(state.db.clone())
+        .record_best_effort(
             &claims.sub,
             "exec",
             &body.agent_id,

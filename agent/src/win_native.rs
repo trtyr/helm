@@ -1,25 +1,20 @@
 //! Windows 原生能力（内置能力层，对标 Process Hacker 的实现方式）：
 //! - 服务：SCM 原生枚举/启停（替代 PowerShell/CIM，无外部进程、无编码问题）
-//! - 网络适配器：GetAdaptersAddressesW（全量接口，含 MAC/网关/状态）
-//! - 连接表：GetExtendedTcpTable / GetExtendedUdpTable（含归属 PID，替代 netstat 解析）
+//! - 网络适配器：GetAdaptersAddressesW（全量接口，含 MAC/网关/状态）——见 [`net`]
+//! - 连接表：GetExtendedTcpTable / GetExtendedUdpTable（含归属 PID，替代 netstat 解析）——见 [`net`]
 //! - 磁盘：GetLogicalDrives / GetDriveTypeW（驱动器枚举，文件管理根视图）
 //! - 进程：QueryFullProcessImageNameW（绝对路径兜底查询）
 //!
 //! 仅 Windows 编译；其他平台调用方自行回退到命令行方案。
+//!
+//! **文件布局（G7 拆分，2026-09-20）**：网络面（适配器 + 连接表）拆到 [`net`]；本文件保留
+//! 服务（SCM）、磁盘与进程路径查询。两个子模块条目都在此 `pub use` 再导出，调用方无感。
 
 #![cfg(windows)]
 
-use std::net::{Ipv4Addr, Ipv6Addr};
+use helm_proto::pb::SysServiceEntry;
 
-use helm_proto::pb::{NetConnection, SysServiceEntry};
-
-use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_BUFFER_OVERFLOW, ERROR_INSUFFICIENT_BUFFER, GetLastError, NO_ERROR,
-};
-use windows_sys::Win32::NetworkManagement::IpHelper::{
-    GetAdaptersAddresses, GetExtendedTcpTable, GetExtendedUdpTable,
-};
-use windows_sys::Win32::NetworkManagement::Ndis::IfOperStatusUp;
+use windows_sys::Win32::Foundation::{CloseHandle, GetLastError};
 use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
 use windows_sys::Win32::System::Services::{
     CloseServiceHandle, ControlService, ENUM_SERVICE_STATUS_PROCESSW, EnumServicesStatusExW,
@@ -33,6 +28,10 @@ use windows_sys::Win32::System::Services::{
 use windows_sys::Win32::System::Threading::{
     OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
+
+mod net;
+
+pub use net::{list_adapters, list_connections};
 
 // ---------------------------------------------------------------------------
 // 服务（SCM）
@@ -66,7 +65,7 @@ pub fn list_services() -> anyhow::Result<Vec<SysServiceEntry>> {
             break (buffer, returned as usize);
         }
         let err = unsafe { GetLastError() };
-        if err == ERROR_INSUFFICIENT_BUFFER {
+        if err == windows_sys::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER {
             size = needed.max(size * 2);
             continue;
         }
@@ -196,7 +195,7 @@ pub fn service_action(name: &str, action: &str) -> Result<(), String> {
 
 /// 停止 → 启动（restart 语义；stop 失败即未运行，不阻断）。
 pub fn service_restart(name: &str) -> Result<(), String> {
-    let _ = service_action(name, "stop");
+    let _ = service_action(name, "stop"); // restart 语义：stop 失败即服务本未运行，不阻断后续 start
     std::thread::sleep(std::time::Duration::from_millis(500));
     service_action(name, "start")
 }
@@ -272,325 +271,6 @@ pub fn list_drives() -> Vec<(String, &'static str)> {
         }
     }
     drives
-}
-
-// ---------------------------------------------------------------------------
-// 网络适配器 + 连接表
-// ---------------------------------------------------------------------------
-
-/// 全量网络适配器（GetAdaptersAddressesW）：名称 / 单播地址 / MAC / 状态 / 网关 / 类型。
-pub fn list_adapters() -> Vec<(String, Vec<String>, String, String, String, String)> {
-    // GAA_FLAG_INCLUDE_GATEWAYS | GAA_FLAG_INCLUDE_ALL_INTERFACES
-    const FLAGS: u32 = 0x0001 | 0x0100;
-
-    let mut size: u32 = 16 * 1024;
-    let mut buffer;
-    loop {
-        buffer = vec![0u8; size as usize];
-        let rc = unsafe {
-            GetAdaptersAddresses(
-                0, // AF_UNSPEC
-                FLAGS,
-                std::ptr::null_mut(),
-                buffer.as_mut_ptr() as *mut _,
-                &mut size,
-            )
-        };
-        if rc == ERROR_BUFFER_OVERFLOW {
-            continue; // size 已更新，重新分配
-        }
-        if rc == NO_ERROR {
-            break;
-        }
-        return Vec::new();
-    }
-
-    let mut out = Vec::new();
-    let mut cursor = buffer.as_ptr()
-        as *const windows_sys::Win32::NetworkManagement::IpHelper::IP_ADAPTER_ADDRESSES_LH;
-    while !cursor.is_null() {
-        let adapter = unsafe { &*cursor };
-        let name = wide_to_string(adapter.FriendlyName);
-        let status = if adapter.OperStatus == IfOperStatusUp {
-            "up"
-        } else {
-            "down"
-        };
-        let mac = if adapter.PhysicalAddressLength > 0 {
-            adapter.PhysicalAddress[..adapter.PhysicalAddressLength as usize]
-                .iter()
-                .map(|b| format!("{b:02X}"))
-                .collect::<Vec<_>>()
-                .join("-")
-        } else {
-            String::new()
-        };
-        let kind = if_type_label(adapter.IfType);
-
-        let mut addrs = Vec::new();
-        let mut gw = String::new();
-        let mut u = adapter.FirstUnicastAddress;
-        while !u.is_null() {
-            let sa = unsafe { (*u).Address.lpSockaddr };
-            if let Some(ip) = sockaddr_to_ip(sa) {
-                addrs.push(ip);
-            }
-            u = unsafe { (*u).Next };
-        }
-        let mut g = adapter.FirstGatewayAddress;
-        while !g.is_null() {
-            let sa = unsafe { (*g).Address.lpSockaddr };
-            if gw.is_empty() {
-                gw = sockaddr_to_ip(sa).unwrap_or_default();
-            }
-            g = unsafe { (*g).Next };
-        }
-
-        out.push((name, addrs, mac, status.to_string(), gw, kind.to_string()));
-        cursor = adapter.Next as *const _;
-    }
-    out
-}
-
-fn sockaddr_to_ip(sa: *const windows_sys::Win32::Networking::WinSock::SOCKADDR) -> Option<String> {
-    use windows_sys::Win32::Networking::WinSock::{AF_INET, AF_INET6, SOCKADDR_IN, SOCKADDR_IN6};
-    if sa.is_null() {
-        return None;
-    }
-    let family = unsafe { (*sa).sa_family };
-    if family == AF_INET {
-        let sin = sa as *const SOCKADDR_IN;
-        let b = unsafe { (*sin).sin_addr.S_un.S_un_b };
-        Some(Ipv4Addr::new(b.s_b1, b.s_b2, b.s_b3, b.s_b4).to_string())
-    } else if family == AF_INET6 {
-        let sin6 = sa as *const SOCKADDR_IN6;
-        let bytes = unsafe { (*sin6).sin6_addr.u.Byte };
-        Some(Ipv6Addr::from(bytes).to_string())
-    } else {
-        None
-    }
-}
-
-fn if_type_label(t: u32) -> &'static str {
-    match t {
-        6 => "ethernet",
-        71 => "wifi",
-        24 => "loopback",
-        53 | 131 => "tunnel",
-        23 => "ppp",
-        _ => "other",
-    }
-}
-
-/// TCP/UDP 连接表（含归属 PID），pid→进程名由调用方补齐。
-pub fn list_connections() -> Vec<NetConnection> {
-    let mut conns = tcp_table();
-    conns.extend(udp_table());
-    conns
-}
-
-/// 内存中的网络字节序 u32 → IPv4 点分串。
-fn ipv4_str(addr: u32) -> String {
-    let b = addr.to_ne_bytes();
-    Ipv4Addr::new(b[0], b[1], b[2], b[3]).to_string()
-}
-
-/// 网络字节序端口字段（低 16 位）→ 主机序端口号。
-fn port_str(field: u32) -> String {
-    u16::from_be((field & 0xFFFF) as u16).to_string()
-}
-
-fn tcp_table() -> Vec<NetConnection> {
-    let mut out = tcp_table_family(windows_sys::Win32::Networking::WinSock::AF_INET as u32);
-    out.extend(tcp_table_family(
-        windows_sys::Win32::Networking::WinSock::AF_INET6 as u32,
-    ));
-    out
-}
-
-fn tcp_table_family(family: u32) -> Vec<NetConnection> {
-    const TCP_TABLE_OWNER_PID_ALL:
-        windows_sys::Win32::NetworkManagement::IpHelper::TCP_TABLE_CLASS = 4;
-    let mut size: u32 = 0;
-    let rc = unsafe {
-        GetExtendedTcpTable(
-            std::ptr::null_mut(),
-            &mut size,
-            0,
-            family,
-            TCP_TABLE_OWNER_PID_ALL,
-            0,
-        )
-    };
-    if rc != ERROR_INSUFFICIENT_BUFFER || size == 0 {
-        return Vec::new();
-    }
-    let mut buffer = vec![0u8; size as usize];
-    let rc = unsafe {
-        GetExtendedTcpTable(
-            buffer.as_mut_ptr() as *mut _,
-            &mut size,
-            0,
-            family,
-            TCP_TABLE_OWNER_PID_ALL,
-            0,
-        )
-    };
-    if rc != NO_ERROR {
-        return Vec::new();
-    }
-
-    let is_v6 = family == windows_sys::Win32::Networking::WinSock::AF_INET6 as u32;
-    let ptr = buffer.as_ptr();
-    let count = unsafe { *(ptr as *const u32) } as usize;
-    let mut out = Vec::with_capacity(count);
-    for i in 0..count {
-        // v4 行 24B：state(0) local(4) lport(8) remote(12) rport(16) pid(20)
-        // v6 行 56B：local(16) lport(16) remote(20) rport(36) state(40) pid(44)
-        let (local, remote, state, pid) = unsafe {
-            if is_v6 {
-                let base = ptr.add(4).add(i * 56);
-                let read_u32 = |off: usize| {
-                    u32::from_le_bytes(
-                        std::slice::from_raw_parts(base.add(off), 4)
-                            .try_into()
-                            .unwrap(),
-                    )
-                };
-                let mut ip = [0u8; 16];
-                ip.copy_from_slice(std::slice::from_raw_parts(base, 16));
-                let local = format!("[{}]:{}", Ipv6Addr::from(ip), port_str(read_u32(16)));
-                let mut rip = [0u8; 16];
-                rip.copy_from_slice(std::slice::from_raw_parts(base.add(20), 16));
-                let remote = format!("[{}]:{}", Ipv6Addr::from(rip), port_str(read_u32(36)));
-                (local, remote, read_u32(40), read_u32(44))
-            } else {
-                let base = ptr.add(4).add(i * 24);
-                let read_u32 = |off: usize| {
-                    u32::from_le_bytes(
-                        std::slice::from_raw_parts(base.add(off), 4)
-                            .try_into()
-                            .unwrap(),
-                    )
-                };
-                let local = format!("{}:{}", ipv4_str(read_u32(4)), port_str(read_u32(8)));
-                let remote = format!("{}:{}", ipv4_str(read_u32(12)), port_str(read_u32(16)));
-                (local, remote, read_u32(0), read_u32(20))
-            }
-        };
-        out.push(NetConnection {
-            protocol: "tcp".into(),
-            local,
-            remote,
-            state: tcp_state_label(state),
-            pid: pid as i32,
-            process_name: String::new(),
-        });
-    }
-    out
-}
-
-fn udp_table() -> Vec<NetConnection> {
-    const UDP_TABLE_OWNER_PID: windows_sys::Win32::NetworkManagement::IpHelper::UDP_TABLE_CLASS = 1;
-    let mut out = Vec::new();
-    for family in [
-        windows_sys::Win32::Networking::WinSock::AF_INET as u32,
-        windows_sys::Win32::Networking::WinSock::AF_INET6 as u32,
-    ] {
-        let is_v6 = family == windows_sys::Win32::Networking::WinSock::AF_INET6 as u32;
-        let mut size: u32 = 0;
-        let rc = unsafe {
-            GetExtendedUdpTable(
-                std::ptr::null_mut(),
-                &mut size,
-                0,
-                family,
-                UDP_TABLE_OWNER_PID,
-                0,
-            )
-        };
-        if rc != ERROR_INSUFFICIENT_BUFFER || size == 0 {
-            continue;
-        }
-        let mut buffer = vec![0u8; size as usize];
-        let rc = unsafe {
-            GetExtendedUdpTable(
-                buffer.as_mut_ptr() as *mut _,
-                &mut size,
-                0,
-                family,
-                UDP_TABLE_OWNER_PID,
-                0,
-            )
-        };
-        if rc != NO_ERROR {
-            continue;
-        }
-        let ptr = buffer.as_ptr();
-        let count = unsafe { *(ptr as *const u32) } as usize;
-        for i in 0..count {
-            // v4 行 12B：addr(0) port(4) pid(8)；v6 行 24B：addr(16) port(16) pid(20)
-            let (local, pid) = unsafe {
-                if is_v6 {
-                    let base = ptr.add(4).add(i * 24);
-                    let read_u32 = |off: usize| {
-                        u32::from_le_bytes(
-                            std::slice::from_raw_parts(base.add(off), 4)
-                                .try_into()
-                                .unwrap(),
-                        )
-                    };
-                    let mut ip = [0u8; 16];
-                    ip.copy_from_slice(std::slice::from_raw_parts(base, 16));
-                    (
-                        format!("[{}]:{}", Ipv6Addr::from(ip), port_str(read_u32(16))),
-                        read_u32(20),
-                    )
-                } else {
-                    let base = ptr.add(4).add(i * 12);
-                    let read_u32 = |off: usize| {
-                        u32::from_le_bytes(
-                            std::slice::from_raw_parts(base.add(off), 4)
-                                .try_into()
-                                .unwrap(),
-                        )
-                    };
-                    (
-                        format!("{}:{}", ipv4_str(read_u32(0)), port_str(read_u32(4))),
-                        read_u32(8),
-                    )
-                }
-            };
-            out.push(NetConnection {
-                protocol: "udp".into(),
-                local,
-                remote: "*:*".into(),
-                state: String::new(),
-                pid: pid as i32,
-                process_name: String::new(),
-            });
-        }
-    }
-    out
-}
-
-fn tcp_state_label(state: u32) -> String {
-    let label = match state {
-        2 => "LISTEN",
-        3 => "SYN_SENT",
-        4 => "SYN_RCVD",
-        5 => "ESTABLISHED",
-        6 => "FIN_WAIT1",
-        7 => "FIN_WAIT2",
-        8 => "CLOSE_WAIT",
-        9 => "CLOSING",
-        10 => "LAST_ACK",
-        11 => "TIME_WAIT",
-        12 => "DELETE_TCB",
-        1 => "CLOSED",
-        _ => return String::new(),
-    };
-    label.to_string()
 }
 
 /// 进程绝对路径兜底：sysinfo 拿不到时用 QueryFullProcessImageNameW 再试一次。

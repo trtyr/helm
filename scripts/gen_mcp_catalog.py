@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""从 server/src/application/mcp_registry.rs 的 OPS 注册表生成 console/src/lib/mcpCatalog.ts。
+"""从 mcp_registry 的**域文件**（server/src/application/mcp_registry/ops_{host,platform}.rs）生成 console/src/lib/mcpCatalog.ts。
+
+注：2026-09-20 G7 拆分后，op 表由单文件 mcp_registry.rs 拆成两个域文件
+（`pub static HOST_OPS` / `pub static PLATFORM_OPS`），本脚本的解析面随之改为
+「按 REGISTRY_PARTS 顺序逐文件解析」——域顺序仍由列表顺序决定（host 在前）。
+生成物中的指针注释保持原样（指向模块根 mcp_registry.rs），以确保输出逐字不变。
 
 P002 两域极简版：域分组来自 // -- <name> 域 注释（容忍括号说明）。
 每个 op 附 group 字段 = 能力组（复验反馈：目录三级化——域 → 能力组 → 工具，与 registry top_subgroup 同映射）。
@@ -7,7 +12,8 @@ P002 两域极简版：域分组来自 // -- <name> 域 注释（容忍括号说
 """
 import re
 
-REGISTRY = 'server/src/application/mcp_registry.rs'
+REGISTRY_PARTS = ['server/src/application/mcp_registry/ops_host.rs',
+                  'server/src/application/mcp_registry/ops_platform.rs']
 TARGET = 'console/src/lib/mcpCatalog.ts'
 EXPECT_DOMAINS = {'host': 28, 'platform': 13}
 FORBIDDEN = {'metrics.list', 'alerts.list', 'notifications.list',
@@ -27,27 +33,38 @@ SUBGROUPS = {
 EXPECT_SUBGROUPS = {'执行': 6, '文件': 3, '系统状态': 10, '取证 IR': 8, '反向执行': 1,
                     '主机管理': 4, '网络服务': 7, 'Agent 生成': 2}
 
-src = open(REGISTRY, encoding='utf-8').read()
-lines = src.split('\n')
-start = next(i for i, l in enumerate(lines) if 'pub static OPS' in l)
-end = next(i for i, l in enumerate(lines) if l.strip() == '];' and i > start)
-
+src = ''
+lines = []
 domain_re = re.compile(r'^\s*//\s*--\s*([\w-]+)\s+域')
+
+
+def parse_registry_file(path):
+    """解析一个域文件，返回 [(domain, block_text), ...]（按文件内出现顺序）。"""
+    flines = open(path, encoding='utf-8').read().split('\n')
+    start = next(i for i, l in enumerate(flines)
+                 if l.startswith('pub static ') and l.rstrip().endswith('= &['))
+    end = next(i for i, l in enumerate(flines) if l.strip() == '];' and i > start)
+    out, cur_domain, cur_block = [], None, None
+    for l in flines[start + 1:end]:
+        m = domain_re.match(l)
+        if m:
+            cur_domain = m.group(1)
+            continue
+        if l.strip().startswith('op!('):
+            cur_block = [l]
+        elif cur_block is not None:
+            cur_block.append(l)
+            if l.strip() == '),':
+                assert cur_domain, f"{path}: op 块出现在 `// -- <域> 域` 注释之前"
+                out.append((cur_domain, '\n'.join(cur_block)))
+                cur_block = None
+    return out
+
+
 blocks = {}
-cur_domain, cur_block = None, None
-for l in lines[start + 1:end]:
-    m = domain_re.match(l)
-    if m:
-        cur_domain = m.group(1)
-        blocks.setdefault(cur_domain, [])
-        continue
-    if l.strip().startswith('op!('):
-        cur_block = [l]
-    elif cur_block is not None:
-        cur_block.append(l)
-        if l.strip() == '),':
-            blocks[cur_domain].append('\n'.join(cur_block))
-            cur_block = None
+for path in REGISTRY_PARTS:
+    for domain, block in parse_registry_file(path):
+        blocks.setdefault(domain, []).append(block)
 
 
 def parse_block(block):

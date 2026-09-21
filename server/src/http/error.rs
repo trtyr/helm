@@ -16,6 +16,7 @@ impl IntoResponse for Error {
             Error::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             Error::Forbidden(_) => StatusCode::FORBIDDEN,
             Error::InvalidArgument(_) => StatusCode::BAD_REQUEST,
+            Error::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
             Error::NotConnected(_) => StatusCode::CONFLICT,
             Error::Storage(_) | Error::Io(_) | Error::Internal(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR

@@ -64,7 +64,7 @@ fn cleanup_once(dir: &PathBuf, cutoff: std::time::SystemTime) {
         if let Ok(modified) = meta.modified()
             && modified < cutoff
         {
-            let _ = std::fs::remove_file(entry.path());
+            let _ = std::fs::remove_file(entry.path()); // 轮转清理：删不掉（占用/权限）留待下轮，不阻断
         }
     }
 }

@@ -65,7 +65,7 @@ fn cleanup_once(dir: &PathBuf, cutoff: std::time::SystemTime) {
         if let Ok(modified) = meta.modified()
             && modified < cutoff
         {
-            let _ = std::fs::remove_file(entry.path());
+            let _ = std::fs::remove_file(entry.path()); // 轮转清理：删不掉（占用/权限）留待下轮，不阻断（下一行已留 info 日志）
             tracing::info!(file = %name, "log retention: removed old log file");
         }
     }
