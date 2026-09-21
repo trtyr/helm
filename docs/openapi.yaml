@@ -62,7 +62,7 @@ paths:
   /api/v1/auth/login:
     post:
       tags: [auth]
-      summary: 控制台登录
+      summary: 控制台登录（连续失败触发指数退避，锁定期内返回 429）
       requestBody:
         required: true
         content:
@@ -84,11 +84,23 @@ paths:
                   token: { type: string }
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          description: 登录失败次数过多，处于指数退避锁定期（按用户名与来源 IP 两维计数；message 含 retry in Ns；审计事件 login_blocked）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code: { type: string }
+                      message: { type: string }
 
   /api/v1/auth/me:
     get:
       tags: [auth]
-      summary: 当前账号（按 JWT sub 查库；仅 JWT，改名后旧 token 返回 401）
+      summary: 当前账号（按 JWT sub 查库；仅 JWT；改密/改名后旧 token 返回 401）
       responses:
         "200":
           description: 账号信息
@@ -104,7 +116,7 @@ paths:
   /api/v1/auth/change-password:
     post:
       tags: [auth]
-      summary: 修改密码（校验当前密码；新密码 ≥ 6 字符；已有 JWT 不失效）
+      summary: 修改密码（校验当前密码；新密码 ≥ 6 字符；成功后 users.token_version 自增，已签发的 JWT 立即失效）
       responses:
         "200":
           description: 已修改
@@ -122,7 +134,7 @@ paths:
   /api/v1/auth/change-username:
     post:
       tags: [auth]
-      summary: 修改用户名（校验当前密码；UNIQUE 查重；旧 token 的 sub 随即失效）
+      summary: 修改用户名（校验当前密码；UNIQUE 查重；sub 变更 + users.token_version 自增，已签发的 JWT 立即失效）
       responses:
         "200":
           description: 已修改（返回新用户名）
@@ -141,7 +153,7 @@ paths:
   /api/v1/agents/cert:
     post:
       tags: [agents]
-      summary: Agent 提交 CSR 换 mTLS 证书（token 放 body，无需 JWT）
+      summary: Agent 提交 CSR 换 mTLS 证书（token 放 body，无需 JWT；签发前校验 CSR 主体 CN 必须等于 agent_id）
       requestBody:
         required: true
         content:
@@ -161,8 +173,21 @@ paths:
               schema:
                 type: object
                 properties:
+                  agent_id: { type: string }
                   cert_pem: { type: string }
                   ca_cert_pem: { type: string }
+        "403":
+          description: CSR 主体 CN 与 agent_id 不一致（cn_mismatch），或 CSR 未携带 CN（missing_cn）；两种情况均写入审计，不签发
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code: { type: string }
+                      message: { type: string }
 
   /api/v1/hosts:
     get:

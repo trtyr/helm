@@ -52,7 +52,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 控制台登录 */
+        /** 控制台登录（连续失败触发指数退避，锁定期内返回 429） */
         post: {
             parameters: {
                 query?: never;
@@ -81,6 +81,20 @@ export interface paths {
                     };
                 };
                 401: components["responses"]["Unauthorized"];
+                /** @description 登录失败次数过多，处于指数退避锁定期（按用户名与来源 IP 两维计数；message 含 retry in Ns；审计事件 login_blocked） */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error?: {
+                                code?: string;
+                                message?: string;
+                            };
+                        };
+                    };
+                };
             };
         };
         delete?: never;
@@ -96,7 +110,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 当前账号（按 JWT sub 查库；仅 JWT，改名后旧 token 返回 401） */
+        /** 当前账号（按 JWT sub 查库；仅 JWT；改密/改名后旧 token 返回 401） */
         get: {
             parameters: {
                 query?: never;
@@ -137,7 +151,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 修改密码（校验当前密码；新密码 ≥ 6 字符；已有 JWT 不失效） */
+        /** 修改密码（校验当前密码；新密码 ≥ 6 字符；成功后 users.token_version 自增，已签发的 JWT 立即失效） */
         post: {
             parameters: {
                 query?: never;
@@ -177,7 +191,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 修改用户名（校验当前密码；UNIQUE 查重；旧 token 的 sub 随即失效） */
+        /** 修改用户名（校验当前密码；UNIQUE 查重；sub 变更 + users.token_version 自增，已签发的 JWT 立即失效） */
         post: {
             parameters: {
                 query?: never;
@@ -218,7 +232,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Agent 提交 CSR 换 mTLS 证书（token 放 body，无需 JWT） */
+        /** Agent 提交 CSR 换 mTLS 证书（token 放 body，无需 JWT；签发前校验 CSR 主体 CN 必须等于 agent_id） */
         post: {
             parameters: {
                 query?: never;
@@ -243,8 +257,23 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
+                            agent_id?: string;
                             cert_pem?: string;
                             ca_cert_pem?: string;
+                        };
+                    };
+                };
+                /** @description CSR 主体 CN 与 agent_id 不一致（cn_mismatch），或 CSR 未携带 CN（missing_cn）；两种情况均写入审计，不签发 */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error?: {
+                                code?: string;
+                                message?: string;
+                            };
                         };
                     };
                 };
@@ -1673,6 +1702,10 @@ export interface paths {
                     host_id?: string;
                     /** @description 排序（`field` 或 `field:desc`；白名单：started_at/status/host_id/exit_code/command，未命中回退 started_at DESC NULLS LAST） */
                     sort?: string;
+                    /** @description RFC3339 时间范围起始（含） */
+                    from?: string;
+                    /** @description RFC3339 时间范围结束（含） */
+                    to?: string;
                 };
                 header?: never;
                 path?: never;
@@ -3118,6 +3151,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/logs/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 分页列出状态事件（P003 T1：agent 上下线/断连原因） */
+        get: {
+            parameters: {
+                query?: {
+                    page?: number;
+                    limit?: number;
+                    /** @description 排序（`field` 或 `field:desc`；白名单：created_at，未命中回退 created_at DESC） */
+                    sort?: string;
+                    /** @description 模糊搜索（reason/detail/host_id ILIKE） */
+                    q?: string;
+                    /** @description 主机精确过滤 */
+                    host_id?: string;
+                    /** @description 事件类型过滤（online | offline） */
+                    event?: "online" | "offline";
+                    /** @description RFC3339 起始时间（含） */
+                    from?: string;
+                    /** @description RFC3339 结束时间（含） */
+                    to?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 状态事件列表 + total */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            events?: components["schemas"]["StatusEvent"][];
+                            /** @description 过滤条件下的总条数（P003 T1 分页栏） */
+                            total?: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audit": {
         parameters: {
             query?: never;
@@ -3137,6 +3225,10 @@ export interface paths {
                     q?: string;
                     /** @description 动作精确过滤 */
                     action?: string;
+                    /** @description RFC3339 时间范围起始（含） */
+                    from?: string;
+                    /** @description RFC3339 时间范围结束（含） */
+                    to?: string;
                 };
                 header?: never;
                 path?: never;
@@ -3857,6 +3949,23 @@ export interface components {
             };
             /** Format: date-time */
             created_at?: string;
+        };
+        StatusEvent: {
+            /** Format: uuid */
+            id?: string;
+            host_id?: string;
+            /** @description online | offline */
+            event?: string;
+            /** @description registered / transport_error / stream_closed / stopped / heartbeat_timeout */
+            reason?: string;
+            detail?: string;
+            /** Format: date-time */
+            created_at?: string;
+            /**
+             * Format: date-time
+             * @description 同主机下一事件时间（LEAD 窗口）；offline 行据此计算离线时长
+             */
+            ended_at?: string | null;
         };
         Alert: {
             /** Format: uuid */

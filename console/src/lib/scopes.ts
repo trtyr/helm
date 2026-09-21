@@ -16,7 +16,6 @@ export const SCOPES: { id: ApiKeyScope; label: string }[] = [
   { id: "ir", label: "应急响应 IR（Windows）" },
   { id: "agent-gen", label: "Agent 生成" },
   { id: "audit", label: "审计" },
-  { id: "skill", label: "技能包" },
 ];
 
 export function scopeLabel(id: string): string {
