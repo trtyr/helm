@@ -1,0 +1,105 @@
+# helm 生产部署（单机云主机，非 K8s）
+#
+# 与仓库根目录的 docker-compose.yml（开发用：弱默认凭据、端口直挂宿主）分开：
+# 本项目名与容器名都带 -prod 前缀，可与开发版在同一台机器上共存而不互相覆盖。
+#
+# 用法：
+#   cd deploy/prod
+#   cp env.example .env && vi .env          # 至少改 3 处强随机值，见 README
+#   pnpm --dir ../../console install && pnpm --dir ../../console build
+#   docker compose up -d --build
+#
+# 拓扑：caddy（443，终结 TLS + 托管 console 静态资源 + 反代 /api、/mcp）
+#        └─ server（8080 HTTP / 50051 gRPC）
+#        └─ postgres（仅 compose 内网，不发布到宿主）
+#       Agent 直连 :50051（建议开 mTLS，见 env.example）
+#
+# 完整步骤、运维与安全清单见 ../README.md
+name: helm-prod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: helm-prod-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-helm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 必填（强随机）}
+      POSTGRES_DB: ${POSTGRES_DB:-helm}
+    # 刻意不写 ports：数据库只在 compose 内网可达（生产不要把 5432 暴露到公网）
+    expose:
+      - "5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-helm} -d ${POSTGRES_DB:-helm}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  server:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: helm-server:prod
+    container_name: helm-prod-server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # 容器内固定值（覆盖 .env 里可能写成宿主视角的那些）
+      HELM_HTTP_ADDR: 0.0.0.0:8080
+      HELM_GRPC_ADDR: 0.0.0.0:50051
+      HELM_DATABASE_URL: postgres://${POSTGRES_USER:-helm}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-helm}
+      HELM_LOG_DIR: /app/logs
+      HELM_TLS_DIR: /app/tls
+      HELM_AGENT_SOURCE_DIR: /workspace
+      # 前端由 Caddy 托管（见 Caddyfile），server 不再自带静态资源
+      HELM_WEB_DIST_DIR: ""
+    ports:
+      # gRPC：Agent 反向连入，必须可达（强烈建议配合 HELM_MTLS=true）
+      - "50051:50051"
+      # HTTP：只绑宿主回环，给 Caddy 反代 / 本地排障用；不要开到 0.0.0.0
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data/logs:/app/logs
+      - ./data/tls:/app/tls
+      # agent-gen（现场编译 Agent）刻意**不挂** target/：镜像里已预置依赖构建缓存，
+      # 实测容器内出包 3m16s（2026-09-21）。挂上宿主机目录会盖掉这份缓存 → 首次出包
+      # 要重编全部依赖；只有在「希望构建缓存跨镜像重建保留」时才启用下面这行。
+      # - ./data/agent-build:/workspace/target
+      # crates 下载缓存：容器重建后免重下（可选）
+      - ./data/cargo-registry:/usr/local/cargo/registry
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: helm-prod-caddy
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # 反代上游（compose 内网用服务名；宿主装 Caddy 时改成 127.0.0.1:8080）
+      HELM_UPSTREAM: server:8080
+      # 站点地址：决定 Caddy 申请谁的证书（localhost → 用内部 CA 自签）
+      HELM_SITE_ADDR: ${HELM_SITE_ADDR:-ops.example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../../console/dist:/srv/helm-console:ro
+      - ./data/caddy-data:/data
+      - ./data/caddy-config:/config
+
+volumes:
+  pgdata:

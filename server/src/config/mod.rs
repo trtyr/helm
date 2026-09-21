@@ -170,7 +170,8 @@ impl Config {
         weak
     }
 
-    /// A1：启动期弱值守卫——命中即 ERROR；`HELM_REQUIRE_STRONG_DEFAULTS=1` 时拒绝启动。
+    /// A1：启动期弱值守卫——命中即 ERROR；`HELM_REQUIRE_STRONG_DEFAULTS=true` 时拒绝启动。
+    /// （clap 的 `ArgAction::SetTrue` 只接受 true/false，写 =1 会在参数解析阶段直接报错。）
     ///
     /// **语义变更（2026-09-20，T5）**：此前弱默认值完全静默，现在是启动期可见的 ERROR。
     pub fn guard_insecure_defaults(&self) -> anyhow::Result<()> {
@@ -184,7 +185,7 @@ impl Config {
         );
         if self.require_strong_defaults {
             anyhow::bail!(
-                "HELM_REQUIRE_STRONG_DEFAULTS=1 但仍在用弱默认凭据: {}",
+                "HELM_REQUIRE_STRONG_DEFAULTS=true 但仍在用弱默认凭据: {}",
                 weak.join(", ")
             );
         }
@@ -228,7 +229,7 @@ mod tests {
         assert!(c.insecure_defaults().is_empty());
     }
 
-    /// A1：HELM_REQUIRE_STRONG_DEFAULTS=1 时弱值必须拒绝启动。
+    /// A1：HELM_REQUIRE_STRONG_DEFAULTS=true 时弱值必须拒绝启动。
     #[test]
     fn require_strong_defaults_refuses_weak() {
         let c = Config::parse_from(["helm-server", "--require-strong-defaults"]);

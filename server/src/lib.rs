@@ -18,7 +18,7 @@ use anyhow::Result;
 pub async fn run() -> Result<()> {
     let config = config::Config::load()?;
 
-    // A1：弱默认凭据守卫——命中即 ERROR；HELM_REQUIRE_STRONG_DEFAULTS=1 时拒绝启动
+    // A1：弱默认凭据守卫——命中即 ERROR；HELM_REQUIRE_STRONG_DEFAULTS=true 时拒绝启动
     config.guard_insecure_defaults()?;
 
     // 离线签发模式：签发 agent 证书三件套后退出（forward 预置分发用）

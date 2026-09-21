@@ -2,7 +2,11 @@
 # 注意：本镜像仅跑 Server；Agent 部署在目标机上，不进容器。
 
 # ---- 构建阶段 ----
-FROM rust:1.97-slim AS builder
+# ⚠ 构建阶段必须与运行阶段同一 Debian 代号：`rust:1.97-slim` 基于 trixie(glibc 2.41)，
+#   而运行镜像是 bookworm(glibc 2.36)，混用会让二进制报 `GLIBC_2.39 not found` 直接
+#   跑不起来（2026-09-21 冒烟测试实测，容器表现为无限重启）。钉在 bookworm 变体还有
+#   第二个好处：容器内 agent-gen 产出的 Agent 二进制 glibc 要求更低，目标机兼容面更大。
+FROM rust:1.97-slim-bookworm AS builder
 WORKDIR /build
 
 # 编译依赖（protobuf 编译器 + C 工具链；ring 需要 cc）
@@ -35,8 +39,17 @@ RUN touch proto/src/lib.rs server/src/main.rs server/src/lib.rs agent/src/main.r
 # ---- 运行阶段 ----
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates protobuf-compiler pkg-config build-essential cargo \
+    ca-certificates protobuf-compiler pkg-config build-essential curl \
     && rm -rf /var/lib/apt/lists/*
+
+# agent-gen 现场编译需要现代 cargo：apt 仓库自带的 cargo 版本低于本 workspace
+# 的 edition 2024 要求，故直接复用构建阶段的 rustup 工具链（离线可用；
+# 代价是运行镜像体积增加约 1GB）。不需要容器内出包可删这三行。
+COPY --from=builder /usr/local/rustup /usr/local/rustup
+COPY --from=builder /usr/local/cargo /usr/local/cargo
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
 
 COPY --from=builder /build/target/release/helm-server /usr/local/bin/helm-server
 

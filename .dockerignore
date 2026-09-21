@@ -1,0 +1,17 @@
+# 构建上下文瘦身：镜像只需要 Cargo.toml / Cargo.lock / proto / server / agent。
+# （此前无本文件，构建上下文把 .git、target/、console/node_modules 全量传给 daemon）
+
+.git
+.github
+.pi
+target
+**/target
+console/node_modules
+console/dist
+data
+deploy
+docs
+scripts
+*.log
+logs
+.DS_Store
