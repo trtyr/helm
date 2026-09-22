@@ -1,16 +1,22 @@
+<div align="center">
+
 # helm
 
-<p align="center">
-  <a href="https://github.com/trtyr/helm/actions/workflows/ci.yml"><img src="https://github.com/trtyr/helm/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT"></a>
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg" alt="平台">
-</p>
+**把散落的机器收进一块面板 —— 自建运维中控台**
+
+[![CI](https://github.com/trtyr/helm/actions/workflows/ci.yml/badge.svg)](https://github.com/trtyr/helm/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
+
+[功能](#它能做什么) • [快速部署](#怎么装) • [接入机器](#把你的机器接进来) • [给开发者](#给开发者)
+
+![helm 控制台 · 主机总览](docs/assets/hosts.png)
+
+</div>
 
 把 Agent 装到你的电脑和服务器上，然后打开浏览器：**跑命令、开终端、传文件、重启服务**，哪台机器掉线了马上知道，出安全事件的时候还能给 Windows 机器做一遍"全身体检"。
 
 helm 装在你自己的机器上，数据全程不经过任何第三方。
-
-![helm 控制台 · 主机总览](docs/assets/hosts.png)
 
 ## helm 是什么
 
@@ -94,6 +100,16 @@ helm 用 Rust 和 TypeScript 写成，约 4.6 万行代码，测试 220 余条�
 - [架构与安全设计](docs/architecture.md)
 - [配置参考](docs/configuration.md)
 - [API 契约（OpenAPI）](docs/openapi.yaml)
+
+---
+
+<div align="center">
+
+**你的机器，你的面板，你的数据。**
+
+[部署手册](deploy/README.md) • [配置参考](docs/configuration.md) • [报告问题](https://github.com/trtyr/helm/issues)
+
+</div>
 
 ## License
 
