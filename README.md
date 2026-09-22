@@ -8,7 +8,7 @@
 
 把 Agent 装到你的机器上，然后浏览器打开控制台：**跑命令、开终端、传文件、管服务**，出事的时候还能对 Windows 主机做应急响应取证。开源、自托管，数据全程在你自己的服务器上——不装客户端全家桶，不把 root shell 交给第三方。
 
-<!-- TODO(截图): hero —— 控制台主机总览页 -->
+![helm 控制台 · 主机总览](docs/assets/hosts.png)
 
 ## 这是你想要的吗
 
@@ -22,6 +22,12 @@
 helm 把这些收进一块面板。装好之后是这样的：
 
 <!-- TODO(截图): 主机列表 + 终端 + IR 三联图 -->
+
+<p align="center">
+  <img src="docs/assets/overview.png" width="32.5%" alt="主机概览">
+  <img src="docs/assets/terminal.png" width="32.5%" alt="Web 终端">
+  <img src="docs/assets/jobs.png" width="32.5%" alt="任务列表">
+</p>
 
 ## 功能
 
