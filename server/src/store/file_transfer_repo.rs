@@ -61,6 +61,22 @@ impl FileTransferRepo {
         .await
     }
 
+    /// 重启对账（T007）：把上一进程遗留的非终态传输（`pending` / `transferring`）
+    /// 置为 `failed` 并落 `finished_at`，返回受影响 id。
+    ///
+    /// 表里没有「原因」列（见 0001 迁移），原因由调用方记账（日志/审计）——
+    /// 语义与 job 侧一致：服务重启导致的中断不是传输失败本身，但终态必须明确。
+    pub async fn fail_orphans(&self) -> sqlx::Result<Vec<Uuid>> {
+        sqlx::query_as::<_, (Uuid,)>(
+            "UPDATE file_transfers SET status = 'failed', finished_at = now()
+              WHERE status IN ('pending', 'transferring')
+              RETURNING id",
+        )
+        .fetch_all(self.db.pool())
+        .await
+        .map(|rows| rows.into_iter().map(|r| r.0).collect())
+    }
+
     /// retention（C1）：删除 `cutoff` 之前的传输元数据行，返回删除行数。
     pub async fn delete_before(&self, cutoff: DateTime<Utc>) -> sqlx::Result<u64> {
         let result = sqlx::query("DELETE FROM file_transfers WHERE created_at < $1")

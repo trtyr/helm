@@ -93,36 +93,62 @@ pub struct HttpServeDeps {
     /// 指标落库队列（E2）：listeners 管理页重启监听器时需重建 gRPC 服务。
     pub metrics: crate::application::metric_sink::MetricSink,
     pub cert: CertService,
+    /// 停机协调器（T006）：HTTP 面与 gRPC 监听器共用同一信号源。
+    pub shutdown: crate::shutdown::Shutdown,
 }
 
 /// 启动 HTTP 服务（控制台 API + health）。
 pub async fn serve(deps: HttpServeDeps) -> anyhow::Result<()> {
     let addr = deps.config.http_addr.clone();
     let web_dist = resolve_web_dist(&deps.config)?;
+    // 先取出停机句柄（`build_state` 会按值消费 deps）
+    let shutdown = deps.shutdown.clone();
     let state = build_state(deps);
     let app = public_routes(&state, web_dist.clone());
 
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    tracing::info!(addr = %addr, "http listening");
-
     let Some(dist) = web_dist else {
-        // A4：登录限速需要来源 IP → make-service 必须带 connect info
-        axum::serve(
-            listener,
-            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-        )
-        .await?;
-        return Ok(());
+        return serve_http(app, &addr, &shutdown).await;
     };
     // 前后端一体化（HELM_WEB_DIST_DIR）：同一端口托管控制台静态资源 + SPA fallback。
     // API 语义保留：/api、/mcp、/healthz 未匹配仍返回 404，不落回 index.html。
     tracing::info!(dist = %dist.display(), "serving console static files");
     let app = app.fallback(move |req| web_static(dist.clone(), req));
-    axum::serve(
+    serve_http(app, &addr, &shutdown).await
+}
+
+/// 带优雅停机地跑 HTTP 服务（两个分支共用）。
+///
+/// 停机语义（T006）：信号到达 → axum 停止接收新连接并排空在飞请求；
+/// 长连接（SSE / 终端 WS）若在 [`crate::shutdown::DRAIN_TIMEOUT`] 内没排空，
+/// 由兜底路径强制结束，避免进程被无限钉住。
+async fn serve_http(
+    app: Router,
+    addr: &str,
+    shutdown: &crate::shutdown::Shutdown,
+) -> anyhow::Result<()> {
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    tracing::info!(addr = %addr, "http listening");
+
+    // A4：登录限速需要来源 IP → make-service 必须带 connect info
+    let graceful = shutdown.clone();
+    let server = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .await?;
+    .with_graceful_shutdown(async move { graceful.wait().await });
+
+    tokio::select! {
+        r = server => {
+            r?;
+            tracing::info!("http 面已排空退出");
+        }
+        _ = shutdown.drain_deadline() => {
+            tracing::warn!(
+                drain_timeout_secs = crate::shutdown::DRAIN_TIMEOUT.as_secs(),
+                "排空超时：仍有长连接未收尾，强制结束 http 面"
+            );
+        }
+    }
     Ok(())
 }
 

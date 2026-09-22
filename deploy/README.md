@@ -31,7 +31,7 @@ git clone <repo> helm && cd helm
 # ① 密钥（3 处必改）
 cd deploy/prod && cp env.example .env && vi .env
 #   POSTGRES_PASSWORD / HELM_SERVER_TOKEN / HELM_JWT_SECRET ← openssl rand -hex 32
-#   保持 HELM_REQUIRE_STRONG_DEFAULTS=true：忘改就起不来（布尔项只接受 true/false）
+#   保持 HELM_REQUIRE_STRONG_DEFAULTS=true：忘改就起不来（取值推荐 true，兼容 1/0/yes/no）
 #   （默认只打 ERROR 日志、不拦，见 engram《部署与运维》§8.1）
 
 # ② 控制台静态资源（Caddy 直接托管，不打进 server 镜像）
@@ -86,17 +86,19 @@ docker compose logs -f server | head -30   # 不应出现 insecure default 告�
 
 ### 重启会发生什么（务必知道）
 
-服务端**没有优雅停机**（SIGTERM 直接断）：
+**T006 起服务端有优雅停机**：SIGTERM（`docker compose stop/restart`、`systemctl stop`）会
+停接新连接 → 排空在飞请求 → 退出（退出码 0；长连接最多等 15s 兜底后被切断）。
 
 | 影响面 | 后果 |
 |---|---|
-| 在飞 job | 命令其实还在目标机跑，但服务端会在 `HELM_JOB_TIMEOUT_SECS`（默认 300s）后标 `timed_out` —— **假超时** |
-| 在飞文件传输 | 等待者随进程消失 → 600s 后失败 |
-| 终端 / SOCKS 代理 | 直接断 |
+| 在飞 job | 优雅停机**不会**凭空完成命令：启动时对账（T007）把上一进程遗留的 `running`/`queued` 置为 `failed`，`output` 写明「服务重启前未完成（非超时）」——不再等 300s 被误标 `timed_out`（**假超时已消除**） |
+| 在飞文件传输 | 同一轮启动对账 → `failed`（不再挂到 600s 才失败） |
+| 终端 / SOCKS 代理 | 随排空断开（会话本就不可跨进程续） |
 | 主机上下线 | 刷一波 offline → Agent 3s 起指数退避重连（封顶 300s），`status_events` 记录这一波 |
 | listeners / 定时任务 | 从库恢复，无损 |
 
-→ **重启安排在低峰**；重要 job 别在重启窗口下发。
+→ 重启仍建议安排在低峰（在飞 job 会被判失败、需重发），但**不会再有「假超时」**，
+也不会留下「一直挂着、不知道要等到什么时候」的状态。
 
 ### 改 `POSTGRES_PASSWORD` 之后（易踩坑）
 
@@ -118,11 +120,29 @@ cd deploy/prod
 ### 日志与容量
 
 - server 日志：`./data/logs`（按天轮转，保留 `HELM_RETENTION_DAYS` 天）。
-- 后台清理：metrics / alerts / notifications / jobs / audit_logs /
-  file_transfers 超 `HELM_RETENTION_DAYS`（默认 90 天）删。
-- **不会自动清理的两处**（需人工或后续补策略）：`status_events`
-  （每次上下线一行，长期增长）与 IR 取证表（`ir_snapshots` /
-  `ir_page_cache`，代码明写不自动清理）。
+- 后台清理（每 24h 一轮）：metrics / alerts / notifications / jobs / audit_logs /
+  file_transfers / **status_events** 超 `HELM_RETENTION_DAYS`（默认 90 天）删。
+  status_events（「谁什么时候上下线」的时序账）自 T008 起纳入——它的增长与
+  主机数 × 上下线频次成正比，云上磁盘要钱。
+- **IR 取证表有独立保留策略**（T009，两项都可配，0 = 不清理）：
+  - `ir_snapshots`：**每主机保留最近 `HELM_IR_SNAPSHOT_KEEP_PER_AGENT` 条**（默认 20）。
+    快照是取证资产（基线对比/差异取证），按「每主机条数」封顶而非按时间一刀切——
+    避免把唯一一份基线也删掉。
+  - `ir_page_cache`：**超 `HELM_IR_PAGE_CACHE_TTL_DAYS` 天未刷新即清**（默认 30）。
+    该表以 `(agent_id, kind)` 为主键、写入即刷新 `created_at`，行数本身有界；
+    这里治的是陈旧内容与「已注销主机留下的死缓存」。
+  - **磁盘预算算法**：占用 ≈ `Σ主机(快照数 × 单快照体积)` + `主机数 × kind 数 × 单缓存体积`。
+    单快照体积由 findings 条目数决定。上云前用现网实测校准一次：
+
+    ```bash
+    docker compose exec postgres psql -U helm -d helm -c "
+      SELECT (SELECT count(*) FROM ir_snapshots) AS snapshot_rows,
+             pg_size_pretty(pg_total_relation_size('ir_snapshots')) AS snapshots,
+             pg_size_pretty(pg_total_relation_size('ir_page_cache')) AS page_cache;"
+    ```
+
+    量级参考：单快照 findings 数千条 ≈ 数百 KB~数 MB；按默认 20 条/主机，
+    百台主机≈数 GB——按实测结果调 `HELM_IR_SNAPSHOT_KEEP_PER_AGENT`。
 
 ```bash
 docker compose exec postgres psql -U helm -d helm \
@@ -145,13 +165,13 @@ docker compose exec postgres psql -U helm -d helm \
 |---|---|---|
 | 1 | TLS 终结（443 + 自动证书） | `prod/Caddyfile` |
 | 2 | 三个强随机值已改 | `prod/.env` |
-| 3 | `HELM_REQUIRE_STRONG_DEFAULTS=true`（弱值拒启；布尔项只接受 true/false） | `prod/.env` |
+| 3 | `HELM_REQUIRE_STRONG_DEFAULTS=true`（弱值拒启；取值推荐 true，兼容 1/0/yes/no） | `prod/.env` |
 | 4 | 默认管理员口令已改 | 控制台 → 设置 → 账号 |
 | 5 | DB 不对外（内网 + 无 ports 发布） | `prod/docker-compose.yml` |
 | 6 | Agent token 非出厂值 | `install-windows-service.ps1 -Token` |
 | 7 | DB 备份 + 恢复演练 | `prod/backup.sh` |
 | 8 | 自动重启策略 + healthcheck | compose 三服务 |
-| 9 | `status_events` / IR 表清理策略定好 | 见 §3 |
+| 9 | 容量清理策略已定：`status_events` 纳入 `HELM_RETENTION_DAYS`；IR 表按独立策略 | 见 §3 |
 | 10 | 安全组仅放 443 + 50051（50051 限源 IP 或开 mTLS） | 云控制台 |
 
 ## 5. 已知限制（现状说明，非缺陷申报）
@@ -159,7 +179,8 @@ docker compose exec postgres psql -U helm -d helm \
 - **单节点**：连接状态在进程内存里，重启期间全部 Agent 断线重连（无跨实例共享）；
   Postgres 单实例、无 HA。横向扩展需状态外置，目前不做。
 - **单用户产品**：无多租户 / RBAC（产品定性如此），控制台账号只有一个。
-- **无优雅停机**：见 §3 的重启表。
+- **优雅停机已具备（T006）**：`docker compose stop` 会走排空路径并退出码 0；重启语义与在飞
+  job 的处置见 §3 的重启表。
 - **agent-gen（现场编译 Agent）**：容器内可出 Linux 包——2026-09-21 实测
   `cargo build --release -p helm-agent` 用 **3m16s** 产出 **13MB** 二进制，吃的就是镜像里
   预置的依赖缓存；Windows 目标需宿主机带 mingw 工具链并注入 `HELM_CROSS_TOOLS_DIR`。

@@ -134,6 +134,18 @@ impl ListenerRegistry {
         Ok(())
     }
 
+    /// 停止全部监听器（T006 停机编排）：逐个触发 shutdown 并清空句柄，返回停止个数。
+    ///
+    /// 与 [`Self::stop`] 的区别：不做 `NotRunning` 判定——停机时「已经不在跑」是正常态。
+    pub async fn stop_all(&self) -> usize {
+        let mut map = self.inner.lock().await;
+        let n = map.len();
+        for (_, tx) in map.drain() {
+            let _ = tx.send(()); // 接收侧已退出即无需再送
+        }
+        n
+    }
+
     /// 监听器是否在运行。
     pub async fn is_running(&self, id: Uuid) -> bool {
         self.inner.lock().await.contains_key(&id)

@@ -227,6 +227,31 @@ impl JobRepo {
         .map(|rows| rows.into_iter().map(|r| r.0).collect())
     }
 
+    /// 重启对账（T007）：把上一进程遗留的非终态 job（`running` / `queued`）置为
+    /// `failed`，原因**追加**写进 `output`（不覆盖已有输出），返回受影响 job_id。
+    ///
+    /// 与 [`Self::fail_stale_queued`] / [`Self::expire_running`] 的分工：那两个是
+    /// **超时兜底**（等 `timeout_secs`，且把 running 说成 `timed_out`）；本方法在启动
+    /// 瞬间完成对账——命令是随进程消失的，不是它自己超时，所以终态是 `failed` 而非
+    /// `timed_out`（不新增状态枚举，复用既有 CHECK 值）。
+    pub async fn fail_orphans(&self, reason: &str) -> sqlx::Result<Vec<Uuid>> {
+        sqlx::query_as::<_, (Uuid,)>(
+            "UPDATE jobs
+                SET status = 'failed',
+                    output = CASE
+                        WHEN output IS NULL OR output = '' THEN $1
+                        ELSE output || E'\\n' || $1
+                    END,
+                    finished_at = now()
+              WHERE status IN ('running', 'queued')
+              RETURNING id",
+        )
+        .bind(reason)
+        .fetch_all(self.db.pool())
+        .await
+        .map(|rows| rows.into_iter().map(|r| r.0).collect())
+    }
+
     /// 记录离线取消补偿（agent 重连后补发 JobCancel；同 (agent, job) 幂等）。
     pub async fn mark_cancel_pending(&self, agent_id: &str, job_id: Uuid) -> sqlx::Result<()> {
         sqlx::query(

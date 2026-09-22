@@ -62,6 +62,18 @@ impl StatusEventRepo {
         Ok(())
     }
 
+    /// retention（T008）：删除 `cutoff` 之前的状态事件，返回删除行数。
+    ///
+    /// 状态事件是「谁什么时候上下线」的时序账——增长速率与主机数 × 上下线频次成正比，
+    /// 云上磁盘要钱，故纳入统一保留策略（此前不在清理范围内）。
+    pub async fn delete_before(&self, cutoff: DateTime<Utc>) -> sqlx::Result<u64> {
+        let result = sqlx::query("DELETE FROM status_events WHERE created_at < $1")
+            .bind(cutoff)
+            .execute(self.db.pool())
+            .await?;
+        Ok(result.rows_affected())
+    }
+
     /// 分页查询（P001-T4 模式：count_filtered 必须镜像本函数的全部 WHERE 分支）。
     /// ended_at 为同主机下一事件时间（LEAD 窗口），offline 行据此计算离线时长。
     #[allow(clippy::too_many_arguments)]

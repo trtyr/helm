@@ -73,6 +73,45 @@ pub async fn delete_snapshot(pool: &PgPool, id: Uuid) -> sqlx::Result<u64> {
     Ok(r.rows_affected())
 }
 
+/// 保留策略（T009）：每主机只保留最近 `keep_per_agent` 条快照（超额删），返回删除行数。
+///
+/// 快照是取证资产（基线对比 / 差异取证），不按时间一刀切——按「每主机条数」封顶：
+/// 既不丢最近的证据链，又给磁盘设了上限。`keep_per_agent <= 0` 视为不清理。
+pub async fn delete_excess_snapshots(pool: &PgPool, keep_per_agent: i64) -> sqlx::Result<u64> {
+    if keep_per_agent <= 0 {
+        return Ok(0);
+    }
+    let r = sqlx::query(
+        "DELETE FROM ir_snapshots s
+          USING (
+            SELECT id FROM (
+              SELECT id,
+                     row_number() OVER (PARTITION BY agent_id ORDER BY created_at DESC) AS rn
+                FROM ir_snapshots
+            ) ranked
+             WHERE ranked.rn > $1
+          ) doomed
+          WHERE s.id = doomed.id",
+    )
+    .bind(keep_per_agent)
+    .execute(pool)
+    .await?;
+    Ok(r.rows_affected())
+}
+
+/// 保留策略（T009）：删除超过 `cutoff` 未再刷新的页面缓存行，返回删除行数。
+///
+/// `ir_page_cache` 以 `(agent_id, kind)` 为主键、写入即 `created_at = now()`（upsert），
+/// 因此「超期」= 该主机该页面已很久没被扫描刷新。行数本身有界（主机数 × kind 数），
+/// 这里治的是**陈旧内容**与「已注销主机留下的死缓存」。
+pub async fn delete_stale_page_cache(pool: &PgPool, cutoff: DateTime<Utc>) -> sqlx::Result<u64> {
+    let r = sqlx::query("DELETE FROM ir_page_cache WHERE created_at < $1")
+        .bind(cutoff)
+        .execute(pool)
+        .await?;
+    Ok(r.rows_affected())
+}
+
 /// 页面级缓存行（最后一次扫描结果）。
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
 pub struct IrPageCacheRow {

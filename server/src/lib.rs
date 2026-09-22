@@ -3,6 +3,7 @@ pub mod config;
 pub mod domain;
 pub mod grpc;
 pub mod http;
+pub mod shutdown;
 pub mod store;
 pub mod telemetry;
 
@@ -19,6 +20,7 @@ pub async fn run() -> Result<()> {
     let config = config::Config::load()?;
 
     // A1：弱默认凭据守卫——命中即 ERROR；HELM_REQUIRE_STRONG_DEFAULTS=true 时拒绝启动
+    // （Q006 起取值宽松：推荐 true，兼容 1/0/yes/no）
     config.guard_insecure_defaults()?;
 
     // 离线签发模式：签发 agent 证书三件套后退出（forward 预置分发用）
@@ -35,14 +37,22 @@ pub async fn run() -> Result<()> {
     // 阶段 3：注册表 / 指标队列 / 证书
     let deps = ServiceDeps::new(db, &config)?;
 
-    // 阶段 4：后台任务（forward 拨号、四个扫描器、保留清理）
+    // 阶段 4：重启对账（T007）——把上一进程遗留的在飞状态对齐为 failed。
+    // **顺序有语义**：必须早于后台扫描器，否则超龄的 running 行会先被 job sweeper
+    // 判成 timed_out（假超时），对账就白做了。
+    application::startup_reconcile::reconcile_orphans(&deps.db).await?;
+
+    // 阶段 5：后台任务（forward 拨号、四个扫描器、保留清理）
     spawn_background_tasks(&deps, &config);
 
-    // 阶段 5：恢复已落库的业务状态（定时任务 + 监听器）
+    // 阶段 6：恢复已落库的业务状态（定时任务 + 监听器）
     resume_persisted_state(&deps, &config).await?;
 
-    // 阶段 6：HTTP 服务（阻塞至进程退出）
-    http::serve(deps.into_serve_deps(config)).await?;
+    // 阶段 7：HTTP 服务（阻塞至进程退出）。T006：停机信号到达后两个面同时排空。
+    let shutdown = shutdown::init();
+    spawn_shutdown_orchestrator(&deps, &shutdown);
+    http::serve(deps.into_serve_deps(config, shutdown)).await?;
+    tracing::info!("helm-server 已退出");
     Ok(())
 }
 
@@ -157,10 +167,15 @@ impl ServiceDeps {
         })
     }
 
-    /// 阶段 6 的入参：按值移动给 HTTP 层（此后不再使用）。
-    fn into_serve_deps(self, config: config::Config) -> http::HttpServeDeps {
+    /// 阶段 7 的入参：按值移动给 HTTP 层（此后不再使用）。
+    fn into_serve_deps(
+        self,
+        config: config::Config,
+        shutdown: shutdown::Shutdown,
+    ) -> http::HttpServeDeps {
         http::HttpServeDeps {
             config,
+            shutdown,
             db: self.db,
             registry: self.registry,
             transfers: self.transfers,
@@ -175,7 +190,7 @@ impl ServiceDeps {
     }
 }
 
-/// 阶段 4：启动全部后台任务（各自循环，无需 join 句柄）。
+/// 阶段 5：启动全部后台任务（各自循环，无需 join 句柄）。
 fn spawn_background_tasks(deps: &ServiceDeps, config: &config::Config) {
     // forward 模式拨号管理器：对照 hosts 表差分启停持久连接
     let forward_deps = grpc::forward_manager::ForwardDeps {
@@ -218,48 +233,31 @@ fn spawn_background_tasks(deps: &ServiceDeps, config: &config::Config) {
         config.offline_alert_mins,
     );
 
-    spawn_retention_cleanup(deps.db.clone(), config.retention_days);
+    application::retention::spawn(deps.db.clone(), config.retention_days);
+
+    // IR 取证表保留策略（T009）：快照按「每主机条数」封顶、页面缓存按 TTL 清理
+    application::ir_retention::spawn(
+        deps.db.clone(),
+        config.ir_snapshot_keep_per_agent,
+        config.ir_page_cache_ttl_days,
+    );
 }
 
-/// 数据保留清理（C1）：每 24h 删除超过 `HELM_RETENTION_DAYS`（默认 90 天）的时序类
-/// （metrics/alerts/notifications）+ 已吊销 api_keys + 执行历史（jobs/audit_logs/file_transfers）；
-/// IR 表不自动清理（取证数据需显式策略）。
-fn spawn_retention_cleanup(db: store::Db, retention_days: i64) {
+/// 停机编排的 gRPC 侧（T006）：信号到达 → 停止全部监听器。
+///
+/// HTTP 面在 `http::serve` 内消费同一个信号，两个面同时进入排空；这里只管 gRPC 面
+/// （每个运行中的监听器各有一个 tonic `serve_with_shutdown`）。
+fn spawn_shutdown_orchestrator(deps: &ServiceDeps, shutdown: &shutdown::Shutdown) {
+    let listeners = deps.listeners.clone();
+    let shutdown = shutdown.clone();
     tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
-            let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days);
-            let m = store::metric_repo::MetricRepo::new(db.clone())
-                .delete_before(cutoff)
-                .await;
-            let a = store::alert_repo::AlertRepo::new(db.clone())
-                .delete_before(cutoff)
-                .await;
-            let n = store::notification_repo::NotificationRepo::new(db.clone())
-                .delete_before(cutoff)
-                .await;
-            let k = store::api_key_repo::ApiKeyRepo::new(db.clone())
-                .delete_revoked_before(cutoff)
-                .await;
-            let j = store::job_repo::JobRepo::new(db.clone())
-                .delete_before(cutoff)
-                .await;
-            let al = store::audit_repo::AuditRepo::new(db.clone())
-                .delete_before(cutoff)
-                .await;
-            let f = store::file_transfer_repo::FileTransferRepo::new(db.clone())
-                .delete_before(cutoff)
-                .await;
-            tracing::info!(
-                metrics_deleted = ?m, alerts_deleted = ?a, notifications_deleted = ?n,
-                api_keys_deleted = ?k, jobs_deleted = ?j, audit_deleted = ?al,
-                file_transfers_deleted = ?f, retention_days, "retention cleanup"
-            );
-        }
+        shutdown.wait().await;
+        let stopped = listeners.stop_all().await;
+        tracing::info!(listeners_stopped = stopped, "gRPC 面：已停止全部监听器");
     });
 }
 
-/// 阶段 5：恢复已落库的业务状态（定时任务 + 监听器）。
+/// 阶段 6：恢复已落库的业务状态（定时任务 + 监听器）。
 async fn resume_persisted_state(deps: &ServiceDeps, config: &config::Config) -> Result<()> {
     // 恢复已落库的定时任务
     let exec = application::exec_service::ExecService::new(deps.db.clone(), deps.registry.clone());

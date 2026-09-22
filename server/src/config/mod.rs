@@ -34,9 +34,19 @@ pub struct Config {
     #[arg(long = "server-tokens", env = "HELM_SERVER_TOKENS", default_value = "")]
     pub server_tokens_extra: String,
 
-    /// 拒绝以弱默认凭据启动（A1）：置 1 时若仍在使用默认 token/密钥则**启动失败**；
-    /// 默认只打 ERROR 日志（开发/CI 与 e2e 脚本依赖默认值，硬失败会把它们一起打断）
-    #[arg(long, env = "HELM_REQUIRE_STRONG_DEFAULTS", action = clap::ArgAction::SetTrue)]
+    /// 拒绝以弱默认凭据启动（A1）：置真时若仍在使用默认 token/密钥则**启动失败**；
+    /// 默认只打 ERROR 日志（开发/CI 与 e2e 脚本依赖默认值，硬失败会把它们一起打断）。
+    ///
+    /// 取值（Q006 起）：**推荐 `true`**，同时兼容 `1/0/yes/no`；CLI 与环境变量同一套解析
+    /// （`--require-strong-defaults` 裸 flag 等价于 `=true`）。
+    #[arg(
+        long,
+        env = "HELM_REQUIRE_STRONG_DEFAULTS",
+        num_args = 0..=1,
+        default_value = "false",
+        default_missing_value = "true",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
     pub require_strong_defaults: bool,
 
     /// JWT 签名密钥（生产必须配置强随机值）
@@ -56,10 +66,21 @@ pub struct Config {
     #[arg(long, env = "HELM_JOB_TIMEOUT_SECS", default_value = "300")]
     pub job_timeout_secs: u64,
 
-    /// 数据保留天数（C1，默认 90）：超过的 jobs / audit_logs / file_transfers 及
-    /// 时序类（metrics/alerts/notifications）由后台清理；IR 表不自动清理（取证数据需显式策略）
+    /// 数据保留天数（C1 + T008，默认 90）：超过的 jobs / audit_logs / file_transfers、
+    /// 时序类（metrics/alerts/notifications）与 status_events 由后台清理；
+    /// IR 取证表有独立策略（见下两项配置）
     #[arg(long, env = "HELM_RETENTION_DAYS", default_value = "90")]
     pub retention_days: i64,
+
+    /// IR 快照每主机保留条数（T009，默认 20）：快照是取证资产（基线对比/差异取证），
+    /// 按「每主机条数」封顶而非按时间一刀切；0 = 不清理
+    #[arg(long, env = "HELM_IR_SNAPSHOT_KEEP_PER_AGENT", default_value = "20")]
+    pub ir_snapshot_keep_per_agent: i64,
+
+    /// IR 页面缓存保留天数（T009，默认 30）：超过该天数未被扫描刷新的缓存行被清理
+    /// （治陈旧内容与已注销主机留下的死缓存）；0 = 不清理
+    #[arg(long, env = "HELM_IR_PAGE_CACHE_TTL_DAYS", default_value = "30")]
+    pub ir_page_cache_ttl_days: i64,
 
     /// MCP 渐进分层（P002 T4，默认 2）：1=入口（清单不展开，AI 用 catalog 发现）/
     /// 2=host 域（对主机做的一切，ir 带 windows 专属标注）/ 3=全量（含 platform 管理能力）
@@ -97,16 +118,32 @@ pub struct Config {
     #[arg(long, env = "HELM_TLS_SERVER_NAME", default_value = "localhost")]
     pub tls_server_name: String,
 
-    /// 是否启用 mTLS（Agent↔Server 双向认证）
-    #[arg(long, env = "HELM_MTLS", action = clap::ArgAction::SetTrue)]
+    /// 是否启用 mTLS（Agent↔Server 双向认证）。取值（Q006）：**推荐 `true`**，
+    /// 兼容 `1/0/yes/no`；裸 `--mtls` 等价于 `=true`。
+    #[arg(
+        long,
+        env = "HELM_MTLS",
+        num_args = 0..=1,
+        default_value = "false",
+        default_missing_value = "true",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
     pub mtls: bool,
 
     /// TLS 材料目录（CA/server 证书持久化；mTLS 部署强烈建议，保证重启后 CA 稳定）
     #[arg(long, env = "HELM_TLS_DIR", default_value = "")]
     pub tls_dir: String,
 
-    /// 离线签发 agent 证书三件套后退出（forward 预置分发用，不启动服务）
-    #[arg(long, env = "HELM_ISSUE_CERT", action = clap::ArgAction::SetTrue)]
+    /// 离线签发 agent 证书三件套后退出（forward 预置分发用，不启动服务）。
+    /// 取值（Q006）：**推荐 `true`**，兼容 `1/0/yes/no`；裸 `--issue-cert` 等价于 `=true`。
+    #[arg(
+        long,
+        env = "HELM_ISSUE_CERT",
+        num_args = 0..=1,
+        default_value = "false",
+        default_missing_value = "true",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
     pub issue_cert: bool,
 
     /// issue-cert：agent 唯一标识（写入证书 CN）
@@ -171,7 +208,7 @@ impl Config {
     }
 
     /// A1：启动期弱值守卫——命中即 ERROR；`HELM_REQUIRE_STRONG_DEFAULTS=true` 时拒绝启动。
-    /// （clap 的 `ArgAction::SetTrue` 只接受 true/false，写 =1 会在参数解析阶段直接报错。）
+    /// （Q006 起改用 `BoolishValueParser`：**推荐 true**，同时兼容 `1/0/yes/no`。）
     ///
     /// **语义变更（2026-09-20，T5）**：此前弱默认值完全静默，现在是启动期可见的 ERROR。
     pub fn guard_insecure_defaults(&self) -> anyhow::Result<()> {
@@ -234,6 +271,44 @@ mod tests {
     fn require_strong_defaults_refuses_weak() {
         let c = Config::parse_from(["helm-server", "--require-strong-defaults"]);
         assert!(c.guard_insecure_defaults().is_err());
+    }
+
+    /// Q006：布尔开关吃多种写法（CLI 与环境变量共用同一 `value_parser`）。
+    #[test]
+    fn bool_flag_accepts_truthy_and_falsey_forms() {
+        for v in ["true", "1", "yes", "YES", "on"] {
+            let c = Config::parse_from(["helm-server", &format!("--mtls={v}")]);
+            assert!(c.mtls, "--mtls={v} 应解析为真");
+        }
+        for v in ["false", "0", "no", "NO", "off"] {
+            let c = Config::parse_from(["helm-server", &format!("--mtls={v}")]);
+            assert!(!c.mtls, "--mtls={v} 应解析为假");
+        }
+        // 裸 flag（`default_missing_value`）= true；缺省 = false
+        assert!(Config::parse_from(["helm-server", "--mtls"]).mtls);
+        assert!(!Config::parse_from(["helm-server"]).mtls);
+    }
+
+    /// Q006：三个布尔开关必须同一套行为（防止只改了一个）。
+    #[test]
+    fn all_bool_flags_share_the_same_parser() {
+        let with_values = Config::parse_from([
+            "helm-server",
+            "--mtls=1",
+            "--issue-cert=yes",
+            "--require-strong-defaults=0",
+        ]);
+        assert!(with_values.mtls);
+        assert!(with_values.issue_cert);
+        assert!(!with_values.require_strong_defaults);
+
+        let bare = Config::parse_from([
+            "helm-server",
+            "--mtls",
+            "--issue-cert",
+            "--require-strong-defaults",
+        ]);
+        assert!(bare.mtls && bare.issue_cert && bare.require_strong_defaults);
     }
 
     /// A2：轮换 token 集合 = 主 token + 逗号分隔的额外 token（去重去空）。
