@@ -85,6 +85,33 @@ pub fn expand_env(path: &str) -> String {
     p
 }
 
+/// `USER_INFO_1.usri1_flags` 位掩码 → 中文标记（平台无关纯函数，便于在 macOS 上单测）。
+///
+/// 位定义见 `lmaccess.h`（**P006 P0-8 回归钉**）：
+/// `0x0000_0002 UF_ACCOUNTDISABLE` · `0x0000_0020 UF_PASSWD_NOTREQD` ·
+/// **`0x0001_0000 UF_DONT_EXPIRE_PASSWD`**。
+///
+/// 这里收位掩码而不是结构体，就是为了让这条判定能被非 Windows 平台的单测钉住：此前它误写成
+/// `0x0100`（那是 `UF_TEMP_DUPLICATE_ACCOUNT`，临时域账户），结果「密码永不过期」**既漏报真命中、
+/// 又把无关账户误报**——IR 结论直接判反。
+pub fn user_flag_marks(flags: u32) -> Vec<&'static str> {
+    const UF_ACCOUNTDISABLE: u32 = 0x0000_0002;
+    const UF_PASSWD_NOTREQD: u32 = 0x0000_0020;
+    const UF_DONT_EXPIRE_PASSWD: u32 = 0x0001_0000;
+
+    let mut marks = Vec::new();
+    if flags & UF_ACCOUNTDISABLE != 0 {
+        marks.push("已禁用");
+    }
+    if flags & UF_DONT_EXPIRE_PASSWD != 0 {
+        marks.push("密码永不过期");
+    }
+    if flags & UF_PASSWD_NOTREQD != 0 {
+        marks.push("无需密码");
+    }
+    marks
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,5 +210,24 @@ mod tests {
         );
         assert_eq!(expand_env("%SystemRoot%\\a"), r"C:\Windows\a");
         assert_eq!(expand_env("%systemroot%\\a"), r"C:\Windows\a");
+    }
+
+    #[test]
+    fn user_flag_marks_maps_known_bits() {
+        assert!(user_flag_marks(0).is_empty());
+        assert_eq!(user_flag_marks(0x0002), vec!["已禁用"]);
+        assert_eq!(user_flag_marks(0x0020), vec!["无需密码"]);
+        // P0-8 回归钉：0x0001_0000 才是「密码永不过期」
+        assert_eq!(user_flag_marks(0x0001_0000), vec!["密码永不过期"]);
+        assert_eq!(
+            user_flag_marks(0x0002 | 0x0001_0000),
+            vec!["已禁用", "密码永不过期"]
+        );
+    }
+
+    #[test]
+    fn user_flag_marks_ignores_temp_duplicate_bit() {
+        // 0x0100 = UF_TEMP_DUPLICATE_ACCOUNT（不是「密码永不过期」）——误用会让 IR 判反
+        assert!(user_flag_marks(0x0100).is_empty());
     }
 }

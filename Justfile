@@ -26,11 +26,15 @@ console-check:
     pnpm --dir console run build
 
 # Windows-only 代码的编译校验（T6 新增）：agent/src/ir/* 与 win_native 在 macOS/Linux 上
-# 不参与编译，这是本地能拿到的最强验证；缺 mingw-w64 时跳过而不是让 check 失败。
+# 不参与编译，这是本地能拿到的最强验证。缺 mingw-w64 时跳过。
+# P006 P0-7：此前写成 `cmd && cargo check || echo 跳过`——`||` 会把**编译失败**也当"缺工具"
+# 吞掉（正是这个配方唯一要抓的问题），门禁因此假绿。if/else 把两者分开。
 windows-check:
-    @command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 \
-        && cargo check -p helm-agent --target x86_64-pc-windows-gnu \
-        || echo "⊘ 跳过 windows-check（缺 mingw-w64：brew install mingw-w64）"
+    @if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then \
+        cargo check -p helm-agent --target x86_64-pc-windows-gnu; \
+    else \
+        echo "⊘ 跳过 windows-check（缺 mingw-w64：brew install mingw-w64）"; \
+    fi
 
 # 全部质量门禁
 check: fmt-check lint test windows-check console-check

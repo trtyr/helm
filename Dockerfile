@@ -15,6 +15,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # 先拷清单做依赖层缓存（源码变动不重拉依赖）
+# P006 P0-7：`cargo fetch --locked` 硬校验清单/锁文件（错即中止）；桩构建失败是**预期**的
+# （空 lib.rs / 假 main 编不过，这层只为拉依赖），但**不再把 stderr 丢掉**——否则清单、proto
+# 代码生成之类的真错误会被一起吞掉。
 COPY Cargo.toml Cargo.lock ./
 COPY proto/Cargo.toml proto/Cargo.toml
 COPY server/Cargo.toml server/Cargo.toml
@@ -24,14 +27,15 @@ RUN mkdir -p proto/src server/src agent/src \
     && echo "fn main() {}" > server/src/main.rs \
     && echo "" > server/src/lib.rs \
     && echo "fn main() {}" > agent/src/main.rs \
-    && cargo build --release -p helm-server -p helm-proto 2>/dev/null || true
+    && cargo fetch --locked \
+    && cargo build --release --locked -p helm-server -p helm-proto || true
 
 # 拷源码正式构建
 COPY proto proto
 COPY server server
 COPY agent agent
 RUN touch proto/src/lib.rs server/src/main.rs server/src/lib.rs agent/src/main.rs \
-    && cargo build --release -p helm-server
+    && cargo build --release --locked -p helm-server
 
 # agent-gen 现场编译需要 agent 源码工作区与 cargo：镜像内保留源码 + 构建产物缓存
 # （运行容器内 cargo build -p helm-agent，Linux 目标本机编译，无需交叉工具链）

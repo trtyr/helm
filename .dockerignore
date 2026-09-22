@@ -12,6 +12,15 @@ data
 deploy
 docs
 scripts
-*.log
-logs
+# 敏感文件一律不入构建上下文/镜像（Dockerfile 会整目录 COPY server/proto/agent）
+.env
+.env*
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+credentials.json
+**/*.log
+**/logs
 .DS_Store

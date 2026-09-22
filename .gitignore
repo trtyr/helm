@@ -1,7 +1,13 @@
 /target
 .env
+.env.*
 *.log
-*.log.*
+*.log.[0-9]*
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
 /logs/
 /data/
 .docker/

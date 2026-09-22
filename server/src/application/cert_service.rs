@@ -68,7 +68,7 @@ impl CertService {
         } else {
             let (issuer, ca_cert_pem, ca_key_pem) = generate_ca()?;
             std::fs::write(&ca_cert_path, &ca_cert_pem)?;
-            std::fs::write(&ca_key_path, &ca_key_pem)?;
+            write_private_key(&ca_key_path, &ca_key_pem)?;
             tracing::info!(tls_dir = %tls_dir, "generated and persisted new CA");
             (issuer, ca_cert_pem)
         };
@@ -84,7 +84,7 @@ impl CertService {
             } else {
                 let (cert_pem, key_pem) = generate_leaf_cert(&issuer, server_name)?;
                 std::fs::write(&server_cert_path, &cert_pem)?;
-                std::fs::write(&server_key_path, &key_pem)?;
+                write_private_key(&server_key_path, &key_pem)?;
                 (cert_pem, key_pem)
             };
 
@@ -103,9 +103,20 @@ impl CertService {
     }
 
     /// 签发 Agent CSR，返回证书 PEM。
-    pub fn sign_csr(&self, csr_pem: &str) -> Result<String> {
+    ///
+    /// **P006 P0-2（安全）**：**绝不**复用 CSR 自带的 params（旧实现是
+    /// `csr.signed_by(&issuer)`）。rcgen 的 `from_der` 会把 CSR 里**请求**的
+    /// BasicConstraints / KeyUsage / EKU / SAN 全部搬进 `csr.params`，于是任何持有共享
+    /// token 的调用方都能递一张 `BasicConstraints: CA:TRUE + KeyCertSign` 的 CSR，
+    /// 换到一张**由本 CA 签发的 CA 证书**——拿到它就能给任意名字签证书（完全提权）。
+    ///
+    /// 现在只取 CSR 的**公钥**（其自签名已由 `from_pem` 校验），其余属性一律由服务端重建：
+    /// 主体 CN = 调用方已校验过的 `agent_id`，`CA:FALSE`，只要 `digitalSignature`，
+    /// EKU 仅 `clientAuth`，有效期由服务端给定（不复用 CSR 的 `not_after`）。
+    pub fn sign_csr(&self, agent_id: &str, csr_pem: &str) -> Result<String> {
         let csr = CertificateSigningRequestParams::from_pem(csr_pem)?;
-        let cert = csr.signed_by(&self.issuer)?;
+        let params = agent_cert_params(agent_id)?;
+        let cert = params.signed_by(&csr.public_key, &self.issuer)?;
         Ok(cert.pem())
     }
 
@@ -155,7 +166,7 @@ impl CertService {
         let cert = params.signed_by(&key, &self.issuer)?;
 
         std::fs::write(dir.join("cert.pem"), cert.pem())?;
-        std::fs::write(dir.join("key.pem"), key.serialize_pem())?;
+        write_private_key(&dir.join("key.pem"), key.serialize_pem())?;
         std::fs::write(dir.join("ca.pem"), &self.ca_cert_pem)?;
         tracing::info!(agent_id = %agent_id, out_dir = %out_dir, "agent cert issued");
         Ok(())
@@ -236,6 +247,52 @@ fn generate_leaf_cert(
     Ok((cert.pem(), key_pair.serialize_pem()))
 }
 
+/// Agent 证书参数（服务端**重建**，不采信 CSR 自报值 —— P006 P0-2）。
+///
+/// 抽成独立纯函数便于单测钉住不变量：`CA:FALSE`、只要 `digitalSignature`（无 `keyCertSign`）、
+/// EKU 仅 `clientAuth`、有效期由常量给定。
+fn agent_cert_params(agent_id: &str) -> Result<CertificateParams> {
+    let mut params = CertificateParams::new(Vec::<String>::new())?;
+    params.distinguished_name.push(DnType::CommonName, agent_id);
+    params.is_ca = IsCa::ExplicitNoCa;
+    params.use_authority_key_identifier_extension = true;
+    params.key_usages.push(KeyUsagePurpose::DigitalSignature);
+    params
+        .extended_key_usages
+        .push(ExtendedKeyUsagePurpose::ClientAuth);
+    params.not_before = OffsetDateTime::now_utc() - Duration::days(1);
+    params.not_after = OffsetDateTime::now_utc() + Duration::days(LEAF_VALIDITY_DAYS);
+    Ok(params)
+}
+
+/// 写私钥文件：unix 下强制 `0600`（P006 P0-4）。
+///
+/// 此前用 `std::fs::write`，权限完全由进程 umask 决定——常见 `022` 即**世界可读**：
+/// 同机任何用户、以及任何备份介质都能直接取走私钥。
+fn write_private_key(path: &std::path::Path, contents: impl AsRef<[u8]>) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        f.write_all(contents.as_ref())?;
+        // 已存在的文件不受 `mode` 影响（O_CREAT 只在新建时生效）：显式再设一次
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, contents)?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,14 +312,78 @@ mod tests {
             .push(DnType::CommonName, "agent-1");
         let key = KeyPair::generate().unwrap();
         let csr = params.serialize_request(&key).unwrap();
-        let cert_pem = svc.sign_csr(&csr.pem().unwrap()).unwrap();
+        let cert_pem = svc.sign_csr("agent-1", &csr.pem().unwrap()).unwrap();
         assert!(cert_pem.contains("BEGIN CERTIFICATE"));
     }
 
     #[test]
     fn sign_invalid_csr_fails() {
         let svc = CertService::generate("localhost", true).unwrap();
-        assert!(svc.sign_csr("not a csr").is_err());
+        assert!(svc.sign_csr("agent-1", "not a csr").is_err());
+    }
+
+    #[test]
+    fn agent_cert_params_is_never_a_ca() {
+        let p = agent_cert_params("agent-1").unwrap();
+        assert!(
+            matches!(p.is_ca, IsCa::ExplicitNoCa),
+            "agent 证书必须是显式 CA:FALSE"
+        );
+        assert!(
+            !p.key_usages.contains(&KeyUsagePurpose::KeyCertSign),
+            "agent 证书不得带 keyCertSign"
+        );
+        assert_eq!(p.key_usages, vec![KeyUsagePurpose::DigitalSignature]);
+        assert_eq!(
+            p.extended_key_usages,
+            vec![ExtendedKeyUsagePurpose::ClientAuth]
+        );
+    }
+
+    /// P0-2 回归钉：CSR 自称 CA + keyCertSign + 别人的 SAN，签发的证书**不得**沿用这些属性。
+    ///
+    /// 断言方式是「与旧实现（直接把 CSR 的 params 交给 issuer 签）的结果不同」——相同即说明
+    /// 仍在搬运 CSR 自报值。
+    #[test]
+    fn sign_csr_ignores_csr_requested_ca_and_sans() {
+        let svc = CertService::generate("localhost", true).unwrap();
+
+        let key = KeyPair::generate().unwrap();
+        let mut evil = CertificateParams::new(vec!["evil.example".to_string()]).unwrap();
+        evil.distinguished_name.push(DnType::CommonName, "agent-1");
+        evil.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        evil.key_usages.push(KeyUsagePurpose::KeyCertSign);
+        let csr_pem = evil.serialize_request(&key).unwrap().pem().unwrap();
+
+        let ours = svc.sign_csr("agent-1", &csr_pem).unwrap();
+        assert!(ours.contains("BEGIN CERTIFICATE"));
+
+        let legacy = CertificateSigningRequestParams::from_pem(&csr_pem)
+            .unwrap()
+            .signed_by(&svc.issuer)
+            .unwrap()
+            .pem();
+        assert_ne!(
+            ours, legacy,
+            "签发的证书不得复用 CSR 自带的 BasicConstraints/KeyUsage/SAN"
+        );
+    }
+
+    /// P0-4 回归钉：私钥落盘必须 0600。
+    #[cfg(unix)]
+    #[test]
+    fn private_key_is_written_with_0600() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("helm-keyperm-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("key.pem");
+        write_private_key(&path, "-----BEGIN PRIVATE KEY-----\n").unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "私钥权限应为 0600，实际 {mode:o}");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
@@ -304,7 +425,7 @@ mod tests {
 
         // 持久化 CA 仍能签发合法 agent 证书
         let cert = second
-            .sign_csr(&{
+            .sign_csr("agent-2", &{
                 let mut params = CertificateParams::new(vec!["agent-2".to_string()]).unwrap();
                 params
                     .distinguished_name

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { crumbLabel, crumbSegments, humanSize, joinPath, parentPath } from "./paths";
+import { crumbLabel, crumbSegments, humanSize, joinPath, parentPath, sanitizeRedirect } from "./paths";
 
 describe("joinPath", () => {
   it("POSIX 根目录拼接不加双斜杠", () => {
@@ -54,5 +54,25 @@ describe("humanSize", () => {
     expect(humanSize(1)).toBe("1 B");
     expect(humanSize(1536)).toBe("1.5 KB");
     expect(humanSize(1024 * 1024)).toBe("1.0 MB");
+  });
+});
+
+describe("sanitizeRedirect（P006 P0-10）", () => {
+  it("接受站内绝对路径", () => {
+    expect(sanitizeRedirect("/hosts")).toBe("/hosts");
+    expect(sanitizeRedirect("/logs/jobs/abc?tab=out")).toBe("/logs/jobs/abc?tab=out");
+    expect(sanitizeRedirect("/")).toBe("/");
+  });
+  it("拒绝协议相对与外部 URL", () => {
+    expect(sanitizeRedirect("//evil.com")).toBe("/");
+    expect(sanitizeRedirect("http://evil.com")).toBe("/");
+    expect(sanitizeRedirect("https://evil.com/x")).toBe("/");
+    expect(sanitizeRedirect("javascript:alert(1)")).toBe("/");
+  });
+  it("拒绝反斜杠与空值", () => {
+    expect(sanitizeRedirect("\\\\evil.com")).toBe("/");
+    expect(sanitizeRedirect("")).toBe("/");
+    expect(sanitizeRedirect(null)).toBe("/");
+    expect(sanitizeRedirect(undefined)).toBe("/");
   });
 });

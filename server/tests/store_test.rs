@@ -154,6 +154,61 @@ async fn audit_repo_insert_list() {
     assert!(rows.iter().any(|r| r.id == row.id));
 }
 
+/// P006 P0-3：审计关键词搜索必须可用。
+///
+/// `audit_logs.detail` 是 **JSONB**，而 PG 没有 `jsonb ~~* text` 运算符——旧实现
+/// （`detail ILIKE $1`）会让**任何带 `q=` 的请求**在运行期报
+/// `operator does not exist: jsonb ~~* character varying` → HTTP 500。
+#[tokio::test]
+async fn audit_repo_keyword_search_does_not_error() {
+    let db = common::connect().await;
+    let repo = AuditRepo::new(db);
+
+    let marker = format!("p006-marker-{}", std::process::id());
+    repo.insert(
+        &marker,
+        "login",
+        "res-p006",
+        &serde_json::json!({ "note": marker }),
+    )
+    .await
+    .expect("insert");
+
+    let rows = repo
+        .list_paged(10, 0, None, Some(&marker), None, None, None)
+        .await
+        .expect("关键词搜索不得报错");
+    assert!(
+        rows.iter().any(|r| r.actor == marker),
+        "应能命中 actor；结果 {} 条",
+        rows.len()
+    );
+
+    // `detail`（JSONB）也要能被搜到——这一条正是旧实现直接 500 的路径
+    let only_in_detail = format!("p006-detail-{}", std::process::id());
+    repo.insert(
+        "someone",
+        "login",
+        "r",
+        &serde_json::json!({ "k": only_in_detail }),
+    )
+    .await
+    .expect("insert");
+    let rows = repo
+        .list_paged(10, 0, None, Some(&only_in_detail), None, None, None)
+        .await
+        .expect("detail(JSONB) 关键词搜索不得报错");
+    assert!(!rows.is_empty(), "detail 里的关键词应命中");
+
+    // LIKE 元字符与结尾反斜杠：未转义会改写匹配语义，或直接
+    // 报 `LIKE pattern must not end with escape character`
+    for kw in ["%", "_", "\\", "100%", "a_b"] {
+        repo.list_paged(10, 0, None, Some(kw), None, None, None)
+            .await
+            .unwrap_or_else(|e| panic!("关键词 {kw:?} 搜索报错: {e}"));
+    }
+}
+
 #[tokio::test]
 async fn alert_repo_insert_list_cleanup() {
     let db = common::connect().await;

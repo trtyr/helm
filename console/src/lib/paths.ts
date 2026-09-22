@@ -11,6 +11,21 @@ export function isWinPath(path: string): boolean {
   return /^[A-Za-z]:/.test(path) || path.includes("\\");
 }
 
+/**
+ * 清洗登录后的 `?redirect=` 目标（P006 P0-10）。
+ *
+ * 只接受**站内绝对路径**：必须以单个 `/` 开头。`//evil.com`（协议相对）、
+ * `http:`、`javascript:`、`\\`、空值一律回落 `/` —— 否则一个 `/login?redirect=//evil.com`
+ * 链接就能在登录成功后把用户导到站外（open redirect）。
+ *
+ * 注意：输入应来自 `URLSearchParams.get()`（已解码一次），**不要再 decodeURIComponent**：
+ * 二次解码会改写原本的 `%2F`，且畸形 `%`（如 `?redirect=100%`）会抛 `URIError` 打断渲染。
+ */
+export function sanitizeRedirect(raw: string | null | undefined): string {
+  const v = raw ?? "";
+  return v.startsWith("/") && !v.startsWith("//") ? v : "/";
+}
+
 /** 拼接：joinPath("/var/log", "nginx") → "/var/log/nginx"；joinPath("C:\\Users", "pub") → "C:\\Users\\pub"。 */
 export function joinPath(base: string, name: string): string {
   // 此电脑根 → 驱动器名自带分隔符（"C:\"），直接作为新路径

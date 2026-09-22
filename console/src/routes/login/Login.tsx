@@ -3,6 +3,7 @@ import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 import { api } from "../../api/client";
 import { getToken, setToken } from "../../api/token";
+import { sanitizeRedirect } from "../../lib/paths";
 
 interface LoginResponse {
   token: string;
@@ -13,8 +14,9 @@ interface LoginResponse {
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  const redirectParam = new URLSearchParams(location.search).get("redirect");
-  const redirect = redirectParam ? decodeURIComponent(redirectParam) : "/";
+  // P006 P0-10：redirect 只接受站内绝对路径（见 lib/paths.sanitizeRedirect）；
+  // 不再二次 decode——URLSearchParams 已解码一次，再 decode 会双重解码并在畸形 % 上抛 URIError。
+  const redirect = sanitizeRedirect(new URLSearchParams(location.search).get("redirect"));
   const notice = new URLSearchParams(location.search).get("notice");
 
   const [username, setUsername] = useState("admin");

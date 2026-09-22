@@ -253,6 +253,28 @@ fn protected_routes(state: &AppState) -> Router<AppState> {
         ))
 }
 
+/// 请求路径 → `dist` 下的安全相对路径（P006 P0-1：防目录穿越）。
+///
+/// 只接受纯 `Normal` 分量：绝对路径、`..`、以及含 `\` 的路径一律拒绝——**反斜杠必须单独拦**，
+/// 因为在 Unix 上 `..\..\etc` 是**单个** `Normal` 分量（不是 `ParentDir`），只查分量会漏。
+/// 空路径按 SPA 根处理（`index.html`）。
+fn safe_rel_path(path: &str) -> Option<String> {
+    if path.is_empty() {
+        return Some("index.html".to_string());
+    }
+    if path.contains('\\') {
+        return None;
+    }
+    let p = std::path::Path::new(path);
+    if p.is_absolute()
+        || p.components()
+            .any(|c| !matches!(c, std::path::Component::Normal(_)))
+    {
+        return None;
+    }
+    Some(path.to_string())
+}
+
 /// 前后端一体化的静态托管 fallback：命中文件直接回，未命中回 index.html（SPA 路由）。
 async fn web_static(
     dist: std::path::PathBuf,
@@ -264,8 +286,11 @@ async fn web_static(
         // API 未匹配路径保持 JSON 404 语义，不落回 SPA
         return (axum::http::StatusCode::NOT_FOUND, "not found").into_response();
     }
-    let rel = if path.is_empty() { "index.html" } else { &path };
-    let file = dist.join(rel);
+    // 防目录穿越（P006 P0-1）：hyper 不规范化请求目标里的 `..`，直接 join 会逃出 web 根。
+    let Some(rel) = safe_rel_path(&path) else {
+        return (axum::http::StatusCode::NOT_FOUND, "not found").into_response();
+    };
+    let file = dist.join(&rel);
     let serve = |bytes: axum::body::Bytes, mime: &'static str, immutable: bool| {
         axum::response::Response::builder()
             .status(axum::http::StatusCode::OK)
@@ -287,7 +312,7 @@ async fn web_static(
         .unwrap_or(false)
         && let Ok(bytes) = tokio::fs::read(&file).await
     {
-        return serve(bytes.into(), mime_of(rel), path.starts_with("assets/"));
+        return serve(bytes.into(), mime_of(&rel), rel.starts_with("assets/"));
     }
     // SPA fallback：前端 history 路由刷新回 index.html
     match tokio::fs::read(dist.join("index.html")).await {
@@ -307,5 +332,35 @@ async fn mcp_console(dist: std::path::PathBuf) -> axum::response::Response {
             .body(axum::body::Body::from(bytes))
             .unwrap(),
         Err(_) => (axum::http::StatusCode::NOT_FOUND, "not found").into_response(),
+    }
+}
+
+#[cfg(test)]
+mod safe_rel_path_tests {
+    use super::safe_rel_path;
+
+    #[test]
+    fn accepts_normal_asset_paths() {
+        assert_eq!(safe_rel_path("").as_deref(), Some("index.html"));
+        assert_eq!(
+            safe_rel_path("assets/app.js").as_deref(),
+            Some("assets/app.js")
+        );
+        assert_eq!(safe_rel_path("index.html").as_deref(), Some("index.html"));
+    }
+
+    #[test]
+    fn rejects_parent_dir_traversal() {
+        assert!(safe_rel_path("../../etc/passwd").is_none());
+        assert!(safe_rel_path("assets/../../etc/passwd").is_none());
+        assert!(safe_rel_path("..").is_none());
+    }
+
+    #[test]
+    fn rejects_backslash_and_absolute() {
+        // Unix 下 `..\..\etc` 只有一个 Normal 分量：必须靠 `\` 检查拦住
+        assert!(safe_rel_path("..\\..\\etc\\passwd").is_none());
+        assert!(safe_rel_path("assets\\app.js").is_none());
+        assert!(safe_rel_path("/etc/passwd").is_none());
     }
 }

@@ -67,7 +67,7 @@ pub async fn issue_cert(
 
     let cert_pem = state
         .cert
-        .sign_csr(&body.csr_pem)
+        .sign_csr(&body.agent_id, &body.csr_pem)
         .map_err(|e| Error::InvalidArgument(format!("csr: {e}")))?;
     // A3：签发成功入审计（谁在什么时候为哪个 agent_id 领了证书）
     AuditService::new(state.db.clone())

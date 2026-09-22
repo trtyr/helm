@@ -98,16 +98,9 @@ fn enum_user_flags() -> HashMap<String, String> {
         for i in 0..read as usize {
             let r = unsafe { &*rows.add(i) };
             let name = pwstr(r.usri1_name);
-            let mut marks = Vec::new();
-            if r.usri1_flags & 0x0002 != 0 {
-                marks.push("已禁用");
-            }
-            if r.usri1_flags & 0x0100 != 0 {
-                marks.push("密码永不过期");
-            }
-            if r.usri1_flags & 0x0020 != 0 {
-                marks.push("无需密码");
-            }
+            // 位判读抽到 `ir::text::user_flag_marks`（P006 P0-8）：那里是平台无关纯函数，
+            // macOS 上也能单测——正是为了钉住「0x0100（临时域账户）≠ 密码永不过期」这个错。
+            let marks = super::text::user_flag_marks(r.usri1_flags);
             if !marks.is_empty() {
                 flag_map.insert(name, marks.join("/"));
             }

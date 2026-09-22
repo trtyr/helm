@@ -95,13 +95,19 @@ impl AuditRepo {
             qb.push(" AND action = ").push_bind(a.to_string());
         }
         if let Some(kw) = q {
-            let pat = format!("%{kw}%");
+            // P006 P0-3：① LIKE 元字符必须转义，否则 `%`/`_` 会改写匹配语义、末尾 `\` 直接报错；
+            // ② `detail` 是 JSONB，PG 没有 `jsonb ~~* text`，必须显式 `::text`（否则关键词搜索必 500）。
+            let esc = kw
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_");
+            let pat = format!("%{esc}%");
             qb.push(" AND (")
                 .push("actor ILIKE ")
                 .push_bind(pat.clone())
                 .push(" OR resource ILIKE ")
                 .push_bind(pat.clone())
-                .push(" OR detail ILIKE ")
+                .push(" OR detail::text ILIKE ")
                 .push_bind(pat)
                 .push(")");
         }
