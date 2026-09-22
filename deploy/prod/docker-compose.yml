@@ -67,9 +67,10 @@ services:
     ports:
       # gRPC：Agent 反向连入，必须可达。mTLS 默认开启（见下方 HELM_MTLS，P006 P0-6），
       # 安全组仍应把 50051 限制到 Agent 来源 IP。
-      - "50051:50051"
+      # 端口可用环境变量覆盖（默认不变）——宿主已有反代/别的服务占用时改 HELM_BIND_*
+      - "${HELM_BIND_GRPC:-50051}:50051"
       # HTTP：只绑宿主回环，给 Caddy 反代 / 本地排障用；不要开到 0.0.0.0
-      - "127.0.0.1:8080:8080"
+      - "${HELM_BIND_HTTP:-127.0.0.1:8080}:8080"
     volumes:
       - ./data/logs:/app/logs
       - ./data/tls:/app/tls
