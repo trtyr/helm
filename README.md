@@ -1,4 +1,4 @@
-# helm — 自建运维中控台
+# helm
 
 <p align="center">
   <a href="https://github.com/trtyr/helm/actions/workflows/ci.yml"><img src="https://github.com/trtyr/helm/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -6,111 +6,94 @@
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg" alt="平台">
 </p>
 
-把 Agent 装到你的机器上，然后浏览器打开控制台：**跑命令、开终端、传文件、管服务**，出事的时候还能对 Windows 主机做应急响应取证。开源、自托管，数据全程在你自己的服务器上——不装客户端全家桶，不把 root shell 交给第三方。
+把 Agent 装到你的电脑和服务器上，然后打开浏览器：**跑命令、开终端、传文件、重启服务**，哪台机器掉线了马上知道，出安全事件的时候还能给 Windows 机器做一遍"全身体检"。
+
+helm 装在你自己的机器上，数据全程不经过任何第三方。
 
 ![helm 控制台 · 主机总览](docs/assets/hosts.png)
 
-## 这是你想要的吗
+## helm 是什么
 
-如果你管着几台云主机、几台家里/公司的设备，日常就是这几件事：
+一句话：**一个装在自己服务器上的运维控制台。**
 
-- **想跑条命令**——开 SSH、敲命令、翻滚动，一台还好，五台就开始烦
-- **想看它还活着吗**——CPU 高不高、磁盘满没满、是不是悄悄掉线了
-- **想传个文件**——scp 拼参数，或者开个临时 HTTP 服务
-- **出过事**——中过挖矿、起过可疑进程，事后想查：它从哪来的、还动了什么、怎么进去的
+你肯定遇到过这些事——
 
-helm 把这些收进一块面板。装好之后是这样的：
+- 手里三五台机器，今天这台磁盘满了，明天那台服务挂了，全靠碰运气发现
+- 想在服务器上跑个命令，得开 SSH、敲命令、翻屏找结果，机器一多就乱
+- 想传个文件上去，scp 参数拼半天
+- 电脑出了可疑进程，想知道它从哪来、还干了什么，手头却没有证据
 
-<!-- TODO(截图): 主机列表 + 终端 + IR 三联图 -->
+helm 就是把这一整套搬进浏览器：**每台机器装一个小小的 Agent，剩下的都在网页里完成**。Agent 主动连向你的服务器，被控的机器不需要开放任何端口；数据也全部存在你自己的服务器上，不经过任何第三方。
+
+## 它能做什么
+
+**网页终端** — 浏览器里直接敲命令，跟坐在那台机器前一模一样。
+
+**远程执行** — 给一台或者全部机器下发命令，输出实时回传；还能设定时任务，比如每天凌晨自动清理日志。
+
+**文件传输** — 上传、下载、列目录，带完整性校验，传输记录可查。
+
+**服务管理** — 系统服务一键启停重启（Windows 服务、systemd、launchctl 都支持）。
+
+**监控告警** — CPU、内存、磁盘一目了然；机器掉线自动通知你，持续离线还会升级提醒。
+
+**应急响应（Windows）** — 出安全事件时的"全身体检"：开机自启动项全景、可疑进程树、内存扫描、文件操作时间线、安全日志，一键打包证据带走。
+
+**操作留痕** — 谁在哪台机器上做了什么，每一步都有记录，随时翻旧账。
+
+**接入 AI 助手** — 支持 Claude 这类 AI 客户端通过标准接口安全地帮你查状态、跑命令，AI 和你用的是同一套权限和记录。
 
 <p align="center">
   <img src="docs/assets/overview.png" width="32.5%" alt="主机概览">
-  <img src="docs/assets/terminal.png" width="32.5%" alt="Web 终端">
-  <img src="docs/assets/jobs.png" width="32.5%" alt="任务列表">
+  <img src="docs/assets/terminal.png" width="32.5%" alt="网页终端">
+  <img src="docs/assets/jobs.png" width="32.5%" alt="任务记录">
 </p>
 
-## 功能
+## 怎么装
 
-**远程执行** — 任意主机上下发命令，输出实时回传；批量下发、定时任务（Server 重启后自动恢复）、中途取消、超时兜底。
-
-**Web 终端** — 浏览器直接开 shell（PTY），跟坐在机器前一样，穿 CDN 也不掉。
-
-**文件传输** — 上传 / 下载 / 列目录，SHA-256 校验，传输记录可查。
-
-**服务与进程** — 系统服务 start / stop / restart（Windows Service、systemd、launchctl）；进程列表与进程树，办公软件派生解释器这类异常父子关系自动高亮。
-
-**监控与告警** — CPU / 内存 / 磁盘采集；心跳掉线检测，持续离线自动升级为告警；站内通知中心。
-
-**应急响应（Windows）** — 自启动项全景（12 分类 1300+ 条，签名校验）、基线快照对比、流式内存扫描、USN 文件时间线、安全日志、一键证据包。取证是只读的，不在被控机上做变更。
-
-**AI 就绪** — 内置 MCP 接口（41 个工具，scope 授权），Claude Desktop 等 LLM 客户端可以直接安全地查状态、跑命令——AI 操作员和你走同一套权限与审计。
-
-**审计** — 登录、执行、文件、IR，每个动作都留痕，按关键词可搜。
-
-## 5 分钟部署
-
-只需要一台有 Docker 的机器：
+只需要一台装了 Docker 的电脑（云服务器、家里的 NAS、甚至你自己的电脑都行）：
 
 ```bash
 git clone https://github.com/trtyr/helm && cd helm
 
-# ① 配置：改 3 个密钥（都用 openssl rand -hex 32 生成）
-cd deploy/prod && cp env.example .env && vi .env
+# ① 生成配置
+cd deploy/prod && cp env.example .env
 
-# ② 构建控制台静态资源（一次性）
-pnpm --dir ../.. install --frozen-lockfile && pnpm --dir ../.. build
+# ② 改 3 个密钥（.env 里有说明，各一行）
+vi .env
 
-# ③ 起
+# ③ 构建
+pnpm --dir ../.. install --frozen-lockfile
+pnpm --dir ../.. build
+
+# ④ 启动
 docker compose up -d --build
-docker compose ps          # 三个服务都 healthy
-
-# ④ 打开
-open https://localhost     # 本地预演；上云则换成你 .env 里配的域名
 ```
 
-首次启动按 `.env` 里的 `HELM_BOOTSTRAP_ADMIN_USER / PASSWORD` 创建管理员——不设就是出厂值 `admin / admin123`，且默认开启的强凭据守卫会**拒绝用出厂口令启动**，不存在「门开着」的默认态。
+然后浏览器打开 `https://localhost`（或你配置的域名），用 `.env` 里设置的管理员账号登录，就看到上面那张图了。
 
-然后在控制台「生成 Agent」页点一下：Server 现场交叉编译，把连入地址和注册 token 烙进二进制，下载扔到目标机上运行即可上线（Windows / Linux / macOS）。
+> 首次使用建议先在本机跑一遍再上云。详细的参数说明、域名与 HTTPS 配置、安全清单，见 **[部署手册](deploy/README.md)**。
 
-> 手动安装、systemd / Windows 服务方式、mTLS 配置，见 **[部署手册](deploy/README.md)**。
+## 把你的机器接进来
 
-## 架构
+在控制台里点「**生成 Agent**」，选好目标系统，helm 会现场编译出一个安装包——把它拷到你想管理的机器上运行，几秒后它就出现在主机列表里了。不需要开放端口，不需要配置网络，Agent 会自己找到家。
 
-```mermaid
-flowchart LR
-    B["浏览器"] -->|"HTTPS · REST + WebSocket"| S
-    subgraph S["helm server"]
-        H["HTTP :8080"]
-        G["gRPC :50051"]
-        D[("Postgres")]
-        H --- D
-    end
-    A1["Agent · Windows"]
-    A2["Agent · Linux / macOS"]
-    A1 -->|"反向连接，被控机零入站端口"| G
-    A2 --> G
-```
+## 它现在不能做什么
 
-Agent 主动反向连到 Server，一条 gRPC 双向流复用执行、文件、服务、IR 全部子任务——被控机不开端口，NAT 后面照管不误。（同区域内网也可以反向操作：forward 模式让 Agent 监听、Server 拨号。）
+说实话比装什么都列上更有用：
 
-## 安全
+- 「应急响应」目前只支持 Windows；Linux 和 macOS 机器有执行、终端、文件、监控，没有体检功能
+- 一台服务器带所有机器，暂不支持多台服务器组网（对个人和小团队，这恰恰意味着简单）
+- 界面和文档目前以中文为主
 
-自托管的安全产品，先说安全：
+## 给开发者
 
-- Agent 认证：注册 token 换 mTLS 证书，私钥 0600；证书只由服务端签发，拿 token 签不出 CA
-- 凭据：恒定时间比较、token 多值轮换、改密码后旧会话立即失效、登录失败按账号 + IP 双维度退避
-- 审计：全操作落库可搜
-- 边界：这是自用级安全模型，不是合规产品；公网部署请过一遍[部署手册](deploy/README.md)的安全清单
+helm 用 Rust 和 TypeScript 写成，约 4.6 万行代码，测试 220 余条，CI 覆盖 Linux / Windows / 前端三平台。
 
-## 已知限制
-
-- 应急响应（IR）仅 Windows；Linux / macOS 有执行、文件、终端、监控，无 IR
-- 单机部署，无高可用——一台服务器 + 一个 Postgres，备份脚本在 `deploy/prod/backup.sh`
-- 文档以中文为主
-
-## 用什么写的
-
-Rust（Server + Agent，约 2.9 万行）+ TypeScript（控制台，React + xterm.js，约 1.7 万行）+ protobuf。对实现细节感兴趣？[本地开发指南](docs/development.md)、[配置参考](docs/configuration.md)、[API 契约](docs/openapi.yaml)。
+- [本地开发指南](docs/development.md)
+- [架构与安全设计](docs/architecture.md)
+- [配置参考](docs/configuration.md)
+- [API 契约（OpenAPI）](docs/openapi.yaml)
 
 ## License
 
