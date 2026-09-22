@@ -55,9 +55,10 @@ docker compose logs -f server | head -30   # 不应出现 insecure default 告�
 #   curl -k https://localhost/          → 控制台 index.html
 ```
 
-**⑥ 改掉默认管理员**：首次启动会 seed `admin / admin123`（日志里是 ERROR 级）。
-登录控制台 → 设置 → 账号 → 改密码；或调 `POST /api/v1/auth/change-password`。
-这一步不做等于门开着——A1 守卫只报错，不替你做。
+**⑥ 初始管理员**：账号与口令由 `HELM_BOOTSTRAP_ADMIN_USER` / `HELM_BOOTSTRAP_ADMIN_PASSWORD` 决定
+（**仅当库为空、首次启动建号时生效**）；不设就是公开出厂值 `admin / admin123`，首次建号会打 ERROR 提醒，
+且 `HELM_REQUIRE_STRONG_DEFAULTS=true` 时**直接拒绝启动**——也就是说**没有「门开着」的默认态**。
+库已经建过号之后想改口令：控制台 → 设置 → 账号；或调 `POST /api/v1/auth/change-password`。
 
 ## 2. 接入 Agent
 
@@ -166,7 +167,7 @@ docker compose exec postgres psql -U helm -d helm \
 | 1 | TLS 终结（443 + 自动证书） | `prod/Caddyfile` |
 | 2 | 三个强随机值已改 | `prod/.env` |
 | 3 | `HELM_REQUIRE_STRONG_DEFAULTS=true`（弱值拒启；取值推荐 true，兼容 1/0/yes/no） | `prod/.env` |
-| 4 | 默认管理员口令已改 | 控制台 → 设置 → 账号 |
+| 4 | 初始管理员账号/口令已定（不设即出厂值，会被拒绝启动/ERROR 提醒） | `prod/.env`（`HELM_BOOTSTRAP_ADMIN_*`）或控制台「设置 → 账号」 |
 | 5 | DB 不对外（内网 + 无 ports 发布） | `prod/docker-compose.yml` |
 | 6 | Agent token 非出厂值 | `install-windows-service.ps1 -Token` |
 | 7 | DB 备份 + 恢复演练 | `prod/backup.sh` |

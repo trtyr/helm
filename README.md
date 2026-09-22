@@ -186,6 +186,8 @@ Bearer 值为 JWT 或 `helm_` 前缀 API key（决策 010）均可认证；WebSo
 | `HELM_DATABASE_URL` | `postgres://helm:helm@localhost:5433/helm` | Postgres 连接串 |
 | `HELM_SERVER_TOKEN` | `dev-token-change-me` | Agent 认证 token（严格匹配，空则拒绝所有；生产必须改） |
 | `HELM_JWT_SECRET` | `dev-secret-change-me` | JWT 签名密钥（生产必须改） |
+| `HELM_BOOTSTRAP_ADMIN_USER` | `admin` | 初始管理员用户名（**仅当 users 表为空**、首次启动建号时生效；之后改名走控制台/API） |
+| `HELM_BOOTSTRAP_ADMIN_PASSWORD` | `admin123` | 初始管理员口令（同上）。仍是出厂值且 `HELM_REQUIRE_STRONG_DEFAULTS=true` 时**拒绝启动**；否则建号时打 ERROR 提醒——口令本身不落日志 |
 | `HELM_LOG` | `info` | 日志级别 |
 | `HELM_HEARTBEAT_TIMEOUT` | `30` | 心跳超时阈值（秒） |
 | `HELM_SESSION_IDLE_TIMEOUT` | `300` | 会话空闲超时（秒） |

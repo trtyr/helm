@@ -117,7 +117,11 @@ async fn init_database(config: &config::Config) -> Result<store::Db> {
     tracing::info!("database connected and migrated");
 
     application::auth_service::AuthService::new(db.clone(), config.jwt_secret.clone())
-        .seed_admin()
+        .seed_admin(
+            &config.bootstrap_admin_user,
+            &config.bootstrap_admin_password,
+            config.require_strong_defaults,
+        )
         .await?;
     Ok(db)
 }

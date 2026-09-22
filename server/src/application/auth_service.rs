@@ -102,17 +102,46 @@ impl AuthService {
         }
     }
 
-    /// 若 users 表为空，seed 默认管理员 admin / admin123。
-    pub async fn seed_admin(&self) -> Result<()> {
+    /// 若 users 表为空，按给定用户名/口令创建初始管理员（**仅此一次**）。
+    ///
+    /// `require_strong` = `HELM_REQUIRE_STRONG_DEFAULTS`：口令仍是出厂值时**拒绝启动**。
+    /// 策略判定刻意放在这里而不是配置层——出厂口令危不危险取决于**库是否为空**，
+    /// 库非空时这个配置根本不会被用到，不该在升级后拦住既有部署。
+    pub async fn seed_admin(
+        &self,
+        username: &str,
+        password: &str,
+        require_strong: bool,
+    ) -> Result<()> {
         let repo = UserRepo::new(self.db.clone());
-        if repo.count().await? == 0 {
-            let hash = bcrypt::hash("admin123", bcrypt::DEFAULT_COST)
-                .map_err(|e| Error::Internal(format!("bcrypt: {e}")))?;
-            repo.create("admin", &hash, "admin").await?;
-            // A1：默认口令必须显式可见——此前是 info 级、极易被忽略
+        if repo.count().await? != 0 {
+            return Ok(());
+        }
+
+        let is_factory = password.trim() == crate::config::FACTORY_ADMIN_PASSWORD;
+        if is_factory && require_strong {
+            return Err(Error::Internal(format!(
+                "HELM_BOOTSTRAP_ADMIN_PASSWORD 仍是出厂值，拒绝用它创建初始管理员 '{username}'——\
+                 请设强随机值（openssl rand -hex 32），或显式关掉 HELM_REQUIRE_STRONG_DEFAULTS"
+            )));
+        }
+
+        let hash = bcrypt::hash(password, bcrypt::DEFAULT_COST)
+            .map_err(|e| Error::Internal(format!("bcrypt: {e}")))?;
+        repo.create(username, &hash, "admin").await?;
+
+        if is_factory {
+            // A1：出厂口令必须显式可见——此前是 info 级、极易被忽略
             tracing::error!(
-                "seeded default admin user 'admin' with the well-known password 'admin123' — \
-                 change it (控制台「设置 → 账号」或 /api/v1/auth/change-password) before exposing this server"
+                "seeded bootstrap admin '{username}' with the well-known factory password \
+                 (admin123) — change it (控制台「设置 → 账号」或 /api/v1/auth/change-password) \
+                 before exposing this server"
+            );
+        } else {
+            // 口令来自 HELM_BOOTSTRAP_ADMIN_PASSWORD 或 CLI：**绝不打印口令本身**
+            tracing::info!(
+                user = %username,
+                "created bootstrap admin (password from HELM_BOOTSTRAP_ADMIN_PASSWORD)"
             );
         }
         Ok(())

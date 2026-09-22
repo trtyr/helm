@@ -1,5 +1,13 @@
 use clap::Parser;
 
+/// 出厂初始管理员口令（公开值，与 `helm_bootstrap_admin_password` 的 default_value 一致，
+/// 有单测 `bootstrap_admin_default_matches_const` 钉住两处不漂移）。
+///
+/// **刻意留在 config 层做「是否出厂值」的判定**：出厂口令危不危险取决于**库是否为空**，
+/// 所以硬失败放在真正要拿它建账号的那一刻（`seed_admin`），而不是启动期的配置检查——
+/// 否则既有部署（库非空、该配置根本不会被用到）升个级就会被拦住启动。
+pub const FACTORY_ADMIN_PASSWORD: &str = "admin123";
+
 /// 集中式运维平台 · 控制端配置。
 #[derive(Debug, Clone, Parser)]
 #[command(name = "helm-server", version, about = "集中式运维平台 · 控制端")]
@@ -52,6 +60,21 @@ pub struct Config {
     /// JWT 签名密钥（生产必须配置强随机值）
     #[arg(long, env = "HELM_JWT_SECRET", default_value = "dev-secret-change-me")]
     pub jwt_secret: String,
+
+    /// 初始管理员用户名（**仅当 users 表为空**、首次启动建号时生效；之后改名走控制台/API）。
+    #[arg(long, env = "HELM_BOOTSTRAP_ADMIN_USER", default_value = "admin")]
+    pub bootstrap_admin_user: String,
+
+    /// 初始管理员口令（**仅当 users 表为空**、首次启动建号时生效）。
+    ///
+    /// 默认值是公开的出厂值 [`FACTORY_ADMIN_PASSWORD`]：真正要拿它建账号时，
+    /// `HELM_REQUIRE_STRONG_DEFAULTS=true` 下**拒绝启动**，否则打 ERROR 日志。
+    #[arg(
+        long,
+        env = "HELM_BOOTSTRAP_ADMIN_PASSWORD",
+        default_value = "admin123"
+    )]
+    pub bootstrap_admin_password: String,
 
     /// 日志级别
     #[arg(long, env = "HELM_LOG", default_value = "info")]
@@ -189,6 +212,10 @@ impl Config {
     /// A1：仍在使用的**弱默认凭据**清单（空 = 无问题）。
     ///
     /// 判定用「等于出厂默认值」而非熵估计——目的是拦住「忘了改」而不是评估强度。
+    ///
+    /// 注意：初始管理员口令（`HELM_BOOTSTRAP_ADMIN_PASSWORD`）**刻意不在本清单里**——
+    /// 它只在库为空时被用到，是否危险取决于库状态，故判定放在 `seed_admin` 那一刻
+    /// （见 [`FACTORY_ADMIN_PASSWORD`] 的说明）。
     pub fn insecure_defaults(&self) -> Vec<&'static str> {
         let mut weak = Vec::new();
         if self.server_token.trim() == "dev-token-change-me" {
@@ -205,6 +232,11 @@ impl Config {
             weak.push("HELM_SERVER_TOKENS(含出厂默认值)");
         }
         weak
+    }
+
+    /// 初始管理员口令是否仍是出厂值（供 `seed_admin` 在建号那一刻做策略判定）。
+    pub fn bootstrap_admin_password_is_factory(&self) -> bool {
+        self.bootstrap_admin_password.trim() == FACTORY_ADMIN_PASSWORD
     }
 
     /// A1：启动期弱值守卫——命中即 ERROR；`HELM_REQUIRE_STRONG_DEFAULTS=true` 时拒绝启动。
@@ -232,7 +264,7 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::Config;
+    use super::{Config, FACTORY_ADMIN_PASSWORD};
     use clap::Parser;
 
     /// P003 T2/T3 契约：默认值与文档口径一致（HELM_OFFLINE_ALERT_MINS=30、HELM_LOG_DIR=./logs）。
@@ -242,6 +274,29 @@ mod tests {
         assert_eq!(c.offline_alert_mins, 30);
         assert_eq!(c.log_dir, "./logs");
         assert_eq!(c.mcp_tier, 2);
+    }
+
+    /// 初始管理员：出厂默认值、以及「常量与 clap default_value 不漂移」的钉子。
+    #[test]
+    fn bootstrap_admin_default_matches_const() {
+        let c = Config::parse_from(["helm-server"]);
+        assert_eq!(c.bootstrap_admin_user, "admin");
+        assert_eq!(c.bootstrap_admin_password, FACTORY_ADMIN_PASSWORD);
+        assert!(c.bootstrap_admin_password_is_factory());
+    }
+
+    /// 显式配置了非出厂口令后，不再判定为出厂值（→ 不会触发拒绝启动）。
+    #[test]
+    fn bootstrap_admin_custom_not_factory() {
+        let c = Config::parse_from([
+            "helm-server",
+            "--bootstrap-admin-user",
+            "trtyr",
+            "--bootstrap-admin-password",
+            "not-the-factory-one",
+        ]);
+        assert_eq!(c.bootstrap_admin_user, "trtyr");
+        assert!(!c.bootstrap_admin_password_is_factory());
     }
 
     /// A1：出厂默认值必须被识别为「弱」。
