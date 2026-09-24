@@ -5,6 +5,7 @@ pub mod api_keys;
 pub mod audit;
 pub mod auth;
 pub mod cert;
+pub mod client_ip;
 pub mod error;
 pub mod exec;
 pub mod files;
@@ -75,6 +76,8 @@ pub struct AppState {
     pub mcp_tier: u8,
     /// 登录失败计数与退避（A4）：账号 + 来源 IP 两维度，内存态
     pub login_guard: std::sync::Arc<crate::application::login_guard::LoginGuard>,
+    /// EN-14：可信代理网段（解析后的 CIDR 列表）；空 = 不信任任何 XFF
+    pub trusted_cidrs: std::sync::Arc<Vec<crate::http::client_ip::Cidr>>,
 }
 
 /// HTTP 层启动依赖（G2：收口参数爆炸）。
@@ -171,6 +174,9 @@ fn build_state(deps: HttpServeDeps) -> AppState {
         session_idle_timeout_secs: config.session_idle_timeout_secs,
         mcp_tier: config.mcp_tier,
         login_guard: std::sync::Arc::new(crate::application::login_guard::LoginGuard::new()),
+        trusted_cidrs: std::sync::Arc::new(crate::http::client_ip::parse_cidr_list(
+            &config.trusted_proxy_cidrs,
+        )),
         cert: deps.cert,
         agent_gen: crate::application::agent_generator::AgentGenService::new(
             config.agent_source_dir.clone(),

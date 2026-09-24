@@ -36,11 +36,15 @@ pub struct ChangeUsernameBody {
 pub async fn login(
     State(state): State<AppState>,
     axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    headers: axum::http::HeaderMap,
     Json(body): Json<LoginBody>,
 ) -> Result<Json<Value>, Error> {
     // A4：两个维度分别限速——按账号（防定点爆破）与按来源 IP（防撒网式撞库）
     let user_key = format!("user:{}", body.username);
-    let ip_key = format!("ip:{}", peer.ip());
+    // EN-14：peer 落在可信代理网段时取 XFF 首段，否则用 TCP 对端（伪造 XFF 不生效）
+    let xff = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok());
+    let client = crate::http::client_ip::client_ip(peer, xff, &state.trusted_cidrs);
+    let ip_key = format!("ip:{client}");
     let now = std::time::Instant::now();
     for key in [&user_key, &ip_key] {
         if let Some(secs) = state.login_guard.blocked_for(key, now) {
@@ -77,7 +81,7 @@ pub async fn login(
                     &body.username,
                     "login_failed",
                     "",
-                    json!({ "failures_for_account": failures, "peer_ip": peer.ip().to_string() }),
+                    json!({ "failures_for_account": failures, "peer_ip": client.to_string() }),
                 )
                 .await;
             Err(Error::Unauthorized("invalid credentials".into()))

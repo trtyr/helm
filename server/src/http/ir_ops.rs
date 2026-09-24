@@ -75,6 +75,13 @@ pub async fn create_snapshot(
         .await?;
     let findings = json!(result.findings);
     let count = findings.as_array().map(|a| a.len()).unwrap_or(0) as i32;
+    // C4：快照超限拒绝创建（取证快照是无界 JSONB 的最大风险面）
+    if crate::http::ir::findings_exceeds_limit(&findings) {
+        return Err(Error::InvalidArgument(format!(
+            "findings 超过大小上限 {} 字节，快照拒绝创建",
+            crate::http::ir::FINDINGS_MAX_BYTES
+        )));
+    }
     let id = crate::store::ir_repo::insert_snapshot(
         state.db.pool(),
         &body.agent_id,

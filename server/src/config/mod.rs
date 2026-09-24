@@ -105,6 +105,12 @@ pub struct Config {
     #[arg(long, env = "HELM_IR_PAGE_CACHE_TTL_DAYS", default_value = "30")]
     pub ir_page_cache_ttl_days: i64,
 
+    /// EN-14：可信代理网段（逗号分隔 CIDR/裸 IP，如 "172.21.0.0/16,10.0.0.5"）——
+    /// 仅当 TCP 对端落在网段内才信任 X-Forwarded-For 首段（审计与登录限速的来源 IP）；
+    /// 空 = 不信任任何 XFF（行为与直连部署一致）
+    #[arg(long, env = "HELM_TRUSTED_PROXY_CIDRS", default_value = "")]
+    pub trusted_proxy_cidrs: String,
+
     /// MCP 渐进分层（P002 T4，默认 2）：1=入口（清单不展开，AI 用 catalog 发现）/
     /// 2=host 域（对主机做的一切，ir 带 windows 专属标注）/ 3=全量（含 platform 管理能力）
     #[arg(

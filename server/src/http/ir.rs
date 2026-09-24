@@ -21,6 +21,40 @@ pub struct IrScanBody {
     pub types: Vec<String>,
 }
 
+/// C4：findings JSONB 单条写入的字节数上限（16 MiB）——超限拒绝入库，
+/// 防止内存扫描结果无界撑爆库容。（暂为常量；AppState 未持有 config，可配化待扩。）
+pub(crate) const FINDINGS_MAX_BYTES: usize = 16 * 1024 * 1024;
+
+pub(crate) fn findings_exceeds_limit(findings: &serde_json::Value) -> bool {
+    exceeds_limit(FINDINGS_MAX_BYTES, findings)
+}
+
+fn exceeds_limit(cap: usize, findings: &serde_json::Value) -> bool {
+    if cap == 0 {
+        return false; // 0 = 不限制（与 retention 类开关同口径）
+    }
+    serde_json::to_vec(findings)
+        .map(|bytes| bytes.len() > cap)
+        .unwrap_or(true)
+}
+
+#[cfg(test)]
+mod size_cap_tests {
+    use super::*;
+
+    #[test]
+    fn small_findings_pass() {
+        assert!(!exceeds_limit(10, &serde_json::json!({"a": 1})));
+        assert!(!exceeds_limit(0, &serde_json::json!({"a": 1})));
+    }
+
+    #[test]
+    fn oversize_findings_rejected() {
+        let big = serde_json::Value::String("x".repeat(64));
+        assert!(exceeds_limit(10, &big));
+    }
+}
+
 /// 应急扫描：POST /api/v1/ir/scan
 pub async fn ir_scan(
     State(state): State<AppState>,
@@ -43,7 +77,10 @@ pub async fn ir_scan(
     let findings_json = serde_json::json!(result.findings);
     let count = findings_json.as_array().map(|a| a.len()).unwrap_or(0) as i32;
     // 页面缓存写失败只影响后续读取性能，不影响本次结果；但 DB 异常必须留痕
-    if let Err(e) = crate::store::ir_repo::upsert_page_cache(
+    // C4：超限拒绝写入页面缓存（扫描结果仍返回调用方，只是不落缓存）
+    if findings_exceeds_limit(&findings_json) {
+        tracing::warn!(agent_id = %body.agent_id, kinds = %kind, cap = FINDINGS_MAX_BYTES, "ir page cache findings exceed size cap, skip upsert");
+    } else if let Err(e) = crate::store::ir_repo::upsert_page_cache(
         state.db.pool(),
         &body.agent_id,
         &kind,
