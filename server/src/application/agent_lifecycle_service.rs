@@ -35,15 +35,17 @@ impl AgentLifecycleService {
     /// agent 离线时无法送达指令：删记录 + 标记挂起，重连瞬间补执行注销。
     pub async fn deregister(&self, agent_id: &str) -> Result<()> {
         let agent_repo = AgentRepo::new(self.db.clone());
+        // 存在性校验必须先于挂起标记（EN-3）：对不存在的 agent 返回 404 时不得
+        // 留下 pending_offline 副作用——否则同名 id 的 Agent 下次上线瞬间即被自毁。
+        let host_id = agent_repo
+            .get_host_id(agent_id)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("agent: {agent_id}")))?;
         if !self.registry.is_online(agent_id).await {
             agent_repo
                 .mark_pending_offline(agent_id, "deregister")
                 .await?;
         }
-        let host_id = agent_repo
-            .get_host_id(agent_id)
-            .await?
-            .ok_or_else(|| Error::NotFound(format!("agent: {agent_id}")))?;
 
         agent_repo.delete(agent_id).await?;
 

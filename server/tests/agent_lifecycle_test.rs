@@ -59,3 +59,26 @@ async fn deregister_removes_agent_and_orphan_host() {
             .is_none()
     );
 }
+
+/// EN-3 回归：对不存在的 agent 调 deregister 应 404 且零副作用——
+/// 不得在 agent_pending_offline 留下挂起行（否则同名 id 上线瞬间被自毁）。
+#[tokio::test]
+async fn deregister_missing_agent_is_side_effect_free() {
+    let db = common::connect().await;
+    let registry = ConnectionRegistry::new();
+    let service = AgentLifecycleService::new(db.clone(), registry.clone());
+
+    let ghost = format!("itest-ghost-{}", uuid::Uuid::new_v4());
+    assert!(
+        service.deregister(&ghost).await.is_err(),
+        "missing agent must 404"
+    );
+
+    let pending: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM agent_pending_offline WHERE agent_id = $1")
+            .bind(&ghost)
+            .fetch_one(db.pool())
+            .await
+            .expect("query pending_offline");
+    assert_eq!(pending, 0, "404 must not leave pending_offline rows");
+}

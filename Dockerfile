@@ -27,6 +27,7 @@ RUN mkdir -p proto/src server/src agent/src \
     && echo "fn main() {}" > server/src/main.rs \
     && echo "" > server/src/lib.rs \
     && echo "fn main() {}" > agent/src/main.rs \
+    && rustup target add x86_64-unknown-linux-musl \
     && cargo fetch --locked \
     && cargo build --release --locked -p helm-server -p helm-proto || true
 
@@ -43,7 +44,7 @@ RUN touch proto/src/lib.rs server/src/main.rs server/src/lib.rs agent/src/main.r
 # ---- 运行阶段 ----
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates protobuf-compiler pkg-config build-essential curl \
+    ca-certificates protobuf-compiler pkg-config build-essential curl musl-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # agent-gen 现场编译需要现代 cargo：apt 仓库自带的 cargo 版本低于本 workspace
@@ -51,6 +52,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 代价是运行镜像体积增加约 1GB）。不需要容器内出包可删这三行。
 COPY --from=builder /usr/local/rustup /usr/local/rustup
 COPY --from=builder /usr/local/cargo /usr/local/cargo
+# EN-2：显式补 registry cache/src——实测整目录 COPY 后容器内只有 index（无 .crate
+# 与 src），cargo build 因缺依赖源码而联网下载，中国网络下近乎卡死
+COPY --from=builder /usr/local/cargo/registry/cache /usr/local/cargo/registry/cache
+COPY --from=builder /usr/local/cargo/registry/src /usr/local/cargo/registry/src
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH
