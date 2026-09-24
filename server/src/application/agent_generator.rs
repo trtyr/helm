@@ -54,8 +54,8 @@ const LOG_CAP: usize = 400;
 /// 目标平台 → Rust triple 与产物扩展名。
 pub fn triple_for(os: &str, arch: &str) -> Option<(&'static str, &'static str)> {
     match (os, arch) {
-        ("windows", "x86_64") => Some(("x86_64-pc-windows-msvc", ".exe")),
-        ("windows", "aarch64") => Some(("aarch64-pc-windows-msvc", ".exe")),
+        ("windows", "x86_64") => Some(("x86_64-pc-windows-gnu", ".exe")),
+        ("windows", "aarch64") => Some(("aarch64-pc-windows-gnu", ".exe")),
         ("linux", "x86_64") => Some(("x86_64-unknown-linux-musl", "")),
         ("linux", "aarch64") => Some(("aarch64-unknown-linux-musl", "")),
         ("macos", "x86_64") => Some(("x86_64-apple-darwin", "")),
@@ -334,7 +334,7 @@ mod tests {
     fn triple_mapping_covers_supported_platforms() {
         assert_eq!(
             triple_for("windows", "x86_64"),
-            Some(("x86_64-pc-windows-msvc", ".exe"))
+            Some(("x86_64-pc-windows-gnu", ".exe"))
         );
         assert_eq!(
             triple_for("linux", "x86_64"),

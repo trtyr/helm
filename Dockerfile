@@ -11,7 +11,7 @@ WORKDIR /build
 
 # 编译依赖（protobuf 编译器 + C 工具链；ring 需要 cc）
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    protobuf-compiler pkg-config ca-certificates \
+    protobuf-compiler pkg-config ca-certificates curl mingw-w64 \
     && rm -rf /var/lib/apt/lists/*
 
 # 先拷清单做依赖层缓存（源码变动不重拉依赖）
@@ -27,9 +27,17 @@ RUN mkdir -p proto/src server/src agent/src \
     && echo "fn main() {}" > server/src/main.rs \
     && echo "" > server/src/lib.rs \
     && echo "fn main() {}" > agent/src/main.rs \
-    && rustup target add x86_64-unknown-linux-musl \
     && cargo fetch --locked \
     && cargo build --release --locked -p helm-server -p helm-proto || true
+
+# agent-gen 交叉工具链（2026-09-24：musl→zig cc；windows→gnu/mingw，与 Justfile windows-check 对齐）
+RUN rustup target add x86_64-unknown-linux-musl x86_64-pc-windows-gnu \
+    && mkdir -p /workspace/.cargo-musl/bin /opt/zig-dl && cd /opt/zig-dl \
+    && curl -sL --max-time 300 -o zig.tar.xz https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz \
+    && tar xf zig.tar.xz -C /opt && mv /opt/zig-linux-x86_64-0.13.0 /opt/zig && cd / && rm -rf /opt/zig-dl \
+    && printf '#!/bin/sh\nexec /opt/zig/zig cc -target x86_64-linux-musl "$@"\n' > /workspace/.cargo-musl/bin/x86_64-linux-musl-gcc \
+    && printf '#!/bin/sh\nexec /opt/zig/ar "$@"\n' > /workspace/.cargo-musl/bin/x86_64-linux-musl-ar \
+    && chmod +x /workspace/.cargo-musl/bin/*
 
 # 拷源码正式构建
 COPY proto proto
@@ -44,7 +52,7 @@ RUN touch proto/src/lib.rs server/src/main.rs server/src/lib.rs agent/src/main.r
 # ---- 运行阶段 ----
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates protobuf-compiler pkg-config build-essential curl musl-tools \
+    ca-certificates protobuf-compiler pkg-config build-essential curl mingw-w64 \
     && rm -rf /var/lib/apt/lists/*
 
 # agent-gen 现场编译需要现代 cargo：apt 仓库自带的 cargo 版本低于本 workspace
@@ -56,6 +64,8 @@ COPY --from=builder /usr/local/cargo /usr/local/cargo
 # 与 src），cargo build 因缺依赖源码而联网下载，中国网络下近乎卡死
 COPY --from=builder /usr/local/cargo/registry/cache /usr/local/cargo/registry/cache
 COPY --from=builder /usr/local/cargo/registry/src /usr/local/cargo/registry/src
+COPY --from=builder /opt/zig /opt/zig
+COPY --from=builder /workspace/.cargo-musl/bin /workspace/.cargo-musl/bin
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH
