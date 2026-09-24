@@ -69,8 +69,8 @@ cd deploy/prod && cp env.example .env
 vi .env
 
 # ③ 构建
-pnpm --dir ../.. install --frozen-lockfile
-pnpm --dir ../.. build
+pnpm --dir ../../console install --frozen-lockfile
+pnpm --dir ../../console build
 
 # ④ 启动
 docker compose up -d --build
