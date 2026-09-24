@@ -229,8 +229,12 @@ async fn build_channel(config: &Config) -> Result<Channel> {
 
     // tonic 仅在 scheme 为 https 时才走 TLS（见 connector.rs 的 is_https 判断）
     let tls_addr = to_https_addr(&config.server_addr);
+    // B8：mTLS 分支与明文分支同享 h2 保活——半开连接 40s 内快速检测（EN-72 补全）
     Ok(Channel::from_shared(tls_addr)?
         .tls_config(client_tls)?
+        .http2_keep_alive_interval(Duration::from_secs(30))
+        .keep_alive_timeout(Duration::from_secs(10))
+        .keep_alive_while_idle(true)
         .connect()
         .await?)
 }

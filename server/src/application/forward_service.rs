@@ -34,6 +34,10 @@ impl ForwardService {
         };
         let channel = Channel::from_shared(uri)
             .map_err(|e| Error::InvalidArgument(format!("bad agent addr: {e}")))?
+            // B8：一次性 exec 拨号同样开启 h2 保活
+            .http2_keep_alive_interval(std::time::Duration::from_secs(30))
+            .keep_alive_timeout(std::time::Duration::from_secs(10))
+            .keep_alive_while_idle(true)
             .connect()
             .await
             .map_err(|e| Error::Internal(format!("connect failed: {e}")))?;

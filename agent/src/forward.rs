@@ -46,6 +46,10 @@ pub async fn serve(config: &Config, cert: Option<crate::cert::AgentCert>) -> Res
     } else {
         tracing::info!(addr = %config.listen_addr, "agent forward mode listening");
     }
+    // B8：forward gRPC server 对称开启 h2 keepalive（与 listener_registry 的 server 端一致）
+    let mut builder = builder
+        .http2_keepalive_interval(Some(std::time::Duration::from_secs(30)))
+        .http2_keepalive_timeout(Some(std::time::Duration::from_secs(10)));
     builder.add_service(svc).serve(addr).await?;
     Ok(())
 }

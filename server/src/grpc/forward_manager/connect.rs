@@ -84,6 +84,11 @@ async fn open_forward_stream(
     if deps.cert.enabled() {
         endpoint = endpoint.tls_config(forward_tls_config(deps))?;
     }
+    // B8：forward 拨号同样开启 h2 保活——半开连接 40s 内快速检测并触发重连
+    let endpoint = endpoint
+        .http2_keep_alive_interval(std::time::Duration::from_secs(30))
+        .keep_alive_timeout(std::time::Duration::from_secs(10))
+        .keep_alive_while_idle(true);
     let channel = endpoint.connect().await?;
     let mut client = ForwardAgentServiceClient::new(channel);
 
