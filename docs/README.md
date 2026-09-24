@@ -1,7 +1,8 @@
 # docs/ — helm 文档指针索引
 
 > **2026-09-15 起，helm 的全部书面记录归档于 engram（projects 域，project `helm`）。**
-> 本地 `docs/` 只保留本索引与机器契约资产。正文不再放本地——查文档一律走 engram。
+> 本地 `docs/` 只保留本索引、机器契约资产与面向使用者的三篇正文（2026-09-22
+> README 产品化时新增）——架构 / 运维的深度记录一律走 engram。
 >
 > **2026-09-21 刷新**：分类栏补齐「决策」「历史」；各栏补全 2026-09-16/17 与 09-20
 > 两轮 arc42 对齐新增的篇目；计数按 HEAD `5fcf659` 实测更正（原「17 表 / 16 迁移」
@@ -40,6 +41,10 @@
   `/api/v1/agents/cert` 的 403（CSR 主体 CN 必须等于 `agent_id`）。
   前端类型由 `pnpm --dir console run api:gen` 从本文件生成
   （`console/src/api/schema.d.ts`，勿手改）。
+- `docs/architecture.md` / `docs/configuration.md` / `docs/development.md` —
+  面向使用者的正文（2026-09-22 README 产品化时从根 README 拆出）：架构与安全设计 /
+  环境变量参考 / 本地开发指南；check_docs.py 的计数对账源在 development.md 与
+  architecture.md。深度架构记录仍以 engram 为准。
 - 本文件 — 指针索引。
 
 ## 历史备注

@@ -76,7 +76,7 @@ server/               # Server 控制端（axum + tonic + sqlx）
   src/grpc            #   gRPC 适配层（Agent 连入）
   src/http            #   HTTP API 适配层（控制台）
   src/store           #   持久化层（sqlx + Postgres）
-  migrations/         #   数据库迁移
+  migrations/         #   数据库迁移（21 个版本）
 agent/                # Agent 被控端（tokio，跨平台单二进制）
   src/ir/             #   IR 应急响应模块（16 个能力模块，Windows）
 console/              # 前端控制台（Vite + React + xterm.js）

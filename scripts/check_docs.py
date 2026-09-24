@@ -7,8 +7,9 @@
 
 1. 必需本地资产齐全（根 README / docs 指针索引 / openapi 契约 / 关键脚本）。
 2. 本地 md 无残留旧痕迹（已删脚本 / 旧测试数等历史表述）。
-3. migrations/ 对账：up/down 成对、版本号连续无缺号，且与根 README 声明一致。
-4. 根 README 现状陈述 vs 代码/契约：ir 模块数、迁移版本数、HTTP 端点数、MCP op 数。
+3. migrations/ 对账：up/down 成对、版本号连续无缺号，且与 docs/development.md 声明一致。
+4. 开发者文档（docs/development.md、docs/architecture.md）现状陈述 vs 代码/契约：ir 模块数、迁移版本数、HTTP 端点数、MCP op 数。
+   （2026-09-24：README 产品化后计数声明迁至 docs/，对账源随之迁移；根 README 不再承载现状陈述。）
 5. openapi.yaml 关键端点 spot-check（复用 check_openapi.parse_paths，口径一致）。
 
 归档正文（原 docs/*.md 与 plantree 全树）与代码的一致性由 engram 侧流程承担
@@ -26,6 +27,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 REQUIRED = [
     "README.md",
     "docs/README.md",
+    "docs/development.md",
+    "docs/architecture.md",
     "docs/openapi.yaml",
     "scripts/check_openapi.py",
     "scripts/check_docs.py",
@@ -111,11 +114,12 @@ def main() -> None:
     ups = migrations_audit()
     n_mig = len(ups)
 
-    # 4. 根 README 现状陈述 vs 代码/契约
-    readme = read("README.md")
+    # 4. 开发者文档现状陈述 vs 代码/契约（对账源：docs/，README 已产品化不再承载计数）
+    dev_doc = read("docs/development.md")
+    arch_doc = read("docs/architecture.md")
 
-    n_readme_mig = first_int(readme, r"(\d+) 个版本", "迁移版本数")
-    assert n_readme_mig == n_mig, f"README 声称迁移 {n_readme_mig} 个版本，migrations/ 实际 {n_mig}"
+    n_doc_mig = first_int(dev_doc, r"(\d+) 个版本", "迁移版本数")
+    assert n_doc_mig == n_mig, f"docs/development.md 声称迁移 {n_doc_mig} 个版本，migrations/ 实际 {n_mig}"
 
     ir_mod_rs = read("agent/src/ir/mod.rs")
     # 只数「IR 能力扫描模块」（#[cfg(windows)] mod X;）——T4 起 ir/ 下另有平台无关辅助模块
@@ -123,13 +127,13 @@ def main() -> None:
     n_ir = len(re.findall(r"^#\[cfg\(windows\)\]\s*\nmod \w+;", ir_mod_rs, flags=re.M))
     if n_ir == 0:  # 兼容注释紧贴的写法（逐行统计 cfg(windows) 后的 mod）
         n_ir = len(re.findall(r"^mod \w+;", ir_mod_rs, flags=re.M)) - 2
-    n_readme_ir = first_int(readme, r"(\d+) 个模块", "ir 模块数")
-    assert n_readme_ir == n_ir, f"README 声称 ir {n_readme_ir} 个模块，agent/src/ir/mod.rs 实际声明 {n_ir}"
+    n_doc_ir = first_int(dev_doc, r"(\d+) 个能力模块", "ir 模块数")
+    assert n_doc_ir == n_ir, f"docs/development.md 声称 ir {n_doc_ir} 个能力模块，agent/src/ir/mod.rs 实际声明 {n_ir}"
 
     import check_openapi  # 同目录：复用路径解析（yq 优先，PyYAML 兜底），口径与契约门禁一致
     n_ep = len(check_openapi.parse_paths())
-    n_readme_ep = first_int(readme, r"(\d+) 端点", "HTTP 端点数")
-    assert n_readme_ep == n_ep, f"README 声称 {n_readme_ep} 端点，openapi.yaml 实际 {n_ep}"
+    n_doc_ep = first_int(dev_doc, r"(\d+) 端点", "HTTP 端点数")
+    assert n_doc_ep == n_ep, f"docs/development.md 声称 {n_doc_ep} 端点，openapi.yaml 实际 {n_ep}"
 
     # op 表 2026-09-20 按域拆分（G7）：统计面必须覆盖两个域文件，否则口径归零。
     registry = "\n".join(
@@ -141,7 +145,7 @@ def main() -> None:
     )
     n_op = len(re.findall(r"^    op!\(", registry, flags=re.M))
     assert n_op > 0, "未能从 mcp_registry 域文件（ops_host.rs / ops_platform.rs）统计 op! 条目"
-    assert f"{n_op} op" in readme, f"README 未声明 MCP {n_op} op（现状陈述漂移）"
+    assert f"{n_op} 个 op" in arch_doc, f"docs/architecture.md 未声明 MCP {n_op} 个 op（现状陈述漂移）"
 
     # 5. openapi 关键端点 spot-check
     paths = check_openapi.parse_paths()
@@ -161,7 +165,7 @@ def main() -> None:
 
     print(
         f"✓ 本地文档资产与现状陈述一致（{n_mig} 迁移 up/down 成对且连续、"
-        f"ir {n_ir} 模块、{n_ep} 端点、MCP {n_op} op 与 README 对账、无旧痕迹，扫描 {len(scanned)} 个本地 md）"
+        f"ir {n_ir} 模块、{n_ep} 端点、MCP {n_op} 个 op 与 docs/ 对账、无旧痕迹，扫描 {len(scanned)} 个本地 md）"
     )
 
 
